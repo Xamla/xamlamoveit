@@ -67,28 +67,24 @@ end
 
 
 local function computeIK(planner, group_name, robot_state_msg, ik_link_names, poses, avoid_collisions)
-  local robotState = planner.g:getCurrentState()
+  local robot_state = planner.g:getCurrentState()
   if robot_state_msg then
-    robotState:fromRobotStateMsg(robot_state_msg)
+    robot_state:fromRobotStateMsg(robot_state_msg)
   end
 --setEndEffectorLink(name)
-  local allEENames = planner.robotModel:getEndEffectorNames()
-  local allJGNames = planner.robotModel:getJointModelGroupNames()
+  local all_EE_names = planner.robot_model:getEndEffectorNames()
+  local all_group_joint_names = planner.robot_model:getJointModelGroupNames()
   print("")
-  print("allEENames")
+  print("all_EE_names")
   print("----------")
-  print(allEENames)
+  print(all_EE_names)
   print("")
-  print("allJGNames")
+  print("all_group_joint_names")
   print("----------")
-  print(allJGNames)
+  print(all_group_joint_names)
   print("")
-  A = robotState:clone()
-  assert(group_name)
-  print(poses[1])
-  local suc = robotState:setFromIK(group_name, poses[1])
-  print("distance " .. A:distance(robotState))
-  return robotState, suc
+  local suc = robot_state:setFromIK(group_name, poses[1])
+  return robot_state, suc
 end
 
 
@@ -196,14 +192,16 @@ local function dispatchTrajectory(self)
             local result, ik_suc
             if poses then
               print("multiple poses specified ")
-              result,ik_suc = computeIK(planner,group_name,robot_state_msg,ik_link_names, poses, avoid_collisions)
+              result, ik_suc = computeIK(planner, group_name, robot_state_msg, ik_link_names, poses, avoid_collisions)
             else
               print("only one pose specified ")
-              result, ik_suc = computeIK(planner,group_name,robot_state_msg,{ik_link_name}, {pose}, avoid_collisions)
+              result, ik_suc = computeIK(planner, group_name, robot_state_msg, {ik_link_name}, {pose}, avoid_collisions)
             end
-            if ik_suc == 1 then
+            if ik_suc == true then
+              assert(result)
               suc, msg, plan = planner:moveq(result)
-              if not plan then
+              print(msg)
+              if plan == nil then
                 print("INVALID_GOAL")
                 status = self.errorCodes.INVALID_GOAL
               end
