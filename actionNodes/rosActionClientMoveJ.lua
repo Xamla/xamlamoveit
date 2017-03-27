@@ -23,8 +23,6 @@ local testJointPosition2 = torch.Tensor({ 1.2658,
                                   -1.6643,
                                   2.3804})
 
-local testPose = tf.Transform():setOrigin({(-0.35+0.51),-0.6, 0.3})
-local testPose2 = tf.Transform():setOrigin({(-0.25+0.51),-0.6, 0.3})
 
 
 function testSyncApi()
