@@ -12,11 +12,48 @@ local planning = xamlamoveit.planning
 
 local xutils = xamlamoveit.xutils
 local printf = xutils.printf
-local nodehandle, sp, worker
+
+local nodehandle, sp, worker, service_queue
+
+local srv_spec = ros.SrvSpec('xamlamoveit_msgs/QueryMoveGroupInterfaces')
+
+function query_service_handler(request, response, header)
+  print('[!] handler call')
+  print('request:')
+  print(request)
+  print('header:')
+  print(header)
+
+  print('response:')
+  print(response)
+  local robot_model_loader = moveit.RobotModelLoader("robot_description")
+  local robot_model = robot_model_loader:getModel()
+
+  local all_EE_group_names, all_EE_link_names  = robot_model:getEndEffectorParentGroups()
+  local all_group_joint_names = robot_model:getJointModelGroupNames()
+  print("")
+  print("all_EE_group_names")
+  print("----------")
+  print(all_EE_group_names)
+  print("")
+  print("all_EE_link_names")
+  print("----------")
+  print(all_EE_link_names)
+  print("")
+  print("all_group_joint_names")
+  print("----------")
+  print(all_group_joint_names)
+  print("")
+
+  return true
+end
+
 
 local function initSetup()
   ros.init('MoveActions')
   nodehandle = ros.NodeHandle()
+  service_queue = ros.CallbackQueue()
+  
   sp = ros.AsyncSpinner()  -- background job
   worker = Worker(nodehandle)
   sp:start()
@@ -135,7 +172,7 @@ local function moveActionServer()
   environmentSetup.labRoboteur(psi)
   --local dp = moveGroup:getCurrentPose()
   local dt = 1/125
-  --planner = planning.moveitPlanning.new(nodeHandle,MoveGroup,dt)
+  
   ros.console.setLoggerLevel('actionlib', ros.console.Level.Warn)
 
   local mj = actionlib.SimpleActionServer(nodehandle, 'moveJ_action', 'xamlamoveit_msgs/moveJ')
@@ -151,12 +188,18 @@ local function moveActionServer()
   mj:start()
   mp:start()
   --ml:start()
-
+  
+  info_server = nodehandle:advertiseService('/query_move_group_interface', srv_spec, query_service_handler, service_queue)
   while ros.ok() do
     worker:spin()
+    if not service_queue:isEmpty() then
+      print('[!] incoming service call')
+      service_queue:callAvailable()
+    end
     ros.spinOnce()
     collectgarbage()
   end
+  info_server:shutdown()
   worker:shutdown()
   mj:shutdown()
   mp:shutdown()
