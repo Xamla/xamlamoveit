@@ -1,0 +1,8 @@
+trajectory_msgs/JointTrajectoryPoint goal
+std_msgs/String group_name
+---
+#result definition
+int32 result
+---
+#feedback
+bool isconverged

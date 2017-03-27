@@ -1,0 +1,7 @@
+moveit_msgs/PositionIKRequest goal
+---
+#result definition
+int32 result
+---
+#feedback
+bool isconverged
