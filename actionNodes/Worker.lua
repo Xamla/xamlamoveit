@@ -113,7 +113,7 @@ end
 local function convertPoseMessage2Transform(pose_msg)
   transform_auxiliar = tf.Transform()
   transform_auxiliar:setOrigin(torch.Tensor({pose_msg.pose.position.x, pose_msg.pose.position.y, pose_msg.pose.position.z}))
-  transform_auxiliar:setRotation(tf.Quaternion( pose_msg.pose.position.x, pose_msg.pose.orientation.y, pose_msg.pose.orientation.z, pose_msg.pose.orientation.w))
+  transform_auxiliar:setRotation(tf.Quaternion( pose_msg.pose.orientation.x, pose_msg.pose.orientation.y, pose_msg.pose.orientation.z, pose_msg.pose.orientation.w))
   return transform_auxiliar
 end
 
