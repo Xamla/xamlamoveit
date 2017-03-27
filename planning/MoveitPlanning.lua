@@ -73,22 +73,22 @@ function MoveitPlanning:__init(nh, move_group, dt)
     end
   end
 
-  self.waitDuration = ros.Duration(dt or 0.008)
+  self.wait_duration = ros.Duration(dt or 0.008)
   self.counter = 0
 
   self.nodeHandle = nh or ros.NodeHandle()
   self.cartesianPath_spec = ros.SrvSpec('moveit_msgs/GetCartesianPath')
   self.commandClient = self.nodeHandle:serviceClient("/compute_cartesian_path", self.cartesianPath_spec)
   self.robot_model_loader = moveit.RobotModelLoader("robot_description")
-  self.planScene = moveit.PlanningScene(self.robot_model_loader:getModel())
-  self.planScene:syncPlanningScene()
+  self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
+  self.plan_scene:syncPlanningScene()
 
-  self.robotModel = self.robot_model_loader:getModel()
-  self.moveGroupName = self.g:getName()
+  self.robot_model = self.robot_model_loader:getModel()
+  self.move_group_name = self.g:getName()
 end
 
 
-function MoveitPlanning:getRobotStartStateMsg()
+function MoveitPlanning:getRobotStart_stateMsg()
   local start_state = self.g:getCurrentState()
   return start_state:toRobotStateMsg()
 end
@@ -147,8 +147,8 @@ function MoveitPlanning:getCurrentJointPositions()
 end
 
 
-function MoveitPlanning:moveDMPPathPlanner(endPose, groupId)
-  local groupId = groupId or self.g:getName()
+function MoveitPlanning:moveDMPPathPlanner(endPose, group_id)
+  local group_id = group_id or self.g:getName()
 
   local currentStartPose = self.g:getCurrentPose()
 
@@ -186,7 +186,7 @@ function MoveitPlanning:moveDMPPathPlanner(endPose, groupId)
     pose:setOrigin(trajectory[{i,{}}])
     pose:setRotation(startOri:slerp(endOri, (i-1)/trajectory:size(1)))
 
-    local ok = posture:setFromIK(groupId, pose, 10, 0.1)
+    local ok = posture:setFromIK(group_id, pose, 10, 0.1)
     if not ok then
       error('NO IK solution found!')
       break
@@ -205,14 +205,14 @@ function MoveitPlanning:moveDMPPathPlanner(endPose, groupId)
       traj:addSuffixWayPoint(posture, dmp.dt)
     end
   end
-  self.g:setStartStateToCurrentState()
-  local start_state = self.g:getCurrentState()
+  --self.g:setStartStateToCurrentState()
+  --[[local start_state = self.g:getCurrentState()
 
-  if not self.planScene:isPathValid(start_state, traj, self.g:getName(), false) then
+  if not self.plan_scene:isPathValid(start_state, traj, self.g:getName(), false) then
     print("Path not valid")
     succ = false
   end
-
+--]]
   return succ, traj
 end
 
@@ -273,8 +273,8 @@ function MoveitPlanning:moveRobotTo(pose)
   end
 
   self.g:setStartStateToCurrentState()
-  local currentStartState = self.g:getCurrentState()
-  local dt = self.waitDuration:toSec()
+  local currentStart_state = self.g:getCurrentState()
+  local dt = self.wait_duration:toSec()
 
   local succP, succT
   local path, traj
@@ -286,12 +286,12 @@ function MoveitPlanning:moveRobotTo(pose)
 
   local myPlan = moveit.Plan()
 
-  local msg = currentStartState:toRobotStateMsg()
-  myPlan:setStartStateMsg(msg)
+  local msg = currentStart_state:toRobotStateMsg()
+  myPlan:setStart_stateMsg(msg)
 
   if succT then
     print("execute optimized plan")
-    --traj:addPrefixWayPoint(currentStartState, dt)
+    --traj:addPrefixWayPoint(currentStart_state, dt)
     myPlan:setTrajectoryMsg(traj:getRobotTrajectoryMsg())
   elseif succP then
     print("execute NOT optimized plan")
@@ -304,7 +304,7 @@ function MoveitPlanning:moveRobotTo(pose)
   local traj = moveit.RobotTrajectory(self.robot_model, self.g:getName())
   local myPlan = moveit.Plan()
   s, myPlan = self:moveCartPathPlanner(pose,myPlan)
-  traj:setRobotTrajectoryMsg(currentStartState,myPlan:getTrajectoryMsg())
+  traj:setRobotTrajectoryMsg(currentStart_state,myPlan:getTrajectoryMsg())
    local succT, traj = self:optimizePath(traj,dt)
    myPlan:setTrajectoryMsg(traj:getRobotTrajectoryMsg())
   --]]
@@ -314,8 +314,8 @@ function MoveitPlanning:moveRobotTo(pose)
 end
 
 
-function MoveitPlanning:moveDMPPathPlanner(endPose, groupID, eeLinkName)
-  local groupID = groupID or self.g:getName()
+function MoveitPlanning:moveDMPPathPlanner(endPose, group_id, eeLinkName)
+  local group_id = group_id or self.g:getName()
   local eeLinkName = eeLinkName or self.g:getEndEffectorLink()
 
   local currentStartPose = self.g:getCurrentPose(eeLinkName)
@@ -342,7 +342,7 @@ function MoveitPlanning:moveDMPPathPlanner(endPose, groupID, eeLinkName)
   local pose = self.g:getCurrentPose()
   local startOri = currentStartPose:getRotation()
   local endOri = endPose:getRotation()
-
+  self.plan_scene:syncPlanningScene()
   --[[
   print("startOri")
   print(startOri)
@@ -354,9 +354,9 @@ function MoveitPlanning:moveDMPPathPlanner(endPose, groupID, eeLinkName)
     pose:setOrigin(trajectory[{i,{}}])
     pose:setRotation(startOri:slerp(endOri, (i-1)/trajectory:size(1)))
 
-    local ok = posture:setFromIK(groupID, pose, 10, 0.1)
+    local ok = posture:setFromIK(group_id, pose, 10, 0.1)
     if not ok then
-      error('NO IK solution found! Group ID: ' .. groupID)
+      error('NO IK solution found! Group ID: ' .. group_id)
       break
     end
 
@@ -377,8 +377,8 @@ function MoveitPlanning:moveDMPPathPlanner(endPose, groupID, eeLinkName)
   local start_state = self.g:getCurrentState()
   local group_name = self.g:getName()
   local verbose = true
-  self.planScene:syncPlanningScene()
-  if not self.planScene:isPathValid(start_state, traj, group_name , verbose) then
+  self.plan_scene:syncPlanningScene()
+  if not self.plan_scene:isPathValid(start_state, traj, group_name , verbose) then
     print("Path not valid")
     succ = false
   end
@@ -388,10 +388,10 @@ end
 
 
 local function generateRobotTrajectory(self, trajectory, dt)
-  local traj = moveit.RobotTrajectory(self.robotModel, self.moveGroupName)
+  local traj = moveit.RobotTrajectory(self.robot_model, self.move_group_name)
   local time, pos, vel = trajectory:sample(dt)
-  local startState = self.g:getCurrentState()
-  local dstNames = startState:getVariableNames()
+  local start_state = self.g:getCurrentState()
+  local dstNames = start_state:getVariableNames()
 
   --- Copy known values to target tensor.
   -- values are joint positions in ur5 order
@@ -410,27 +410,27 @@ local function generateRobotTrajectory(self, trajectory, dt)
     return r
   end
 
-  startState:setVariablePositions(assignJoints(pos[1], startState:getVariablePositions()))
-  startState:setVariableVelocities(assignJoints(vel[1], startState:getVariableVelocities()))
-  traj:addSuffixWayPoint(startState, dt)
-  local p = startState:clone()
+  start_state:setVariablePositions(assignJoints(pos[1], start_state:getVariablePositions()))
+  start_state:setVariableVelocities(assignJoints(vel[1], start_state:getVariableVelocities()))
+  traj:addSuffixWayPoint(start_state, dt)
+  local p = start_state:clone()
   for i=2,pos:size(1) do
-    p:setVariablePositions(assignJoints(pos[i], startState:getVariablePositions()))
-    p:setVariableVelocities(assignJoints(vel[i], startState:getVariableVelocities()))
+    p:setVariablePositions(assignJoints(pos[i], start_state:getVariablePositions()))
+    p:setVariableVelocities(assignJoints(vel[i], start_state:getVariableVelocities()))
     traj:addSuffixWayPoint(p, dt)
   end
 
-  return traj, startState
+  return traj, start_state
 end
 
 
 -- Use optim path to generate direct trajectory from start joint positions to end joint positions
-function MoveitPlanning:generateDirectPlan_qq(q_start, q_end, velocityScaling, velocityBase, accelerationBase, checkPath)
-  velocityScaling = velocityScaling or 1.0
-  velocityBase = velocityBase or math.pi
-  accelerationBase = accelerationBase or math.pi
-  if checkPath == nil then
-    checkPath = true
+function MoveitPlanning:generateDirectPlan_qq(q_start, q_end, velocity_scaling, velocity_base, acceleration_base, check_path)
+  velocity_scaling = velocity_scaling or 1.0
+  velocity_base = velocity_base or math.pi
+  acceleration_base = acceleration_base or math.pi
+  if check_path == nil then
+    check_path = true
   end
 
   if torch.isTypeOf(q_start, moveit.RobotState)  then
@@ -449,8 +449,8 @@ function MoveitPlanning:generateDirectPlan_qq(q_start, q_end, velocityScaling, v
     return nil, -1, 'Not moving: Already at goal.'
   end
 
-  local vel = velocityBase * velocityScaling
-  local acc = accelerationBase * velocityScaling
+  local vel = velocity_base * velocity_scaling
+  local acc = acceleration_base * velocity_scaling
 
   local maxVelocities = torch.Tensor(#JOINT_NAMES):fill(vel)
   local maxAccelerations = torch.Tensor(#JOINT_NAMES):fill(acc)
@@ -462,15 +462,15 @@ function MoveitPlanning:generateDirectPlan_qq(q_start, q_end, velocityScaling, v
     return nil, -2, 'Path optimization failed.'
   end
 
-  local traj, startState = generateRobotTrajectory(self, trajectory, dt)
+  local traj, start_state = generateRobotTrajectory(self, trajectory, dt)
 
   -- check trajectory against planning scene
-  if checkPath and not self.planScene:isPathValid(startState, traj, self.g:getName(), false) then
+  if check_path and not self.plan_scene:isPathValid(start_state, traj, self.g:getName(), false) then
     return nil, -3, 'Path not valid.'
   end
 
   local plan = moveit.Plan()
-  plan:setStartStateMsg(startState:toRobotStateMsg())
+  plan:setStart_stateMsg(start_state:toRobotStateMsg())
   plan:setTrajectoryMsg(traj:getRobotTrajectoryMsg())
   return plan, 0, 'OK'
 end
@@ -498,26 +498,26 @@ function MoveitPlanning:findGoodEndState(state,startPose,endPose)
 end
 
 
-function MoveitPlanning:movep(pose, groupID, eeLinkName, velocityScaling, velocityBase, accelerationBase, checkPath)
-  local groupName = groupID or self.g:getName()
+function MoveitPlanning:movep(pose, group_id, eeLinkName, velocity_scaling, velocity_base, acceleration_base, check_path)
+  local groupName = group_id or self.g:getName()
   local eeLinkName = eeLinkName or self.g:getEndEffectorLink()
   if torch.isTensor(pose) then
     pose = tf.Transform():fromTensor(pose)
   end
 
-  local startState = self.g:getCurrentState()
-  local endState = startState:clone()
+  local start_state = self.g:getCurrentState()
+  local endState = start_state:clone()
 
   --endState = self:findGoodEndState(endState,self.g:getCurrentPose(),pose)
 
   if not endState:setFromIK(groupName, pose, 10, 0.1) then
-    error('No IK solution found for goal pose. GroupID: ' .. groupName)
+    error('No IK solution found for goal pose. Group_id: ' .. groupName)
   end
   local succ,traj = self:moveDMPPathPlanner(pose, groupName, eeLinkName)
 
   endState = traj:getLastWayPoint() --TODO this is not nice. Better --> get more access to the ikSolverSearch.
 
-  local plan, status, msg = self:generateDirectPlan_qq(startState, endState, velocityScaling, velocityBase, accelerationBase, checkPath)
+  local plan, status, msg = self:generateDirectPlan_qq(start_state, endState, velocity_scaling, velocity_base, acceleration_base, check_path)
   if plan then
     return true, plan, msg
   elseif status == -1 then
@@ -530,14 +530,14 @@ function MoveitPlanning:movep(pose, groupID, eeLinkName, velocityScaling, veloci
 end
 
 
-function MoveitPlanning:moveq(q_target, velocityScaling, velocityBase, accelerationBase, checkPath)
+function MoveitPlanning:moveq(q_target, velocity_scaling, velocity_base, acceleration_base, check_path)
   local q_start = self:getCurrentJointPositions()
   local q_end = q_target or q_start
   if torch.isTypeOf(q_end, moveit.RobotState) then
     q_end = self:getJointPositionsFromRobotState(q_end)
   end
 
-  local plan, status, msg = self:generateDirectPlan_qq(q_start, q_end, velocityScaling, velocityBase, accelerationBase, checkPath)
+  local plan, status, msg = self:generateDirectPlan_qq(q_start, q_end, velocity_scaling, velocity_base, acceleration_base, check_path)
   if plan then
     --print('moving...')
     --self.g:execute(plan)
@@ -553,12 +553,12 @@ function MoveitPlanning:moveq(q_target, velocityScaling, velocityBase, accelerat
 end
 
 
-function MoveitPlanning:moveqtraj(q_waypoints, velocityScaling, velocityBase, accelerationBase, checkPath)
-  velocityScaling = velocityScaling or 1.0
-  velocityBase = velocityBase or math.pi
-  accelerationBase = accelerationBase or math.pi
-  if checkPath == nil then
-    checkPath = false
+function MoveitPlanning:moveqtraj(q_waypoints, velocity_scaling, velocity_base, acceleration_base, check_path)
+  velocity_scaling = velocity_scaling or 1.0
+  velocity_base = velocity_base or math.pi
+  acceleration_base = acceleration_base or math.pi
+  if check_path == nil then
+    check_path = false
   end
 
   local dt = 0.008
@@ -583,8 +583,8 @@ function MoveitPlanning:moveqtraj(q_waypoints, velocityScaling, velocityBase, ac
     error('Invalid argument \'q_waypoints\': Tensor or table expected.')
   end
 
-  local vel = velocityBase * velocityScaling
-  local acc = accelerationBase * velocityScaling
+  local vel = velocity_base * velocity_scaling
+  local acc = acceleration_base * velocity_scaling
 
   local maxVelocities = torch.Tensor(6):fill(vel)
   local maxAccelerations = torch.Tensor(6):fill(acc)
@@ -596,15 +596,15 @@ function MoveitPlanning:moveqtraj(q_waypoints, velocityScaling, velocityBase, ac
     return nil, -2, 'Path optimization failed.'
   end
 
-  local traj, startState = generateRobotTrajectory(self, trajectory, dt)
+  local traj, start_state = generateRobotTrajectory(self, trajectory, dt)
 
   -- check trajectory against planning scene
-  if checkPath and not self.planScene:isPathValid(startState, traj, self.g:getName(), false) then
+  if check_path and not self.plan_scene:isPathValid(start_state, traj, self.g:getName(), false) then
     return nil, -3, 'Path not valid.'
   end
 
   local plan = moveit.Plan()
-  plan:setStartStateMsg(startState:toRobotStateMsg())
+  plan:setStart_stateMsg(start_state:toRobotStateMsg())
   plan:setTrajectoryMsg(traj:getRobotTrajectoryMsg())
   --self.g:execute(plan)
   return plan, 0, 'OK'
