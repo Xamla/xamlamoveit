@@ -9,7 +9,7 @@ nh = ros.NodeHandle()
 ros.console.setLoggerLevel('actionlib', ros.console.Level.Debug)
 
 
-local ac = actionlib.SimpleActionClient('roboteur_msgs/moveJ', 'moveJ_action', nh)
+local ac = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', nh)
 local testJointPosition = torch.Tensor({ 1.2658,
                                   -1.9922,
                                   2.3327,

@@ -9,7 +9,7 @@ nh = ros.NodeHandle()
 ros.console.setLoggerLevel('actionlib', ros.console.Level.Info)
 
 
-local ac = actionlib.SimpleActionClient('roboteur_msgs/moveP', 'moveP_action', nh)
+local ac = actionlib.SimpleActionClient('xamlamoveit_msgs/moveP', 'moveP_action', nh)
 
 local testPose = tf.Transform():setOrigin({(-0.35+0.51),-0.6, 0.3})
 local rot = testPose:getRotation()

@@ -138,8 +138,8 @@ local function moveActionServer()
   --planner = planning.moveitPlanning.new(nodeHandle,MoveGroup,dt)
   ros.console.setLoggerLevel('actionlib', ros.console.Level.Warn)
 
-  local mj = actionlib.SimpleActionServer(nodehandle, 'moveJ_action', 'roboteur_msgs/moveJ')
-  local mp = actionlib.SimpleActionServer(nodehandle, 'moveP_action', 'roboteur_msgs/moveP')
+  local mj = actionlib.SimpleActionServer(nodehandle, 'moveJ_action', 'xamlamoveit_msgs/moveJ')
+  local mp = actionlib.SimpleActionServer(nodehandle, 'moveP_action', 'xamlamoveit_msgs/moveP')
   --local ml = actionlib.ActionServer(nodehandle, 'test_action', 'actionlib/Test')
 
   mj:registerGoalCallback(moveJActionServerGoal)
