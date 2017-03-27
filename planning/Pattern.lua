@@ -1,6 +1,6 @@
 local ros = require 'ros'
 local tf = ros.tf
-local planning = require 'xamlamoveit.Planning.env'
+local planning = require 'xamlamoveit.planning.env'
 
 
 function planning.gridFive(cp, radius)
@@ -72,14 +72,14 @@ function planning.planeFromPoints(points)
 end
 
 
-function planning.alignZOrientation(pose, apprzaxis)
+function planning.alignZOrientation(pose, target_z_axis)
 
     local zaxis = pose:toTensor()[{3,{1,3}}]
-    local rot_angle = math.acos(torch.dot(zaxis, apprzaxis))
+    local rot_angle = math.acos(torch.dot(zaxis, target_z_axis))
     print('Z-diff:' .. rot_angle)
     if rot_angle > 0.001 then
 
-      local rot_axis = torch.cross(apprzaxis, zaxis)
+      local rot_axis = torch.cross(target_z_axis, zaxis)
 
       local q = tf.Quaternion(rot_axis, rot_angle)
       pose:setRotation(pose:getRotation() * q)

@@ -1,7 +1,7 @@
-local Planning = require 'xamlamoveit.planning.env'
+local planning = require 'xamlamoveit.planning.env'
 require 'xamlamoveit.planning.Pattern'
-Planning.MoveitPlanning = require 'xamlamoveit.planning.MoveitPlanning'
+require 'xamlamoveit.planning.MoveitPlanning'
 
 
 --Planning.x3d = require 'xamlamoveit.Planning.x3d'
-return Planning
+return planning

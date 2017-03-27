@@ -2,8 +2,8 @@
 local ros = require 'ros'
 local tf = ros.tf
 local moveit = require 'moveit'
-local xamlamoveit = require 'xamlamoveit'
-local planning = xamlamoveit.planning
+local planning = require 'xamlamoveit.planning'
+
 
 local errorCodes = {}
 errorCodes.SUCCESSFUL = 1
@@ -66,7 +66,7 @@ function Worker:cancelCurrentPlan(abortMsg)
 end
 
 
-local function computeIK(planner, groupName,robot_state_msg,ik_link_names, poses, avoid_collisions)
+local function computeIK(planner, group_name, robot_state_msg, ik_link_names, poses, avoid_collisions)
   local robotState = planner.g:getCurrentState()
   if robot_state_msg then
     robotState:fromRobotStateMsg(robot_state_msg)
@@ -84,7 +84,9 @@ local function computeIK(planner, groupName,robot_state_msg,ik_link_names, poses
   print(allJGNames)
   print("")
   A = robotState:clone()
-  local suc = robotState:setFromIK(groupName, poses[1])
+  assert(group_name)
+  print(poses[1])
+  local suc = robotState:setFromIK(group_name, poses[1])
   print("distance " .. A:distance(robotState))
   return robotState, suc
 end
@@ -116,11 +118,11 @@ local function convertPoseMessage2Transform(pose_msg)
 end
 
 
-local function initializeMoveGroup(groupID, velocityScaling)
-  local groupID = groupID or 'manipulator'
+local function initializeMoveGroup(group_id, velocityScaling)
+  local group_id = group_id or 'manipulator'
   local velocityScaling = velocityScaling or 0.5
 
-  local manipulator = moveit.MoveGroupInterface(groupID)
+  local manipulator = moveit.MoveGroupInterface(group_id)
 
   manipulator:setMaxVelocityScalingFactor(velocityScaling)
   manipulator:setGoalTolerance(1E-5)
@@ -156,14 +158,14 @@ local function dispatchTrajectory(self)
           if traj.waitCovergence ~= nil then
             waitCovergence = traj.waitCovergence
           end
-          local groupName
+          local group_name
           local manipulator
           local planner
           
           if traj.goal.spec.type == "roboteur_msgs/moveJActionGoal" then
-             groupName = traj.goal.goal.groupName.data
-             manipulator = initializeMoveGroup(groupName)
-             planner = planning.moveitPlanning.new(self.nodeHandle,manipulator)
+             group_name = traj.goal.goal.group_name.data
+             manipulator = initializeMoveGroup(group_name)
+             planner = planning.MoveitPlanning.new(self.nodeHandle,manipulator)
           
              suc, msg, plan = planner:moveq(traj.goal.goal.goal.positions)
             if not plan then
@@ -171,9 +173,10 @@ local function dispatchTrajectory(self)
             end
           elseif traj.goal.spec.type == "roboteur_msgs/movePActionGoal" then
             
-            groupName = traj.goal.goal.goal.group_name
-            manipulator = initializeMoveGroup(groupName)
-            planner = planning.moveitPlanning.new(self.nodeHandle,manipulator)
+            group_name = traj.goal.goal.goal.group_name
+            print("group_name:" .. group_name)
+            manipulator = initializeMoveGroup(group_name)
+            planner = planning.MoveitPlanning.new(self.nodeHandle,manipulator)
             local avoid_collisions = traj.goal.goal.goal.avoid_collisions
             local robot_state_msg = traj.goal.goal.goal.robot_state
             if #traj.goal.goal.goal.pose_stamped_vector ~= #traj.goal.goal.goal.ik_link_names then
@@ -193,17 +196,19 @@ local function dispatchTrajectory(self)
             local result, ik_suc
             if poses then
               print("multiple poses specified ")
-              result,ik_suc = computeIK(planner,groupName,robot_state_msg,ik_link_names, poses, avoid_collisions)
+              result,ik_suc = computeIK(planner,group_name,robot_state_msg,ik_link_names, poses, avoid_collisions)
             else
               print("only one pose specified ")
-              result, ik_suc = computeIK(planner,groupName,robot_state_msg,{ik_link_name}, {pose}, avoid_collisions)
+              result, ik_suc = computeIK(planner,group_name,robot_state_msg,{ik_link_name}, {pose}, avoid_collisions)
             end
             if ik_suc == 1 then
               suc, msg, plan = planner:moveq(result)
               if not plan then
+                print("INVALID_GOAL")
                 status = self.errorCodes.INVALID_GOAL
               end
             else
+              print("NO_IK_FOUND")
               status = self.errorCodes.NO_IK_FOUND
             end
           end
@@ -263,7 +268,6 @@ local function dispatchTrajectory(self)
       self:cancelCurrentPlan('Stop plan execution.')
     end
   end
-
 end
 
 
@@ -273,7 +277,9 @@ end
 
 
 function Worker:spin()
-    local ok, err = pcall(function() workerCore(self) end)
+    --local ok, err = pcall(function() workerCore(self) end)
+    local ok = true
+    workerCore(self)
     -- abort current trajectory
     if (not ok) and self.currentPlan then
       local traj = self.currentPlan.traj
@@ -291,7 +297,3 @@ end
 
 function Worker:shutdown()
 end
-
-
-
-

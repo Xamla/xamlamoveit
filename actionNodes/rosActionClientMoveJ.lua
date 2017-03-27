@@ -87,7 +87,7 @@ function testAsyncApi()
   end
 
   local g2 = ac:createGoal()
-  g2.groupName.data = 'manipulator'
+  g2.group_name.data = 'manipulator'
   g2.goal.positions = testJointPosition2
   ac:sendGoal(g2, actionDone, Action_active, Action_feedback)
 

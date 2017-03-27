@@ -11,9 +11,12 @@ ros.console.setLoggerLevel('actionlib', ros.console.Level.Info)
 
 local ac = actionlib.SimpleActionClient('roboteur_msgs/moveP', 'moveP_action', nh)
 
-local testPose = tf.Transform():setOrigin({(-0.35+0.51),-0.6, 0.3})
-local testPose2 = tf.Transform():setOrigin({(-0.25+0.51),-0.6, 0.3})
-
+local testPose = tf.Transform():setOrigin({0.0,0.2, 0.3})
+local rot = testPose:getRotation()
+rot:setRPY(math.pi,0,0)
+testPose:setRotation(rot)
+local testPose2 = tf.Transform():setOrigin({(-0.20+0.51),-0.6, 0.3})
+testPose2:setRotation(rot)
 
 local function generateIKRequest(group_name, robot_state, avoid_collisions, ik_link_names, poses_stamped)
   local robot_state_msg
@@ -75,11 +78,10 @@ function testAsyncApi()
 
   function actionFeedback(feedback)
     ros.INFO('actionFeedback')
-    print(feedback)
   end
 
   local g2 = ac:createGoal()
-  g2.groupName.data = 'manipulator'
+  g2.group_name.data = 'manipulator'
   g2.goal.positions = testJointPosition2
   ac:sendGoal(g2, actionDone, actionActive, actionFeedback)
 

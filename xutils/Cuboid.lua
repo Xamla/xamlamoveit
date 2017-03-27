@@ -1,5 +1,5 @@
-local xutils = require 'xamlamoveit.Xutils.env'
-local Cuboid = torch.class('xamlamoveit.Xutils.Cuboid',xutils)
+local xutils = require 'xamlamoveit.xutils.env'
+local Cuboid = torch.class('xamlamoveit.xutils.Cuboid',xutils)
 
 
 function Cuboid:__init(center, width, height, depth)

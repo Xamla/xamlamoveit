@@ -52,13 +52,13 @@ local function isValid(q_des,q_curr) -- avoid large jumps in posture values and 
   return diff<1
 end
 
-local planning = require 'xamlamoveit.Planning.env'
-local MoveitPlanning = torch.class('xamlamoveit.Planning.MoveitPlanning',planning)
+local planning = require 'xamlamoveit.planning.env'
+local MoveitPlanning = torch.class('xamlamoveit.planning.MoveitPlanning',planning)
 
 
-function MoveitPlanning:__init(nh, moveGroup, dt)
+function MoveitPlanning:__init(nh, move_group, dt)
   print("[robotControlAndSetup] init")
-  self.g = moveGroup or moveit.MoveGroup('manipulator')
+  self.g = move_group or moveit.MoveGroupInterface('manipulator')
   self.errorCodes = errorCodes
   local tmp = self.g:getJoints()
   local src_names = self.g:getCurrentState():getVariableNames()

@@ -1,6 +1,6 @@
 -- simple buffer
-local xutils = require 'xamlamoveit.Xutils.env'
-local monitorBuffer = torch.class('xamlamoveit.Xutils.monitorBuffer',xutils)
+local xutils = require 'xamlamoveit.xutils.env'
+local monitorBuffer = torch.class('xamlamoveit.xutils.MonitorBuffer',xutils)
 
 
 function monitorBuffer:__init(windowSize, vectorDim)

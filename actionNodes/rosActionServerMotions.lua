@@ -7,11 +7,10 @@ local actionlib = ros.actionlib
 
 local moveit = require 'moveit'
 local xamlamoveit = require 'xamlamoveit'
-local environmentSetup = xamlamoveit.EnvironmentSetup
-local planning = xamlamoveit.Planning
-local plannter= {}
+local environmentSetup = xamlamoveit.environmentsetup
+local planning = xamlamoveit.planning
 
-local xutils = xamlamoveit.Xutils
+local xutils = xamlamoveit.xutils
 local printf = xutils.printf
 local nodehandle, sp, worker
 
@@ -30,33 +29,33 @@ local function shutdownSetup()
 end
 
 
-local function moveP_ActionServer_Goal(goalHandle)
-  ros.INFO("moveP_ActionServer_Goal")
+local function movePActionServerGoal(goal_handle)
+  ros.INFO("movePActionServerGoal")
   
-  local g = goalHandle:acceptNewGoal()
+  local g = goal_handle:acceptNewGoal()
   local suc = true
   local traj = {
       starttime = ros.Time.now(), duration = t1,
-      goalHandle = goalHandle, goal = g,
+      goal_handle = goal_handle, goal = g,
       accept = function()  
-        --goalHandle:setAccepted('Starting trajectory execution')
+        --goal_handle:setAccepted('Starting trajectory execution')
         return true
       end,
       proceed = function()
-        --if goalHandle:getGoalStatus().status == GoalStatus.ACTIVE then
+        --if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
           return true
         --else
-        --  ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goalHandle:getGoalStatus().status)
+        --  ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
         --  return false
         --end
       end,
       abort = function(self, msg)
-        goalHandle:setAborted(nil, msg or 'Error')
+        goal_handle:setAborted(nil, msg or 'Error')
       end,
       completed = function()
-        local r = goalHandle:createResult()
+        local r = goal_handle:createResult()
         r.result = worker.errorCodes.SUCCESSFUL
-        goalHandle:setSucceeded(r, 'Completed')
+        goal_handle:setSucceeded(r, 'Completed')
       end
     }
 
@@ -65,57 +64,57 @@ local function moveP_ActionServer_Goal(goalHandle)
     else
       -- trajectory is not valid, immediately abort it
       ros.WARN('Aborting trajectory processing: ' .. reason)
-      local r = goalHandle:createResult()
+      local r = goal_handle:createResult()
       r.result = Worker.INVALID_GOAL
-      goalHandle:setRejected(r, 'Validation of trajectory failed')
+      goal_handle:setRejected(r, 'Validation of trajectory failed')
     end
 end
 
 
-local function moveJ_ActionServer_Cancel(goal_handle)
-  ros.INFO("moveJ_ActionServer_Cancel")
+local function moveJActionServerCancel(goal_handle)
+  ros.INFO("moveJActionServerCancel")
   --goal_handle:setCanceled(nil, 'blub')
 end
 
 
-local function moveJ_ActionServer_Goal(goalHandle)
-  ros.INFO("moveJ_ActionServer_Goal")
-  local feedback = goalHandle:createFeeback()
-  local g = goalHandle:acceptNewGoal()
+local function moveJActionServerGoal(goal_handle)
+  ros.INFO("moveJActionServerGoal")
+  local feedback = goal_handle:createFeeback()
+  local g = goal_handle:acceptNewGoal()
   local traj = {
     starttime = ros.Time.now(), duration = t1,
-    goalHandle = goalHandle, goal = g,
+    goal_handle = goal_handle, goal = g,
     accept = function()
       print("in accept")
       return true
       --[[
-      if goalHandle:getGoalStatus().status == GoalStatus.PENDING then
-        goalHandle:setAccepted('Starting trajectory execution')
+      if goal_handle:getGoalStatus().status == GoalStatus.PENDING then
+        goal_handle:setAccepted('Starting trajectory execution')
         return true
       else
-        ros.WARN('Status of queued trajectory is not pending but %d.', goalHandle:getGoalStatus().status)
+        ros.WARN('Status of queued trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
         return false
       end
       ]]
     end,
     proceed = function()
       --[[
-        if goalHandle:getGoalStatus().status == GoalStatus.ACTIVE then
+        if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
         return true
       else
-        ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goalHandle:getGoalStatus().status)
+        ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
         return false
       end
       ]]
       return true
     end,
     abort = function(self, msg)
-      goalHandle:setAborted(nil, msg or 'Error')
+      goal_handle:setAborted(nil, msg or 'Error')
     end,
     completed = function()
-      local r = goalHandle:createResult()
+      local r = goal_handle:createResult()
       r.result = worker.errorCodes.SUCCESSFUL
-      goalHandle:setSucceeded(r, 'Completed')
+      goal_handle:setSucceeded(r, 'Completed')
     end
   }
    worker:doTrajectoryAsync(traj)    -- queue for processing
@@ -143,9 +142,9 @@ local function moveActionServer()
   local mp = actionlib.SimpleActionServer(nodehandle, 'moveP_action', 'roboteur_msgs/moveP')
   --local ml = actionlib.ActionServer(nodehandle, 'test_action', 'actionlib/Test')
 
-  mj:registerGoalCallback(moveJ_ActionServer_Goal)
-  mj:registerPreemptCallback(moveJ_ActionServer_Cancel)
-  mp:registerGoalCallback(moveP_ActionServer_Goal)
+  mj:registerGoalCallback(moveJActionServerGoal)
+  mj:registerPreemptCallback(moveJActionServerCancel)
+  mp:registerGoalCallback(movePActionServerGoal)
   mp:registerPreemptCallback(moveP_ActionServer_Cancel)
 
   print('Starting action server...')
