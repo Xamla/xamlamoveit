@@ -1,2 +1,2 @@
-local Planning = {}
-return Planning
+local planning = {}
+return planning

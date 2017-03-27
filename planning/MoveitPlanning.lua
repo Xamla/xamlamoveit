@@ -287,7 +287,7 @@ function MoveitPlanning:moveRobotTo(pose)
   local myPlan = moveit.Plan()
 
   local msg = currentStart_state:toRobotStateMsg()
-  myPlan:setStart_stateMsg(msg)
+  myPlan:setStartStateMsg(msg)
 
   if succT then
     print("execute optimized plan")
@@ -465,12 +465,12 @@ function MoveitPlanning:generateDirectPlan_qq(q_start, q_end, velocity_scaling, 
   local traj, start_state = generateRobotTrajectory(self, trajectory, dt)
 
   -- check trajectory against planning scene
-  if check_path and not self.plan_scene:isPathValid(start_state, traj, self.g:getName(), false) then
+  if check_path and not self.plan_scene:isPathValid(start_state, traj, self.g:getName(), true) then
     return nil, -3, 'Path not valid.'
   end
 
   local plan = moveit.Plan()
-  plan:setStart_stateMsg(start_state:toRobotStateMsg())
+  plan:setStartStateMsg(start_state:toRobotStateMsg())
   plan:setTrajectoryMsg(traj:getRobotTrajectoryMsg())
   return plan, 0, 'OK'
 end
@@ -604,7 +604,7 @@ function MoveitPlanning:moveqtraj(q_waypoints, velocity_scaling, velocity_base, 
   end
 
   local plan = moveit.Plan()
-  plan:setStart_stateMsg(start_state:toRobotStateMsg())
+  plan:setStartStateMsg(start_state:toRobotStateMsg())
   plan:setTrajectoryMsg(traj:getRobotTrajectoryMsg())
   --self.g:execute(plan)
   return plan, 0, 'OK'
@@ -630,4 +630,4 @@ function MoveitPlanning:moveRobotToJointValues(joint_values)
   return true
 end
 
-return RC
+return MoveitPlanning
