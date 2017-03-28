@@ -89,7 +89,7 @@ local function movePActionServerGoal(goal_handle)
       -- trajectory is not valid, immediately abort it
       ros.WARN('Aborting trajectory processing: ' .. reason)
       local r = goal_handle:createResult()
-      r.result = Worker.INVALID_GOAL
+      r.result = worker.errorCodes.INVALID_GOAL
       goal_handle:setRejected(r, 'Validation of trajectory failed')
     end
 end
@@ -97,7 +97,7 @@ end
 
 local function moveJActionServerCancel(goal_handle)
   ros.INFO("moveJActionServerCancel")
-  --goal_handle:setCanceled(nil, 'blub')
+  goal_handle:setPreempted(nil, msg or 'Error')
 end
 
 
@@ -147,7 +147,7 @@ end
 
 local function moveP_ActionServer_Cancel(goal_handle)
   ros.INFO("moveP_ActionServer_Cancel")
-  --goal_handle:setCanceled(nil, 'NOT IMPLEMENTED YET')
+  goal_handle:setPreempted(nil, 'NOT IMPLEMENTED YET')
 end
 
 

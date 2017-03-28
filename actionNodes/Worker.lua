@@ -87,6 +87,18 @@ local function computeIK(planner, group_name, robot_state_msg, ik_link_names, po
   return robot_state, suc
 end
 
+local function checkMoveGroupName(name)
+  local robot_model_loader = moveit.RobotModelLoader("robot_description")
+  local robot_model = robot_model_loader:getModel()
+  local all_group_joint_names = robot_model:getJointModelGroupNames()
+
+  for k,v in pairs(all_group_joint_names) do
+    if name == v then
+      return true
+    end
+  end
+  return false
+end
 
 local function checkConvergence(cq,target,jointNames)
   local fullJointStateNames = cq:getVariableNames()
@@ -116,24 +128,26 @@ end
 
 local function initializeMoveGroup(group_id, velocityScaling)
   local group_id = group_id or 'manipulator'
-  local velocityScaling = velocityScaling or 0.5
+  if checkMoveGroupName(group_id) then
+    local velocityScaling = velocityScaling or 0.5
+    ros.INFO("connection with movegroup: " .. group_id)
+    local manipulator = moveit.MoveGroupInterface(group_id)
 
-  local manipulator = moveit.MoveGroupInterface(group_id)
+    manipulator:setMaxVelocityScalingFactor(velocityScaling)
+    manipulator:setGoalTolerance(1E-5)
+    manipulator:setPlanningTime(2.0)
 
-  manipulator:setMaxVelocityScalingFactor(velocityScaling)
-  manipulator:setGoalTolerance(1E-5)
-  manipulator:setPlanningTime(2.0)
+    -- ask move group for current state
+    manipulator:startStateMonitor(0.008)
+    local cs = manipulator:getCurrentState()
+    manipulator:setStartStateToCurrentState()
+    local currentPose = manipulator:getCurrentPose():toTensor()
+    print('Current robot pose:')
+    print(currentPose)
 
-  -- ask move group for current state
-  manipulator:startStateMonitor(0.008)
-  local cs = manipulator:getCurrentState()
-  manipulator:setStartStateToCurrentState()
-  local currentPose = manipulator:getCurrentPose():toTensor()
-  print('Current robot pose:')
-  print(currentPose)
-
-  printf('MoveIt! initialization done. Current end effector link: "%s"', manipulator:getEndEffectorLink())
-  return manipulator
+    printf('MoveIt! initialization done. Current end effector link: "%s"', manipulator:getEndEffectorLink())
+    return manipulator
+  end
 end
 
 
@@ -157,57 +171,66 @@ local function dispatchTrajectory(self)
           local group_name
           local manipulator
           local planner
-          
-          if traj.goal.spec.type == "roboteur_msgs/moveJActionGoal" then
+
+          if traj.goal.spec.type == "xamlamoveit_msgs/moveJActionGoal" then
+            print("xamlamoveit_msgs/movePActionGoal")
              group_name = traj.goal.goal.group_name.data
              manipulator = initializeMoveGroup(group_name)
-             planner = planning.MoveitPlanning.new(self.nodeHandle,manipulator)
-          
-             suc, msg, plan = planner:moveq(traj.goal.goal.goal.positions)
-            if not plan then
+             if not manipulator then
               status = self.errorCodes.INVALID_GOAL
+             else
+              planner = planning.MoveitPlanning.new(self.nodeHandle,manipulator)
+             
+              suc, msg, plan = planner:moveq(traj.goal.goal.goal.positions)
+              if not plan then
+                status = self.errorCodes.INVALID_GOAL
+              end
             end
-          elseif traj.goal.spec.type == "roboteur_msgs/movePActionGoal" then
-            
+          elseif traj.goal.spec.type == "xamlamoveit_msgs/movePActionGoal" then
+            print("xamlamoveit_msgs/movePActionGoal")
             group_name = traj.goal.goal.goal.group_name
             print("group_name:" .. group_name)
             manipulator = initializeMoveGroup(group_name)
-            planner = planning.MoveitPlanning.new(self.nodeHandle,manipulator)
-            local avoid_collisions = traj.goal.goal.goal.avoid_collisions
-            local robot_state_msg = traj.goal.goal.goal.robot_state
-            if #traj.goal.goal.goal.pose_stamped_vector ~= #traj.goal.goal.goal.ik_link_names then
-              status = self.errorCodes.INVALID_GOAL
-              print(r, "Number of pose and link names do not correspond")
-              break
-            end
-          
-            local poses = {}
-            for i,k in ipairs(traj.goal.goal.goal.pose_stamped_vector) do
-                table.insert(poses, convertPoseMessage2Transform(k))
-            end
-          
-            local ik_link_names = traj.goal.goal.goal.ik_link_names 
-            local ik_link_name = traj.goal.goal.goal.ik_link_names
-            local pose = traj.goal.goal.goal.pose_stamped
-            local result, ik_suc
-            if poses then
-              print("multiple poses specified ")
-              result, ik_suc = computeIK(planner, group_name, robot_state_msg, ik_link_names, poses, avoid_collisions)
-            else
-              print("only one pose specified ")
-              result, ik_suc = computeIK(planner, group_name, robot_state_msg, {ik_link_name}, {pose}, avoid_collisions)
-            end
-            if ik_suc == true then
-              assert(result)
-              suc, msg, plan = planner:moveq(result)
-              print(msg)
-              if plan == nil then
-                print("INVALID_GOAL")
+            if manipulator then
+              planner = planning.MoveitPlanning.new(self.nodeHandle,manipulator)
+              local avoid_collisions = traj.goal.goal.goal.avoid_collisions
+              local robot_state_msg = traj.goal.goal.goal.robot_state
+              if #traj.goal.goal.goal.pose_stamped_vector ~= #traj.goal.goal.goal.ik_link_names then
                 status = self.errorCodes.INVALID_GOAL
+                print(r, "Number of pose and link names do not correspond")
+                break
+              end
+            
+              local poses = {}
+              for i,k in ipairs(traj.goal.goal.goal.pose_stamped_vector) do
+                  table.insert(poses, convertPoseMessage2Transform(k))
+              end
+            
+              local ik_link_names = traj.goal.goal.goal.ik_link_names 
+              local ik_link_name = traj.goal.goal.goal.ik_link_names
+              local pose = traj.goal.goal.goal.pose_stamped
+              local result, ik_suc
+              if poses then
+                print("multiple poses specified ")
+                result, ik_suc = computeIK(planner, group_name, robot_state_msg, ik_link_names, poses, avoid_collisions)
+              else
+                print("only one pose specified ")
+                result, ik_suc = computeIK(planner, group_name, robot_state_msg, {ik_link_name}, {pose}, avoid_collisions)
+              end
+              if ik_suc == true then
+                assert(result)
+                suc, msg, plan = planner:moveq(result)
+                print(msg)
+                if plan == nil then
+                  print("INVALID_GOAL")
+                  status = self.errorCodes.INVALID_GOAL
+                end
+              else
+                print("NO_IK_FOUND")
+                status = self.errorCodes.NO_IK_FOUND
               end
             else
-              print("NO_IK_FOUND")
-              status = self.errorCodes.NO_IK_FOUND
+              status = self.errorCodes.INVALID_GOAL
             end
           end
 
@@ -286,7 +309,6 @@ function Worker:spin()
           traj.manipulator:stop()
         end
         traj:abort()
-        
       end
       self.currentPlan = nil
     end
