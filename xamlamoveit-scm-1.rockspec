@@ -15,7 +15,9 @@ description = {
 
 dependencies = {
    "torch >= 7.0",
-   "torch-moveit"
+   "torch-moveit",
+   "dmp",
+   "optimplan"
 }
 
 build = {
