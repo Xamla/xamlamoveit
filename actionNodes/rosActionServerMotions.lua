@@ -18,29 +18,13 @@ local nodehandle, sp, worker, service_queue
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/QueryMoveGroupInterfaces')
 local msg_spec = ros.MsgSpec('xamlamoveit_msgs/MoveGroupInterfaceDescription')
 
+
 function query_service_handler(request, response, header)
-  print('[!] handler call')
-  print('request:')
-  print(request)
-  
   local robot_model_loader = moveit.RobotModelLoader("robot_description")
   local robot_model = robot_model_loader:getModel()
 
   local all_EE_parent_group_names, all_EE_parent_link_names  = robot_model:getEndEffectorParentGroups()
   local all_group_joint_names = robot_model:getJointModelGroupNames()
-  print("")
-  print("all_EE_parent_group_names")
-  print("----------")
-  print(all_EE_parent_group_names)
-  print("")
-  print("all_EE_parent_link_names")
-  print("----------")
-  print(all_EE_parent_link_names)
-  print("")
-  print("all_group_joint_names")
-  print("----------")
-  print(all_group_joint_names)
-  print("")
 
   for k,v in pairs(all_group_joint_names) do
     local l = ros.Message('xamlamoveit_msgs/MoveGroupInterfaceDescription')
@@ -48,12 +32,6 @@ function query_service_handler(request, response, header)
     l.move_group_ids = robot_model:getJointModelSubGroupNames(v)
     table.insert(response.move_group_interfaces, l)
   end
-  
-  print('header:')
-  print(header)
-
-  print('response:')
-  print(response)
   return true
 end
 
