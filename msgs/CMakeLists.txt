@@ -10,6 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   trajectory_msgs
+  moveit_msgs
   message_generation
   genmsg
   actionlib
@@ -65,7 +66,8 @@ add_service_files(
 ## Generate actions in the 'action' folder
 add_action_files(
    DIRECTORY action
-   FILES #EgomoGripperPos.action EgomoGripperActivate.action
+   FILES 
+   moveJ.action moveP.action moveL.action
 )
 
 ## Generate added messages and services with any dependencies listed here
@@ -73,6 +75,7 @@ generate_messages(
    DEPENDENCIES
    std_msgs  # Or other packages containing msgs
    geometry_msgs
+   moveit_msgs
    actionlib_msgs
    trajectory_msgs
 )
