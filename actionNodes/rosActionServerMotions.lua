@@ -1,8 +1,9 @@
+#!/usr/bin/env th
 local ros = require 'ros'
 local tf = ros.tf
 require 'ros.actionlib.SimpleActionServer'
 local GoalStatus = require 'ros.actionlib.GoalStatus'
-require 'Worker'
+require 'xamlamoveit.actionNodes.Worker'
 local actionlib = ros.actionlib
 
 local moveit = require 'moveit'
@@ -40,7 +41,7 @@ local function initSetup()
   ros.init('MoveActions')
   nodehandle = ros.NodeHandle()
   service_queue = ros.CallbackQueue()
-  
+
   sp = ros.AsyncSpinner()  -- background job
   worker = Worker(nodehandle)
   sp:start()
@@ -55,13 +56,13 @@ end
 
 local function movePActionServerGoal(goal_handle)
   ros.INFO("movePActionServerGoal")
-  
+
   local g = goal_handle:acceptNewGoal()
   local suc = true
   local traj = {
       starttime = ros.Time.now(), duration = t1,
       goal_handle = goal_handle, goal = g,
-      accept = function()  
+      accept = function()
         --goal_handle:setAccepted('Starting trajectory execution')
         return true
       end,
@@ -153,13 +154,13 @@ end
 
 local function moveActionServer()
   initSetup()
-  
+
   --moveGroup = initializeMoveGroup()
   local psi = moveit.PlanningSceneInterface()
   environmentSetup.labRoboteur(psi)
   --local dp = moveGroup:getCurrentPose()
   local dt = 1/125
-  
+
   ros.console.setLoggerLevel('actionlib', ros.console.Level.Warn)
 
   local mj = actionlib.SimpleActionServer(nodehandle, 'moveJ_action', 'xamlamoveit_msgs/moveJ')
@@ -175,7 +176,7 @@ local function moveActionServer()
   mj:start()
   mp:start()
   --ml:start()
-  
+
   info_server = nodehandle:advertiseService('/query_move_group_interface', srv_spec, query_service_handler, service_queue)
   while ros.ok() do
     worker:spin()

@@ -1,3 +1,4 @@
+#!/usr/bin/env th
 local ros = require 'ros'
 local tf = ros.tf
 require 'ros.actionlib.SimpleActionClient'
@@ -27,7 +28,7 @@ local testJointPosition2 = torch.Tensor({ 1.2658,
 
 function testSyncApi()
   local g = ac:createGoal()
-  
+
   g.group_name.data = 'manipulator'
   g.goal.positions = testJointPosition
   print(g)

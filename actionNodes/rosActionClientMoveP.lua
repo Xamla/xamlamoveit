@@ -1,3 +1,4 @@
+#!/usr/bin/env th
 local ros = require 'ros'
 local tf = ros.tf
 require 'ros.actionlib.SimpleActionClient'
