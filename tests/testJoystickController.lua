@@ -1,4 +1,4 @@
-local joysticController = require 'xamlamoveit.controller.JoystickController'
+local Controller = require 'xamlamoveit.controller'
 local ros = require 'ros'
 tf = ros.tf
 local moveit = require 'moveit'
@@ -29,21 +29,18 @@ end
 function main()
 
   ros.init('JoystickTest')
--- What does this command?
-local nodehandle = ros.NodeHandle()
-local moveGroup, psi = initializeMoveIt("arm_left")
-local sp = ros.AsyncSpinner()  -- background job
-sp:start()
+  -- What does this command?
+  local nodehandle = ros.NodeHandle()
+  local sp = ros.AsyncSpinner()  -- background job
+  sp:start()
 
-  local joyCtr = joysticController.new(nodehandle, moveGroup, "/joy", nil, 1/140, false)
+  local moveGroup, psi = initializeMoveIt("arm_left")
+  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, "/joy", "", 1/50, false)
   joyCtr:connect()
 
   while ros.ok() do
       joyCtr:update()
-      sys.sleep(0.008)
       ros:spinOnce()
-
-
   end
 
 

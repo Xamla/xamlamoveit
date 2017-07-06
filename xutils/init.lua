@@ -2,6 +2,7 @@ local xutils = require 'xamlamoveit.xutils.env'
 require 'xamlamoveit.xutils.Xtable'
 require 'xamlamoveit.xutils.Kbhit'
 require 'xamlamoveit.xutils.MonitorBuffer'
+require 'xamlamoveit.xutils.JointMonitor'
 require 'xamlamoveit.xutils.Cuboid'
 
 

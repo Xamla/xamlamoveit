@@ -586,8 +586,8 @@ function MoveitPlanning:moveqtraj(q_waypoints, velocity_scaling, velocity_base, 
   local vel = velocity_base * velocity_scaling
   local acc = acceleration_base * velocity_scaling
 
-  local maxVelocities = torch.Tensor(6):fill(vel)
-  local maxAccelerations = torch.Tensor(6):fill(acc)
+  local maxVelocities = torch.Tensor(#JOINT_NAMES):fill(vel)
+  local maxAccelerations = torch.Tensor(#JOINT_NAMES):fill(acc)
 
   local path = op.Path(waypoints, 1.0)
   local trajectory = op.Trajectory(path, maxVelocities, maxAccelerations, dt)

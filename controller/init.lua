@@ -1,3 +1,3 @@
-local grippers = require 'xamlamoveit.grippers.env'
-require 'xamlamoveit.controller.RobotiqCModelXamla'
-return grippers
+local controller = require 'xamlamoveit.controller.env'
+require 'xamlamoveit.controller.JoystickController'
+return controller
