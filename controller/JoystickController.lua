@@ -150,8 +150,14 @@ local function pseudoInverse(M,W)
   assert(M:size(1) == Weights:size()[1],'Data matrix M and weight matrix W need to have the same number of cols')
   local inv = M:t()*Weights*M
   -- make it definite
-  inv:add(1e-12, torch.eye(inv:size(1)))
+  inv:add(1e-15, torch.eye(inv:size(1)))
   return torch.inverse(inv) * M:t()*Weights
+end
+
+--- calculates the weighted pseudoInverse of M
+-- @param M: Matrix which needs to be inversed
+local function inverse(M)
+  return M:t()*torch.inverse(M*M:t())
 end
 
 
@@ -428,7 +434,7 @@ end
 function JoystickController:getQdot(vel6D)
   local jac = self.state:getJacobian(self.move_group:getName())
 
-  local inv_jac = pseudoInverse(jac)
+  local inv_jac = inverse(jac)
   local jacobian_condition = torch.norm(jac) * torch.norm(inv_jac)
   if jacobian_condition > 50 then
     ros.ERROR(string.format("detected ill-conditioned Jacobian: %f", jacobian_condition))
