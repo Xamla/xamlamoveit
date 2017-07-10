@@ -68,7 +68,7 @@ function sendPositionCommand(q_des, q_dot, group)
   local m = ros.Message(joint_pos_spec)
   local mPoint = ros.Message(test_spec)
   local names = std.StringVector()
-  
+
   group:getActiveJoints(names)
 
   m.joint_names = {}
@@ -79,26 +79,35 @@ function sendPositionCommand(q_des, q_dot, group)
   mPoint.velocities:set(q_dot) --TODO this is probably not optimal.
   mPoint.time_from_start = ros.Time.now() - BEGIN_EXECUTION
   m.points = {mPoint}
-  
+
   publisherPointPositionCtrl:publish(m)
 end
-
+local max_acc = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978})
+local max_vel = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978})
 local controller = require 'xamlamoveit.controller.env'
 local JoystickController = torch.class("xamlamoveit.controller.JoystickController",controller)
 
 function JoystickController:__init(node_handle, move_group, ft_topic, ctr_name, dt, debug)
-  
+
   self.debug = debug or false
+  if self.debug then
+    ros.console.set_logger_level(nil,ros.console.Level.Debug)
+  else
+  end
+
+  self.FIRSTPOINT = true
   self.dt_monitor = xutils.MonitorBuffer(100,1)
   self.nh = node_handle
   self.x_des = nil
   self.q_des = nil
   self.move_group = move_group or error("move_group should not be nil")
   self.state = move_group:getCurrentState()
-  
+  self.lastCommandJointPositons = self.state:copyJointGroupPositions(move_group:getName()):clone()
+  self.current_pose = self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
+  self.converged = false
   self.joint_monitor = xutils.JointMonitor(move_group:getActiveJoints():totable())
   self.time_last = ros.Time.now()
-  
+
   local ready = false
   while not ready and ros.ok() do
     ready = self.joint_monitor:waitReady(0.01)
@@ -118,7 +127,6 @@ function JoystickController:__init(node_handle, move_group, ft_topic, ctr_name, 
   end
 
 
-  self.current_pose = self.move_group:getCurrentPose()
   self.left_joy = torch.zeros(3)
   self.right_joy = torch.zeros(3)
   self.dpad = torch.zeros(2)
@@ -130,6 +138,9 @@ function JoystickController:__init(node_handle, move_group, ft_topic, ctr_name, 
   self.controller_name = ctr_name or 'pos_based_pos_traj_controller'
 end
 
+local function clamp(t, min, max)
+    return torch.cmin(t, max):cmax(min)
+end
 
 --- calculates the weighted pseudoInverse of M
 -- @param M: Matrix which needs to be inversed
@@ -144,16 +155,33 @@ local function pseudoInverse(M,W)
 end
 
 
+function JoystickController:getCurrentPose()
+  return self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
+end
+
+local function satisfiesBounds(self, positions)
+  local state = self.state:clone()
+  state:setVariablePositions(positions, self.joint_monitor:getJointNames())
+  if not state:satisfiesBounds() then
+    ros.ERROR("Target position is out of bounds!!")
+    return false
+  end
+  return true
+end
+
 --@param desired joint angle position
 function JoystickController:isValid(q_des, q_curr) -- avoid large jumps in posture values and check if q_des tensor is valid
   local diff = 2
   if q_des:nDimension() > 0 then
-    if q_curr then
-      diff= torch.norm(q_curr-q_des)
+    ros.DEBUG("q_des checked")
+    if satisfiesBounds(self, q_des) then
+      ros.DEBUG("satisfiesBounds")
+      if q_curr then
+        diff= torch.norm(q_curr-q_des)
+      end
     end
   end
-  print("diff")
-  print(diff)
+  ros.DEBUG(string.format("Difference between q_des and q_curr diff = %f", diff))
   return diff<1
 end
 
@@ -163,6 +191,7 @@ function JoystickController:connect(topic)
   local joy_spec = 'sensor_msgs/Joy'
   self.subscriber_joy = self.nh:subscribe(topic, joy_spec , 1)
   print('Subscribed to \'joy\' node. Please start using your joystick.')
+  self:getNewRobotState()
 end
 
 
@@ -235,22 +264,20 @@ function JoystickController:getTeleoperationForces()
   deltatorques[2] = self.right_joy[2] -- Yaw
   deltatorques[3] = -self.dpad[1] * stepSizeR -- Roll
 
-  return deltaforces, deltatorques, buttonEvents, newMessage --TODO make this more suffisticated
+  return deltaforces/2, deltatorques/2, buttonEvents, newMessage --TODO make this more suffisticated
 end
 
 
 function JoystickController:updateDeltaT()
-  
     self.dt = ros.Time.now() - self.time_last
-    while self.dt:toSec() < 0.008 do
+    while self.dt:toSec() < 0.008 do -- dt set to 125Hz
       self.dt = ros.Time.now() - self.time_last
     end
     self.dt_monitor:add(torch.zeros(1)+self.dt:toSec())
-    print(self.dt_monitor.buffer)
     local tmpDT = torch.mean(self.dt_monitor.buffer[{{1,self.dt_monitor:count()},{}}])
-    self.dt:fromSec(tmpDT)
+    --self.dt:fromSec(tmpDT)
     self.time_last = ros.Time.now();
-    ros.INFO(string.format("Delta Time: %dHz", 1/self.dt:toSec()))
+    ros.DEBUG(string.format("Delta Time: %dHz", 1/self.dt:toSec()))
 end
 
 
@@ -258,26 +285,72 @@ function JoystickController:tracking(q_dot, duration)
   if type(duration) == 'number' then
     duration = ros.Duration(duration)
   end
+
   duration = duration or ros.Time.now() - BEGIN_EXECUTION
   local group = self.move_group
   local state = self.state:clone()
-  local q_curr = state:copyJointGroupPositions(group:getName()):clone()
-  local q_des = q_curr + q_dot
-  if self:isValid(q_des,q_curr) then
-    if not publisherPointPositionCtrl then
-      local myTopic = string.format("%s/joint_command",self.controller_name)
-      ros.WARN(myTopic)
-      publisherPointPositionCtrl = self.nh:advertise(string.format(myTopic, self.controller_name), joint_pos_spec)
+
+  local q_des = self.lastCommandJointPositons + q_dot
+
+  if not self.converged then
+    if self:isValid(q_des, self.lastCommandJointPositons) then
+      if not publisherPointPositionCtrl then
+        local myTopic = string.format("%s/joint_command",self.controller_name)
+        ros.WARN(myTopic)
+        publisherPointPositionCtrl = self.nh:advertise(string.format(myTopic, self.controller_name), joint_pos_spec)
+      end
+      if self.FIRSTPOINT then
+        sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
+        self.FIRSTPOINT = false
+        ros.INFO("FIRSTPOINT")
+      else
+        ros.INFO("GoGoGo")
+        sendPositionCommand(q_des, q_dot, group, duration)
+      end
+      self.lastCommandJointPositons = q_des
+    else
+      if publisherPointPositionCtrl then
+        publisherPointPositionCtrl:shutdown()
+      end
+      publisherPointPositionCtrl = nil
+      ros.ERROR("command is not valid!!!")
+      --os.exit()
     end
-    sendPositionCommand(q_des, q_dot, group, duration)
   else
-    if publisherPointPositionCtrl then
-      publisherPointPositionCtrl:shutdown()
-    end
-    publisherPointPositionCtrl = nil
-    ros.ERROR("command is not valid!!!")
-    print(q_des)
+    self.lastCommandJointPositons = state:copyJointGroupPositions(group:getName()):clone()
   end
+  if self.debug then
+    ros.DEBUG("q_curr")
+    ros.DEBUG(tostring(self.lastCommandJointPositons))
+    ros.DEBUG("q_des")
+    ros.DEBUG(tostring(q_des))
+    ros.DEBUG("q_dot")
+    ros.DEBUG((tostring(q_dot)))
+  end
+
+  if q_dot:norm() < 1e-12 then
+    self.converged = true
+    --BEGIN_EXECUTION = ros.Time.now()
+    self.FIRSTPOINT = true
+  else
+    self.converged = false
+    self.FIRSTPOINT = false
+    ros.WARN("tracking is NOT CONVERED")
+  end
+end
+
+
+function targetTransformation(target_frame, offset, rotation_rpy)
+
+  local tmp_offset_tf = tf.Transform():setOrigin(offset)
+  local rotation = tmp_offset_tf:getRotation()
+  --tmp_offset_tf:setRotation(rotation:setRPY(rotation_rpy[1],rotation_rpy[2],rotation_rpy[3]))
+
+  local curr_pose_inv = target_frame:clone():inverse()
+  local curr_pose = target_frame:clone()
+  tmp_offset_tf:fromTensor(curr_pose:toTensor()*tmp_offset_tf:toTensor()* curr_pose_inv:toTensor())
+
+  return tmp_offset_tf:getOrigin(), rotation_rpy --tmp_offset_tf:getRotation():getRPY()
 end
 
 
@@ -285,34 +358,32 @@ function JoystickController:getStep( D_force, D_torques, timespan )
   local D_torques = D_torques or torch.zeros(3)
   local opt = {}
   opt.stiffness = 1.0
-  opt.damping   =  0.2
-  
+  opt.damping   = 0.2
+
   local K,D = opt.stiffness,opt.damping--stiffness and damping
   local s = timespan or 1.0
-
-  local suc
   local offset = -D_force/(K+D*s:toSec())
+  local x_rot_des = (- D_torques/(K+D*s:toSec())) -- want this in EE KO
+  local suc
 
   for index, blocked in ipairs(blockedAxis) do
     if blocked == true then
       offset[index] = 0
     end
   end
-  
-  local x_rot_des = (- D_torques/(K+D*s:toSec())) -- want this in EE KO
-  
+
+  offset, x_rot_des = targetTransformation(self.current_pose, offset, x_rot_des)
+
   local vel6D = torch.DoubleTensor(6)
   vel6D[{{1,3}}]:copy(offset)
   vel6D[{{4,6}}]:copy(x_rot_des)
-  
-  print("-------------> time")
-  print(s)
-  print("-------------> D_force")
-  print(D_force)
-  local q_dot_des = self:getQdot(vel6D)
-  print("-------------> q_dot_des")
-  print(q_dot_des)
-  return q_dot_des
+  local q_dot_des, jacobian = self:getQdot(vel6D)
+
+  ros.DEBUG(string.format("-------------> time: %d",s:toSec()))
+  ros.DEBUG(string.format("-------------> D_force %s", tostring(D_force)))
+  ros.DEBUG(string.format("-------------> q_dot_des %s", tostring(q_dot_des)))
+
+  return q_dot_des, jacobian
 end
 
 
@@ -356,13 +427,14 @@ end
 
 function JoystickController:getQdot(vel6D)
   local jac = self.state:getJacobian(self.move_group:getName())
-  print(jac)
+
   local inv_jac = pseudoInverse(jac)
   local jacobian_condition = torch.norm(jac) * torch.norm(inv_jac)
   if jacobian_condition > 50 then
-    ros.ERROR(strint.format("detected ill-conditioned Jacobian: %f", jacobian_condition))
+    ros.ERROR(string.format("detected ill-conditioned Jacobian: %f", jacobian_condition))
+    --vel6D:zero()
   end
-  return inv_jac*(vel6D*self.dt:toSec())
+  return inv_jac*(vel6D*self.dt:toSec()), jac
 end
 
 
@@ -370,7 +442,8 @@ function JoystickController:getNewRobotState()
   ros.spinOnce()
   local p,l = self.joint_monitor:getNextPositionsTensor()
   self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
-  --self.state = self.move_group:getCurrentState()
+  self.lastCommandJointPositons = p
+  self.current_pose = self:getCurrentPose()
 end
 
 
@@ -386,19 +459,44 @@ function JoystickController:update()
     self.start_time = ros.Time.now()
   end
 
-  self:getNewRobotState()
+  if self.converged then
+    self:getNewRobotState()
+  else
+    self.state:setVariablePositions(self.lastCommandJointPositons, self.joint_monitor:getJointNames())
+    self.current_pose = self:getCurrentPose()
+  end
+
   self:updateDeltaT()
+
   local curr_time = ros.Time.now()
   local q_dot = self:getStep(deltaForces, detlaTorques, curr_time-self.start_time)
   if self.dt:toSec()>0.15 then
+    ros.ERROR("dt is to large !!")
     q_dot:zero()
   end
+
   if buttonEvents.empty then
+    --while torch.max(torch.abs(q_dot)) > 0.001 do
+    q_reference = clamp(q_dot , -max_vel, max_vel)   -- limit to max velocity
+    while (q_dot - q_reference):norm() > 0.0 do
+     deltaForces = deltaForces*0.9
+     detlaTorques = detlaTorques*0.9
+     q_dot = self:getStep(deltaForces, detlaTorques, curr_time-self.start_time)
+     q_reference = clamp(q_dot , -max_vel, max_vel)   -- limit to max velocity
+     ros.INFO("clipping on !!")
+     --os.exit()
+    end
     self:tracking(q_dot, self.dt)
+
     --[[
-    local succ, plan = self.ctrl:movep(self.x_des,nil,nil, SPEED_LIMIT[currentSpeedLimit])
+      local q_des = self.lastCommandJointPositons + q_dot
+    local succ, msg ,plan = self.ctrl:moveq(q_des,SPEED_LIMIT[currentSpeedLimit])
     if succ then
-      self.move_group:execute(plan)
+      if plan then
+        self.move_group:execute(plan)
+      end
+    else
+      ros.ERROR(msg)
     end
     ]]
   end

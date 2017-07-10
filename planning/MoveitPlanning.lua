@@ -539,7 +539,7 @@ function MoveitPlanning:moveq(q_target, velocity_scaling, velocity_base, acceler
 
   local plan, status, msg = self:generateDirectPlan_qq(q_start, q_end, velocity_scaling, velocity_base, acceleration_base, check_path)
   if plan then
-    --print('moving...')
+    print('moving...')
     --self.g:execute(plan)
     --print('done.')
   elseif status == -1 then

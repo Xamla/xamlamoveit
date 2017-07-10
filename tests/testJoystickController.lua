@@ -35,7 +35,7 @@ function main()
   sp:start()
 
   local moveGroup, psi = initializeMoveIt("arm_left")
-  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, "/joy", "", 1/150, false)
+  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, "/joy", "", 1/124, false)
   joyCtr:connect()
 
   while ros.ok() do
