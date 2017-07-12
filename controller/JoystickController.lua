@@ -313,7 +313,7 @@ function JoystickController:tracking(q_dot, duration)
         ros.INFO("GoGoGo")
         sendPositionCommand(q_des, q_dot, group, duration)
       end
-      self.lastCommandJointPositons = q_des
+      self.lastCommandJointPositons:copy(q_des)
     else
       if publisherPointPositionCtrl then
         publisherPointPositionCtrl:shutdown()
@@ -356,7 +356,7 @@ function targetTransformation(target_frame, offset, rotation_rpy)
   local curr_pose = target_frame:clone()
   tmp_offset_tf:fromTensor(curr_pose:toTensor()*tmp_offset_tf:toTensor()* curr_pose_inv:toTensor())
 
-  return tmp_offset_tf:getOrigin(), rotation_rpy --tmp_offset_tf:getRotation():getRPY()
+  return tmp_offset_tf:getOrigin(), rotation_rpy--tmp_offset_tf:getRotation():getRPY()
 end
 
 
@@ -380,6 +380,11 @@ function JoystickController:getStep( D_force, D_torques, timespan )
 
   offset, x_rot_des = targetTransformation(self.current_pose, offset, x_rot_des)
 
+  if offset:norm() > 0.1 then
+    offset = offset *0.1 / offset:norm()
+  end
+
+  --print(offset)
   local vel6D = torch.DoubleTensor(6)
   vel6D[{{1,3}}]:copy(offset)
   vel6D[{{4,6}}]:copy(x_rot_des)
@@ -440,6 +445,7 @@ function JoystickController:getQdot(vel6D)
     ros.ERROR(string.format("detected ill-conditioned Jacobian: %f", jacobian_condition))
     --vel6D:zero()
   end
+
   return inv_jac*(vel6D*self.dt:toSec()), jac
 end
 
@@ -448,8 +454,9 @@ function JoystickController:getNewRobotState()
   ros.spinOnce()
   local p,l = self.joint_monitor:getNextPositionsTensor()
   self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
-  self.lastCommandJointPositons = p
+  self.lastCommandJointPositons:copy(p)
   self.current_pose = self:getCurrentPose()
+  --ros.ERROR("getNew RobotSTATE")
 end
 
 
@@ -457,6 +464,7 @@ function JoystickController:update()
   --xBox 360 Joystick
   --self.current_pose = self.move_group:getCurrentPose()
   local deltaForces, detlaTorques, buttonEvents, newMessage = self:getTeleoperationForces()
+
   if newMessage then
     self:handleButtonsEvents(buttonEvents)
   end
@@ -464,7 +472,10 @@ function JoystickController:update()
   if (torch.norm(deltaForces)+torch.norm(detlaTorques)) < 0.1 then -- only reset the timer if almost zero changes are applied to avoid rapid accellarations
     self.start_time = ros.Time.now()
   end
-
+  ros.INFO("deltaForces")
+  ros.INFO(tostring(deltaForces))
+  ros.INFO("detlaTorques")
+  ros.INFO(tostring(detlaTorques))
   if self.converged then
     self:getNewRobotState()
   else
@@ -483,16 +494,14 @@ function JoystickController:update()
 
   if buttonEvents.empty then
     --while torch.max(torch.abs(q_dot)) > 0.001 do
-    q_reference = clamp(q_dot , -max_vel, max_vel)   -- limit to max velocity
-    while (q_dot - q_reference):norm() > 0.0 do
-     deltaForces = deltaForces*0.9
-     detlaTorques = detlaTorques*0.9
-     q_dot = self:getStep(deltaForces, detlaTorques, curr_time-self.start_time)
-     q_reference = clamp(q_dot , -max_vel, max_vel)   -- limit to max velocity
-     ros.INFO("clipping on !!")
-     --os.exit()
-    end
-    self:tracking(q_dot, self.dt)
+    --q_reference = clamp(q_dot , -max_vel, max_vel)   -- limit to max velocity
+    --while (q_dot - q_reference):norm() > 0.0 do
+      q_dot = self:getStep(deltaForces, detlaTorques, curr_time-self.start_time)
+      --q_reference = clamp(q_dot , -max_vel, max_vel)   -- limit to max velocity
+      --ros.INFO("clipping on !!")
+      --os.exit()
+    --end
+    self:tracking(q_dot:clone(), self.dt)
 
     --[[
       local q_des = self.lastCommandJointPositons + q_dot
@@ -548,7 +557,7 @@ function JoystickController:moveToOrthogonalPose()
   end
 
   ros.INFO("Drive to orthogonal pose")
-  local zAxis = normalize(torch.Tensor({0,0,1}))
+  local zAxis = normalize(torch.Tensor({0,0,-1}))
   local basePose = self.move_group:getCurrentPose():toTensor()
   local xAxis = basePose[{1,{1,3}}]
   local yAxis = -normalize(torch.cross(xAxis, zAxis))
