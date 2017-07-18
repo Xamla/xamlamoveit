@@ -42,6 +42,12 @@ function xutils.toc(id)
   end
 end
 
+
+function xutils.clamp(t, min, max)
+    return torch.cmin(t, max):cmax(min)
+end
+
+
 -- register tic&toc in global namespace (not overwriting existing)
 if not tic and not toc then
   tic,toc = xutils.tic,xutils.toc
