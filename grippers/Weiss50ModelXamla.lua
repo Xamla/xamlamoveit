@@ -12,44 +12,72 @@ function Weiss50ModelXamla:__init (nodehandle, nodeIDstring)
   self.serviceGripperCtl = nil
   self.actionGripperActivation = nil
   self.actionGripperSetPosition = nil
-  self.nodeID=nodeIDstring or "XamlaEgomo"
+  self.nodeID= nodeIDstring or "XamlaEgomo"
   self.nh = nodehandle
   self.gripperServices = {}
+  self.gripperStatus = nil
   self.speed_value = 10
+  self.width = -1
+  self.gripState = nil
+  self.seq = 0
 end
 
+local function stateCb(self, msg, header)
+  ros.WARN("received message")
+  self.width = msg.width
+  self.gripState = msg.status_id
+  self.seq = self.seq + 1
+end
 
-
-function Weiss50ModelXamla:connect ()
+function Weiss50ModelXamla:connect (namespace)
   local nodehandle = self.nh -- generic node handle
   local init_b = true
-  while init_b do
+  local namespace = namespace or "wsg_50_driver"
+
+    self.gripperStatus = self.nh:subscribe(string.format('/%s/status',namespace), 'wsg_50_common/Status', 10)
+
+    self.gripperStatus:registerCallback(function (msg, header) stateCb(self, msg, header) end)
+   while init_b and ros.ok() do
+
     ros.INFO("Try to connect Ack")
-    self.gripperServices.wsgAck = nodehandle:serviceClient('/wsg_25_driver/ack', 'std_srvs/Empty')
+    self.gripperServices.wsgAck = nodehandle:serviceClient(string.format('/%s/ack',namespace), 'std_srvs/Empty')
     ros.INFO("Try to connect Grasp")
-    self.gripperServices.wsgGrasp = nodehandle:serviceClient('/wsg_25_driver/grasp', 'wsg_25_common/Move')
+    self.gripperServices.wsgGrasp = nodehandle:serviceClient(string.format('/%s/grasp',namespace), 'wsg_50_common/Move')
     ros.INFO("Try to connect Homing")
-    self.gripperServices.wsgHoming = nodehandle:serviceClient('/wsg_25_driver/homing', 'std_srvs/Empty')
+    self.gripperServices.wsgHoming = nodehandle:serviceClient(string.format('/%s/homing',namespace), 'std_srvs/Empty')
     ros.INFO("Try to connect Move")
-    self.gripperServices.wsgMove = nodehandle:serviceClient('/wsg_25_driver/move', 'wsg_25_common/Move')
+    self.gripperServices.wsgMove = nodehandle:serviceClient(string.format('/%s/move',namespace), 'wsg_50_common/Move')
     ros.INFO("Try to connect Move_incrementally")
-    self.gripperServices.wsgMove_incrementally = nodehandle:serviceClient('/wsg_25_driver/move_incrementally', 'wsg_25_common/Incr')
+    self.gripperServices.wsgMove_incrementally = nodehandle:serviceClient(string.format('/%s/move_incrementally',namespace), 'wsg_50_common/Incr')
     ros.INFO("Try to connect Release")
-    self.gripperServices.wsgRelease = nodehandle:serviceClient('/wsg_25_driver/release', 'wsg_25_common/Move')
+    self.gripperServices.wsgRelease = nodehandle:serviceClient(string.format('/%s/release',namespace), 'wsg_50_common/Move')
     ros.INFO("Try to connect Acceleration")
-    self.gripperServices.wsgSetAcceleration = nodehandle:serviceClient('/wsg_25_driver/set_acceleration', 'wsg_25_common/Conf')
+    self.gripperServices.wsgSetAcceleration = nodehandle:serviceClient(string.format('/%s/set_acceleration',namespace), 'wsg_50_common/Conf')
     ros.INFO("Try to connect SetForce")
-    self.gripperServices.wsgSetForce = nodehandle:serviceClient('/wsg_25_driver/set_force', 'wsg_25_common/Conf')
+    self.gripperServices.wsgSetForce = nodehandle:serviceClient(string.format('/%s/set_force',namespace), 'wsg_50_common/Conf')
     ros.INFO("Check connection.")
+    ros.spinOnce()
+
+    while not (self.gripperStatus:getNumPublishers() > 0) and ros.ok() do
+      ros.ERROR(string.format('no connection to /%s/status',namespace))
+      ros.spinOnce()
+    end
+    while self.seq <= 0 and ros.ok() do
+      ros.spinOnce()
+    end
+
     if self.gripperServices.wsgAck:exists() then
       break
     else
-      ros.WARN("cannot connect to services retrying ...")
+      ros.ERROR("cannot connect to services retrying ...")
       sys.sleep(0.5)
+      return false
     end
+
   end
   -- call the service
   local response = self.gripperServices.wsgAck:call()
+  return true
 end
 
 
@@ -68,9 +96,9 @@ function Weiss50ModelXamla:resetViaAction(execute_timeout, preempt_timeout)
 end
 
 
-function Weiss50ModelXamla:open ()
+function Weiss50ModelXamla:open (value)
   local req_msg =self.gripperServices.wsgRelease:createRequest()
-  req_msg:fillFromTable({width=100, speed=self.speed_value})
+  req_msg:fillFromTable({width=value or 100, speed=self.speed_value})
   local response = self.gripperServices.wsgRelease:call(req_msg)
   return true
 end
@@ -82,9 +110,9 @@ function Weiss50ModelXamla:openViaAction(execute_timeout, preempt_timeout, set_s
 end
 
 
-function Weiss50ModelXamla:close ()
+function Weiss50ModelXamla:close (value)
   local req_msg =self.gripperServices.wsgGrasp:createRequest()
-  req_msg:fillFromTable({width=11, speed=self.speed_value})
+  req_msg:fillFromTable({width= value or 11, speed=self.speed_value})
   local response = self.gripperServices.wsgGrasp:call(req_msg)
   return true
 end
@@ -100,7 +128,7 @@ function Weiss50ModelXamla:move (value)
   local req_msg =self.gripperServices.wsgMove:createRequest()
   req_msg:fillFromTable({width=value*1000, speed=self.speed_value})
   local response = self.gripperServices.wsgMove:call(req_msg)
-  
+
   return true
 end
 
@@ -121,7 +149,7 @@ end
 function Weiss50ModelXamla:SetGripForce(value)
   value = value or 190
   local req_msg = self.gripperServices.wsgSetForce:createRequest()
-  req_msg:fillFromTable({val=value})  
+  req_msg:fillFromTable({val=value})
   local response = self.gripperServices.wsgSetForce:call(req_msg)
   return response.error == 0
 end
@@ -140,6 +168,21 @@ function Weiss50ModelXamla:sentGripperMessage (name, value)
   end
 
   return msgGripper
+end
+
+
+function Weiss50ModelXamla:isOpen (width)
+  print("seq:".. self.seq)
+  print("width:".. self.width)
+  return self.width > (width or 100)
+end
+
+function Weiss50ModelXamla:hasError ()
+  print(self.gripState)
+  if self.gripState == ros.Message('wsg_50_common/Status').ERROR then
+    return true
+  end
+  return false
 end
 
 return Weiss50ModelXamla

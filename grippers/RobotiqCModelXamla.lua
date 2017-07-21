@@ -24,6 +24,7 @@ function RobotiqCModelXamla:connect ()
   self.actionGripperActivation = actionlib.SimpleActionClient('egomo_msgs/EgomoGripperActivate', "/" .. self.nodeID .. "/gripper_activation_action", nodehandle)
   self.actionGripperSetPosition = actionlib.SimpleActionClient('egomo_msgs/EgomoGripperPos', "/" .. self.nodeID .. "/gripper_pos_action", nodehandle)
   print(self.serviceGripperCtl.spec)
+  return true
 end
 
 
