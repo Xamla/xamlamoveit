@@ -49,7 +49,7 @@ function JointMonitor:__init(joint_names, joint_timeout, joint_states_topic)
   for i,name in ipairs(joint_names) do
     self.joint_status[name] = { nil, ros.Time(0) }
   end
-  
+
   -- subscribe to joint states topic
   self.joint_state_sub = self.nh:subscribe(self.joint_states_topic, 'sensor_msgs/JointState', 16)
   self.joint_state_sub:registerCallback(function (msg, header) jointStatesCb(self, msg, header) end)
@@ -96,12 +96,14 @@ end
 -- wait to receive initial state
 function JointMonitor:waitReady(timeout)
   timeout = toDuration(timeout)
-  
+
   local wait_duration = ros.Duration(0.01)
   local start = ros.Time.now()
-  while not self:isReady() do
+  while not self:isReady()do
+
     local elapsed = ros.Time.now() - start
-    if not ros.ok() or timeout ~= nil and elapsed > timeout then
+    if (not ros.ok()) or ((timeout ~= nil) and (elapsed > timeout)) then
+      ros.WARN(string.format("Joint states not available during: %s sec",tostring(elapsed)))
       return false
     end
     ros.spinOnce()
@@ -199,5 +201,3 @@ end
 function JointMonitor:shutdown()
   self.joint_state_sub:shutdown()
 end
-
-

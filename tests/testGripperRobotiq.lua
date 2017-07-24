@@ -11,14 +11,14 @@ robotiqGripper = grippers.RobotiqCModelXamla(nodehandle)
 robotiqGripper:connect()
 robotiqGripper:reset()
 robotiqGripper:close()
-ros:spinOnce()
+ros.spinOnce()
 
 robotiqGripper:open()
-ros:spinOnce()
+ros.spinOnce()
 
 
 robotiqGripper:move(0.0)
-ros:spinOnce()
+ros.spinOnce()
 
 sys.sleep(1.0)
 

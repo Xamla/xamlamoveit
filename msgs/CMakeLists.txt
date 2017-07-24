@@ -61,12 +61,14 @@ add_message_files(
 add_service_files(
    FILES
    QueryMoveGroupInterfaces.srv
+   SetString.srv
+   StatusController.srv
 )
 
 ## Generate actions in the 'action' folder
 add_action_files(
    DIRECTORY action
-   FILES 
+   FILES
    moveJ.action moveP.action moveL.action
 )
 
