@@ -70,13 +70,15 @@ function main()
 
   local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
 
-  local stepSize = 0.001 --rad/s
+  local stepSize = 0.01 --rad/s
   local q_dot = torch.zeros(1)
   while ros.ok() do
       local input = io.read()
-      if input == '1' then q_dot[1] = stepSize
+      if input == '1' then
+        q_dot[1] = stepSize
         sendPositionCommand(q_dot, {names[1]}, publisherPointPositionCtrl)
-      elseif input == '2' then q_dot[1] = stepSize
+      elseif input == '2' then
+        q_dot[1] = stepSize
         sendPositionCommand(q_dot, {names[2]}, publisherPointPositionCtrl)
       elseif input == '3' then
         q_dot[1] = stepSize

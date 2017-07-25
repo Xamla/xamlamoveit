@@ -24,8 +24,8 @@ local all_group_joint_names = {}
 
 local last_status_message_tracking = "IDLE"
 
-local function initSetup()
-  ros.init('XamlaJointjoggingNode')
+local function initSetup(ns)
+  ros.init(ns)
   nodehandle = ros.NodeHandle()
   service_queue = ros.CallbackQueue()
 
@@ -152,7 +152,7 @@ end
 
 local function joggingJoystickServer(namespace)
   local ns = namespace or "jogging_joystick_server"
-  initSetup()
+  initSetup(ns)
   local nh = ros.NodeHandle()
   local psi = moveit.PlanningSceneInterface()
   local dt = ros.Duration(1/125)
@@ -178,20 +178,23 @@ local function joggingJoystickServer(namespace)
   --status
   status_server = nh:advertiseService(string.format('/%s/status',ns), get_status_spec, getStatusHandler)
 
-  cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(all_group_joint_names[1]), nil, dt)
-  cntr:connect(string.format('/%s/jogging_command',ns))
+  cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(all_group_joint_names[1]), "", dt)
+  while not cntr:connect(string.format('/%s/jogging_command',ns)) do
+    dt:sleep()
+    ros.spinOnce()
+  end
 
   local success = true
   while ros.ok() do
     if run then
       success, last_status_message_tracking = cntr:update()
+      if not success then
+        ros.WARN(last_status_message_tracking)
+        success = true -- one warning should be fine
+      end
     end
-    if not success then
-      ros.WARN(last_status_message_tracking)
-      success = true -- one warning should be fine
-    end
+    dt:sleep()
     ros.spinOnce()
-    cntr.dt:sleep()
     collectgarbage()
   end
   shutdownSetup()

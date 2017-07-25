@@ -52,8 +52,8 @@ function sendPositionCommand(q_des, q_dot, group)
     m.joint_names[ii] = names[ii]
   end
   mPoint.positions:set(q_des)
-  mPoint.velocities:set(q_dot) --TODO this is probably not optimal.
-  mPoint.time_from_start = ros.Time.now() - BEGIN_EXECUTION
+  mPoint.velocities:set(q_dot)
+  mPoint.time_from_start = ros.Duration(0.1)
   m.points = {mPoint}
 
   publisherPointPositionCtrl:publish(m)
@@ -104,6 +104,7 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
   elseif torch.type(dt) == 'nil' then
     self.dt = ros.Duration(0.01)
   elseif torch.type(dt) == 'ros.Duration' then
+    ros.INFO("rosDuration as dt received")
     self.dt = dt
   else
     error('dt has unsupported type')
@@ -122,8 +123,10 @@ end
 local function satisfiesBounds(self, positions)
   local state = self.state:clone()
   state:setVariablePositions(positions, self.joint_monitor:getJointNames())
-  if not state:satisfiesBounds() then
-    ros.ERROR('Target position is out of bounds!!')
+  if not state:satisfiesBounds(0.0) then
+    state:enforceBounds()
+    positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
+    ros.WARN('Target position is out of bounds!!')
     return false, 'Target position is out of bounds!!'
   end
   return true, 'Success'
@@ -161,7 +164,7 @@ function JointJoggingController:connect(topic, timeout)
   self.subscriber_jog = self.nh:subscribe(topic, joint_pos_spec , 1)
   self.subscriber_jog:registerCallback(function (msg, header) jointCommandCb(self, msg, header) end)
   ros.INFO('Subscribed to \'joy\' node. Please start using your jogging device.')
-  local ready = self.joint_monitor:waitReady(timeout)
+  local ready = self.joint_monitor:waitReady()
   if not ready then
     return false, 'Could not collect joint states'
   end
@@ -186,13 +189,10 @@ end
 
 
 function JointJoggingController:updateDeltaT()
-    self.dt = ros.Time.now() - self.time_last
-    while self.dt:toSec() < 0.008 do -- dt set to 125Hz
-      self.dt = ros.Time.now() - self.time_last
+    local dt = ros.Time.now() - self.time_last
+    while dt:toSec() < self.dt:toSec() do -- dt set to 125Hz
+      dt = ros.Time.now() - self.time_last
     end
-    self.dt_monitor:add(torch.zeros(1)+self.dt:toSec())
-    local tmpDT = torch.mean(self.dt_monitor.buffer[{{1,self.dt_monitor:count()},{}}])
-    --self.dt:fromSec(tmpDT)
     self.time_last = ros.Time.now();
     ros.DEBUG(string.format('Delta Time: %dHz', 1/self.dt:toSec()))
 end
@@ -208,20 +208,19 @@ function JointJoggingController:tracking(q_dot, duration)
   local state = self.state:clone()
 
   local q_des = self.lastCommandJointPositons + q_dot
-
-  if not self.CONVERED then
+  if not self.CONVERED or self.FIRSTPOINT then
     if self:isValid(q_des, self.lastCommandJointPositons) then
       if not publisherPointPositionCtrl then
         local myTopic = string.format('%s/joint_command',self.controller_name)
         ros.WARN(myTopic)
         publisherPointPositionCtrl = self.nh:advertise(myTopic, joint_pos_spec)
       end
-      if self.FIRSTPOINT then
-        sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
-        self.FIRSTPOINT = false
-      else
+      --if self.FIRSTPOINT then
+      --  sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
+      --  self.FIRSTPOINT = false
+      --else
         sendPositionCommand(q_des, q_dot, group, duration)
-      end
+      --end
       self.lastCommandJointPositons:copy(q_des)
     else
       if publisherPointPositionCtrl then
@@ -231,8 +230,6 @@ function JointJoggingController:tracking(q_dot, duration)
       ros.ERROR('command is not valid!!!')
       return false, 'command is not valid!!!'
     end
-  else
-    self.lastCommandJointPositons = state:copyJointGroupPositions(group:getName()):clone()
   end
 
   if self.debug then
@@ -258,32 +255,30 @@ end
 
 
 function JointJoggingController:getNewRobotState()
-  ros.spinOnce()
-  local p,l = self.joint_monitor:getNextPositionsTensor()
+  local p,l = self.joint_monitor:getNextPositionsTensor(self.dt*2)
   self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
   self.lastCommandJointPositons:copy(p)
-  --ros.ERROR('getNew RobotSTATE')
 end
 
 
 function JointJoggingController:update()
-
+  self:getNewRobotState()
   if self.CONVERED then
-    self:getNewRobotState()
     self.start_time = ros.Time.now()
-  else
-    self.state:setVariablePositions(self.lastCommandJointPositons, self.joint_monitor:getJointNames())
   end
 
   self:updateDeltaT()
 
   local curr_time = ros.Time.now()
-  if self.new_message then
-    local succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)
-    self.lastCommandJointVelocity:zeros()
+  local succ, msg = true, "IDLE"
+  if self.new_message and ros.ok() then
+    succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)
+    print(self.lastCommandJointVelocity)
+    self.lastCommandJointVelocity:zero()
     self.new_message = false
-    return succ, msg
   end
+
+  return succ, msg
 end
 
 
