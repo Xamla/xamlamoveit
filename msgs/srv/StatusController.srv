@@ -4,3 +4,4 @@ string in_topic
 string out_topic
 string move_group_name
 string[] joint_names
+string status_message_tracking

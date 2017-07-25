@@ -3,7 +3,7 @@ local ros = require 'ros'
 local tf = ros.tf
 require 'ros.actionlib.SimpleActionServer'
 local GoalStatus = require 'ros.actionlib.GoalStatus'
-local controller =require 'xamlamoveit.controller'
+local controller = require 'xamlamoveit.controller'
 local actionlib = ros.actionlib
 
 local moveit = require 'moveit'
@@ -12,17 +12,20 @@ local planning = xamlamoveit.planning
 
 local xutils = xamlamoveit.xutils
 local printf = xutils.printf
+local xtable = xutils.Xtable
 
 local nodehandle, sp
 
 local cntr
 local run = false
 
-all_EE_parent_group_names, all_EE_parent_link_names  = {},{}
-all_group_joint_names = {}
+local all_EE_parent_group_names, all_EE_parent_link_names  = {},{}
+local all_group_joint_names = {}
+
+local last_status_message_tracking = "IDLE"
 
 local function initSetup()
-  ros.init('MoveActions')
+  ros.init('XamlaJointjoggingNode')
   nodehandle = ros.NodeHandle()
   service_queue = ros.CallbackQueue()
 
@@ -36,26 +39,24 @@ local function shutdownSetup()
   ros.shutdown()
 end
 
-srv_spec = ros.SrvSpec('roscpp/GetLoggers')
-get_string_spec = ros.SrvSpec('std_srvs/Trigger')
-set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
-get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
-set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
+local srv_spec = ros.SrvSpec('roscpp/GetLoggers')
+local get_string_spec = ros.SrvSpec('std_srvs/Trigger')
+local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
+local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
+local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
 
-print(srv_spec)
-
-function getMoveGroupHandler(request, response, header)
-
-  return true
-end
 
 local function findString(my_string, collection)
-  for i,v in ipairs(collection) do
-    if v == my_string then
-      return true, i
-    end
+  local index = -1
+  if torch.type(collection) == 'table' then
+    index = table.indexof(collection, my_string)
   end
-  return false
+
+  if index > -1 then
+    return true, index
+  else
+    return false, index
+  end
 end
 
 function setMoveGroupHandler(request, response, header)
@@ -82,17 +83,19 @@ function setMoveGroupHandler(request, response, header)
   return true
 end
 
+
 function getMoveGroupHandler(request, response, header)
-    response.success = true
-    response.message = cntr.move_group:getName()
-    return true
+  response.success = true
+  response.message = cntr.move_group:getName()
+  return true
 end
+
 
 function setControllerNameHandler(request, response, header)
   local new_controller_name = request.data
   if new_controller_name == nil or  new_controller_name == "" then
-      response.success = false
-      response.message = "string is empty"
+    response.success = false
+    response.message = "string is empty"
   end
   run = false
   response.success = true
@@ -116,12 +119,13 @@ end
 function startStopHandler(request, response, header)
   local startStop = request.data
   if startStop == nil  then
-      response.success = false
-      response.message = "bool is nil"
+    response.success = false
+    response.message = "bool is nil"
+    return true
   end
   run = startStop
   response.success = true
-  response.in_topic = "Success"
+  response.message = "Success"
   return true
 end
 
@@ -142,6 +146,7 @@ function getStatusHandler(request, response, header)
   response.joint_names = cntr.joint_monitor:getJointNames()
   response.out_topic = cntr:getOutTopic()
   response.in_topic = cntr:getInTopic()
+  response.status_message_tracking = last_status_message_tracking
   return true
 end
 
@@ -176,10 +181,14 @@ local function joggingJoystickServer(namespace)
   cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(all_group_joint_names[1]), nil, dt)
   cntr:connect(string.format('/%s/jogging_command',ns))
 
-
+  local success = true
   while ros.ok() do
     if run then
-      cntr:update()
+      success, last_status_message_tracking = cntr:update()
+    end
+    if not success then
+      ros.WARN(last_status_message_tracking)
+      success = true -- one warning should be fine
     end
     ros.spinOnce()
     cntr.dt:sleep()
