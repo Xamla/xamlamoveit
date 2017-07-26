@@ -121,7 +121,7 @@ function main()
       elseif input == 'q' then
         break;
       end
-      ros:spinOnce()
+      ros.spinOnce()
   end
 
   publisherPointPositionCtrl:shutdown()

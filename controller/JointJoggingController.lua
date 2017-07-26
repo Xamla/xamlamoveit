@@ -39,7 +39,7 @@ end
 
 ---
 --@param desired joint angle position
-function sendPositionCommand(q_des, q_dot, group)
+local function sendPositionCommand(q_des, q_dot, group)
   ros.INFO('sendPositionCommand')
   local m = ros.Message(joint_pos_spec)
   local mPoint = ros.Message(test_spec)
@@ -145,6 +145,7 @@ local function satisfiesBounds(self, positions)
       return false, 'Self Collision detected!!'
     end
   end
+  return true, 'Success'
 end
 
 --@param desired joint angle position

@@ -26,21 +26,20 @@ local function initializeMoveIt(groupName, velocityScaling)
   return manipulator, planningSceneInterface
 end
 
-function main()
-
+function main(params)
   ros.init('JoystickTest')
   -- What does this command?
   local nodehandle = ros.NodeHandle()
   local sp = ros.AsyncSpinner()  -- background job
   sp:start()
 
-  local moveGroup, psi = initializeMoveIt("arm_left")
-  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, "/joy", "", 1/124, false)
-  joyCtr:connect()
+  local moveGroup, psi = initializeMoveIt(params.groupName)
+  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, "", 1/124, false)
+  joyCtr:connect(params.topic)
 
   while ros.ok() do
       joyCtr:update()
-      ros:spinOnce()
+      ros.spinOnce()
   end
 
 
@@ -50,5 +49,9 @@ function main()
   ros.shutdown()
 end
 
+local cmd=torch.CmdLine()
+cmd:option('-topic', "/joy", 'Topic to expect joystick messages.')
+cmd:option('-groupName', "arm_left", "Move Group Id prepared by moveit")
+local params = cmd:parse(arg)
 
-main()
+main(params)

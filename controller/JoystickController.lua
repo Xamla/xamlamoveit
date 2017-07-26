@@ -1,4 +1,5 @@
 local ros = require 'ros'
+local moveit = require 'moveit'
 local tf = ros.tf
 local timer = torch.Timer()
 local planning = require 'xamlamoveit.planning'
@@ -63,7 +64,7 @@ local test_spec = ros.MsgSpec('trajectory_msgs/JointTrajectoryPoint')
 local joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 ---
 --@param desired joint angle position
-function sendPositionCommand(q_des, q_dot, group)
+local function sendPositionCommand(q_des, q_dot, group)
   ros.INFO("sendPositionCommand")
   local m = ros.Message(joint_pos_spec)
   local mPoint = ros.Message(test_spec)
@@ -87,7 +88,7 @@ local max_vel = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.18
 local controller = require 'xamlamoveit.controller.env'
 local JoystickController = torch.class("xamlamoveit.controller.JoystickController",controller)
 
-function JoystickController:__init(node_handle, move_group, ft_topic, ctr_name, dt, debug)
+function JoystickController:__init(node_handle, move_group, ctr_name, dt, debug)
 
   self.debug = debug or false
   if self.debug then
@@ -136,6 +137,11 @@ function JoystickController:__init(node_handle, move_group, ft_topic, ctr_name, 
   BEGIN_EXECUTION = ros.Time.now()
 
   self.controller_name = ctr_name or 'pos_based_pos_traj_controller'
+
+  self.robot_model_loader = moveit.RobotModelLoader("robot_description")
+  self.kinematic_model = self.robot_model_loader:getModel()
+  self.planning_scene = moveit.PlanningScene(self.kinematic_model)
+  print(self.kinematic_model:printModelInfo())
 end
 
 local function clamp(t, min, max)
@@ -165,15 +171,30 @@ function JoystickController:getCurrentPose()
   return self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
 end
 
+
 local function satisfiesBounds(self, positions)
   local state = self.state:clone()
   state:setVariablePositions(positions, self.joint_monitor:getJointNames())
-  if not state:satisfiesBounds() then
-    ros.ERROR("Target position is out of bounds!!")
-    return false
+  local collisions = self.planning_scene:checkSelfCollision(state)
+  if state:satisfiesBounds(0.0) then
+    if collisions then
+      ros.ERROR("Self Collision detected")
+      return false, 'Self Collision detected!!'
+    end
+  else
+    state:enforceBounds()
+    positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
+    collisions = self.planning_scene:checkSelfCollision(state)
+    if not collisions then
+      ros.WARN('Target position is out of bounds!!')
+      return true, 'Target position is out of bounds!!'
+    else
+      return false, 'Self Collision detected!!'
+    end
   end
-  return true
+  return true, 'Success'
 end
+
 
 --@param desired joint angle position
 function JoystickController:isValid(q_des, q_curr) -- avoid large jumps in posture values and check if q_des tensor is valid
@@ -217,6 +238,7 @@ function JoystickController:getTeleoperationForces()
   end
 
   while self.subscriber_joy:hasMessage() do
+    ros.WARN("NEW MESSAGE RECEIVED")
     newMessage = true
     msg = self.subscriber_joy:read()
   end
@@ -464,7 +486,10 @@ function JoystickController:update()
   --xBox 360 Joystick
   --self.current_pose = self.move_group:getCurrentPose()
   local deltaForces, detlaTorques, buttonEvents, newMessage = self:getTeleoperationForces()
-
+  ros.INFO("deltaForces")
+  ros.INFO(tostring(deltaForces))
+  ros.INFO("detlaTorques")
+  ros.INFO(tostring(detlaTorques))
   if newMessage then
     self:handleButtonsEvents(buttonEvents)
   end
@@ -472,10 +497,7 @@ function JoystickController:update()
   if (torch.norm(deltaForces)+torch.norm(detlaTorques)) < 0.1 then -- only reset the timer if almost zero changes are applied to avoid rapid accellarations
     self.start_time = ros.Time.now()
   end
-  ros.INFO("deltaForces")
-  ros.INFO(tostring(deltaForces))
-  ros.INFO("detlaTorques")
-  ros.INFO(tostring(detlaTorques))
+
   if self.converged then
     self:getNewRobotState()
   else
@@ -488,7 +510,8 @@ function JoystickController:update()
   local curr_time = ros.Time.now()
   local q_dot = self:getStep(deltaForces, detlaTorques, curr_time-self.start_time)
   if self.dt:toSec()>0.15 then
-    ros.ERROR("dt is to large !!")
+
+    ros.ERROR("dt is to large !!" .. self.dt:toSec())
     q_dot:zero()
   end
 
@@ -557,7 +580,7 @@ function JoystickController:moveToOrthogonalPose()
   end
 
   ros.INFO("Drive to orthogonal pose")
-  local zAxis = normalize(torch.Tensor({0,0,-1}))
+  local zAxis = normalize(torch.Tensor({0,0,1}))
   local basePose = self.move_group:getCurrentPose():toTensor()
   local xAxis = basePose[{1,{1,3}}]
   local yAxis = -normalize(torch.cross(xAxis, zAxis))
@@ -569,7 +592,7 @@ function JoystickController:moveToOrthogonalPose()
   p[{3,{1,3}}] = zAxis
   p[{{1,3},4}] = basePose[{{1,3}, 4}]   -- keep position
 
-  self.ctrl:movep(p, nil, nil, SPEED_LIMIT[currentSpeedLimit])
+  --self.ctrl:movep(p, nil, nil, SPEED_LIMIT[currentSpeedLimit])
   local succ, plan = self.ctrl:movep(p, nil, nil, SPEED_LIMIT[currentSpeedLimit])
   if succ then
     self.move_group:execute(plan)
