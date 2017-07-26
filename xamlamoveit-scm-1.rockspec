@@ -17,7 +17,8 @@ dependencies = {
    "torch >= 7.0",
    "torch-moveit",
    "dmp",
-   "optimplan"
+   "optimplan",
+   "luaposix"
 }
 
 build = {
