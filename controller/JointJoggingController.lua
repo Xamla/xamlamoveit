@@ -1,5 +1,5 @@
-local ros = require('ros')
-local moveit = require('moveit')
+local ros = require 'ros'
+local moveit = require 'moveit'
 local tf = ros.tf
 local timer = torch.Timer()
 local planning = require 'xamlamoveit.planning'
@@ -118,18 +118,33 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
   self.controller_name = ctr_name or 'pos_based_pos_traj_controller'
   self.seq = 1
   self.new_message = false
+
+  self.robot_model_loader = moveit.RobotModelLoader("robot_description")
+  self.kinematic_model = self.robot_model_loader:getModel()
+  self.planning_scene = moveit.PlanningScene(self.kinematic_model)
+  print(self.kinematic_model:printModelInfo())
 end
 
 local function satisfiesBounds(self, positions)
   local state = self.state:clone()
   state:setVariablePositions(positions, self.joint_monitor:getJointNames())
-  if not state:satisfiesBounds(0.0) then
+  local collisions = self.planning_scene:checkSelfCollision(state)
+  if state:satisfiesBounds(0.0) then
+    if collisions then
+      ros.ERROR("Self Collision detected")
+      return false, 'Self Collision detected!!'
+    end
+  else
     state:enforceBounds()
     positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
-    ros.WARN('Target position is out of bounds!!')
-    return false, 'Target position is out of bounds!!'
+    collisions = self.planning_scene:checkSelfCollision(state)
+    if not collisions then
+      ros.WARN('Target position is out of bounds!!')
+      return true, 'Target position is out of bounds!!'
+    else
+      return false, 'Self Collision detected!!'
+    end
   end
-  return true, 'Success'
 end
 
 --@param desired joint angle position

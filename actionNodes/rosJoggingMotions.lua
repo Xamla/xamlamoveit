@@ -1,13 +1,12 @@
 #!/usr/bin/env th
 local ros = require 'ros'
 local tf = ros.tf
-require 'ros.actionlib.SimpleActionServer'
-local GoalStatus = require 'ros.actionlib.GoalStatus'
-local controller = require 'xamlamoveit.controller'
-local actionlib = ros.actionlib
-
 local moveit = require 'moveit'
 local xamlamoveit = require 'xamlamoveit'
+local controller = xamlamoveit.controller
+
+
+
 local planning = xamlamoveit.planning
 
 local xutils = xamlamoveit.xutils

@@ -1,4 +1,4 @@
-local ros = require('ros')
+local ros = require 'ros'
 local tf = ros.tf
 local timer = torch.Timer()
 local planning = require 'xamlamoveit.planning'
