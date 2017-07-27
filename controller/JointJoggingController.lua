@@ -122,13 +122,15 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
   self.robot_model_loader = moveit.RobotModelLoader("robot_description")
   self.kinematic_model = self.robot_model_loader:getModel()
   self.planning_scene = moveit.PlanningScene(self.kinematic_model)
+  self.planning_scene:syncPlanningScene()
   print(self.kinematic_model:printModelInfo())
 end
 
 local function satisfiesBounds(self, positions)
   local state = self.state:clone()
   state:setVariablePositions(positions, self.joint_monitor:getJointNames())
-  local collisions = self.planning_scene:checkSelfCollision(state)
+  self.planning_scene:syncPlanningScene()
+  local collisions = self.planning_scene:checkSelfCollision(state) or self.planning_scene:isStateColliding(self.move_group,state)
   if state:satisfiesBounds(0.0) then
     if collisions then
       ros.ERROR("Self Collision detected")
@@ -179,7 +181,7 @@ function JointJoggingController:connect(topic, timeout)
   local topic = topic or 'joy'
   self.subscriber_jog = self.nh:subscribe(topic, joint_pos_spec , 1)
   self.subscriber_jog:registerCallback(function (msg, header) jointCommandCb(self, msg, header) end)
-  ros.INFO('Subscribed to \'joy\' node. Please start using your jogging device.')
+  ros.INFO(string.format('Subscribed to \'%s\' node. Please start using your jogging device.',topic))
   local ready = self.joint_monitor:waitReady()
   if not ready then
     return false, 'Could not collect joint states'

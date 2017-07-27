@@ -25,7 +25,7 @@ local last_status_message_tracking = "IDLE"
 
 local function initSetup(ns)
   ros.init(ns)
-  nodehandle = ros.NodeHandle()
+  nodehandle = ros.NodeHandle("~")
   service_queue = ros.CallbackQueue()
 
   sp = ros.AsyncSpinner()  -- background job
@@ -149,10 +149,11 @@ function getStatusHandler(request, response, header)
   return true
 end
 
-local function joggingJoystickServer(namespace)
-  local ns = namespace or "jogging_joystick_server"
-  initSetup(ns)
-  local nh = ros.NodeHandle()
+local function joggingJoystickServer()
+
+  initSetup("joggingJoystickServer")
+  local nh = nodehandle
+  local ns = nh:getNamespace()
   local psi = moveit.PlanningSceneInterface()
   local dt = ros.Duration(1/125)
 
@@ -164,21 +165,21 @@ local function joggingJoystickServer(namespace)
 
   ---Services
   --set_limits
-  set_limits_server = nh:advertiseService(string.format('/%s/set_velocity_limits',ns), srv_spec, myServiceHandler)
-  get_limits_server = nh:advertiseService(string.format('/%s/get_velocity_limits',ns), srv_spec, myServiceHandler)
+  set_limits_server = nh:advertiseService('set_velocity_limits', srv_spec, myServiceHandler)
+  get_limits_server = nh:advertiseService('get_velocity_limits', srv_spec, myServiceHandler)
   --set_movegroup
-  set_movegroup_server = nh:advertiseService(string.format('/%s/set_movegroup_name',ns), set_string_spec, setMoveGroupHandler)
-  get_movegroup_server = nh:advertiseService(string.format('/%s/get_movegroup_name',ns), get_string_spec, getMoveGroupHandler)
+  set_movegroup_server = nh:advertiseService('set_movegroup_name', set_string_spec, setMoveGroupHandler)
+  get_movegroup_server = nh:advertiseService('get_movegroup_name', get_string_spec, getMoveGroupHandler)
 
-  set_controller_name_server = nh:advertiseService(string.format('/%s/set_controller_name',ns), set_string_spec, setControllerNameHandler)
-  get_controller_name_server = nh:advertiseService(string.format('/%s/get_controller_name',ns), get_string_spec, getControllerNameHandler)
+  set_controller_name_server = nh:advertiseService('set_controller_name', set_string_spec, setControllerNameHandler)
+  get_controller_name_server = nh:advertiseService('get_controller_name', get_string_spec, getControllerNameHandler)
 
-  start_stop_server = nh:advertiseService(string.format('/%s/start_stop_tracking',ns), set_bool_spec, startStopHandler)
+  start_stop_server = nh:advertiseService('start_stop_tracking', set_bool_spec, startStopHandler)
   --status
-  status_server = nh:advertiseService(string.format('/%s/status',ns), get_status_spec, getStatusHandler)
+  status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 
   cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(all_group_joint_names[1]), "", dt)
-  while not cntr:connect(string.format('/%s/jogging_command',ns)) do
+  while not cntr:connect(string.format('%s/jogging_command',ns)) do
     dt:sleep()
     ros.spinOnce()
   end

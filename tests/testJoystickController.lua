@@ -29,7 +29,7 @@ end
 function main(params)
   ros.init('JoystickTest')
   -- What does this command?
-  local nodehandle = ros.NodeHandle()
+  local nodehandle = ros.NodeHandle("~")
   local sp = ros.AsyncSpinner()  -- background job
   sp:start()
 
