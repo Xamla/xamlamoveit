@@ -34,12 +34,11 @@ function main(params)
   sp:start()
 
   local moveGroup, psi = initializeMoveIt(params.groupName)
-  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, "", 1/124, false)
+  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, params.controller_name, 1/124, false)
   joyCtr:connect(params.topic)
-
   while ros.ok() do
-      joyCtr:update()
-      ros.spinOnce()
+    joyCtr:update()
+    ros.spinOnce()
   end
 
 
@@ -52,6 +51,7 @@ end
 local cmd=torch.CmdLine()
 cmd:option('-topic', "/joy", 'Topic to expect joystick messages.')
 cmd:option('-groupName', "arm_left", "Move Group Id prepared by moveit")
+cmd:option('-controller_name', "", "basicly the namespace where we find the joint_command topic")
 local params = cmd:parse(arg)
 
 main(params)

@@ -83,6 +83,22 @@ local function sendPositionCommand(q_des, q_dot, group)
 
   publisherPointPositionCtrl:publish(m)
 end
+
+local function createVariableNameMap(self)
+  local variable_names = self.state:getVariableNames()
+  local joint_state_names = self.joint_monitor:getJointNames()
+  local map = {}
+  local counter = 1
+  for i,v in ipairs(variable_names) do
+    local index = table.indexof(joint_state_names, v)
+    if index > -1 then
+      map[v] = counter
+      counter = counter + 1
+    end
+  end
+  return map
+end
+
 local max_acc = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978})
 local max_vel = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978})
 local controller = require 'xamlamoveit.controller.env'
@@ -102,11 +118,15 @@ function JoystickController:__init(node_handle, move_group, ctr_name, dt, debug)
   self.x_des = nil
   self.q_des = nil
   self.move_group = move_group or error("move_group should not be nil")
+
+
+  self.converged = false
   self.state = move_group:getCurrentState()
   self.lastCommandJointPositons = self.state:copyJointGroupPositions(move_group:getName()):clone()
-  self.current_pose = self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
-  self.converged = false
+  --self.lastCommandJointVelocity = torch.zeros(self.lastCommandJointPositons:size())
   self.joint_monitor = xutils.JointMonitor(move_group:getActiveJoints():totable())
+  self.positionNameMap = createVariableNameMap(self)
+  self.current_pose = self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
   self.time_last = ros.Time.now()
 
   local ready = false
@@ -114,7 +134,6 @@ function JoystickController:__init(node_handle, move_group, ctr_name, dt, debug)
     ready = self.joint_monitor:waitReady(0.01)
     ros.ERROR('joint states not ready')
   end
-
   print(self.joint_monitor:getNextPositionsTensor())
 
   if torch.type(dt) == 'number' or torch.type(dt) == 'nil' then
@@ -141,7 +160,9 @@ function JoystickController:__init(node_handle, move_group, ctr_name, dt, debug)
   self.robot_model_loader = moveit.RobotModelLoader("robot_description")
   self.kinematic_model = self.robot_model_loader:getModel()
   self.planning_scene = moveit.PlanningScene(self.kinematic_model)
+  self.planning_scene:syncPlanningScene()
   print(self.kinematic_model:printModelInfo())
+  self.robotControllerTopic = string.format('/%s/joint_command',self.controller_name)
 end
 
 local function clamp(t, min, max)
@@ -166,7 +187,6 @@ local function inverse(M)
   return M:t()*torch.inverse(M*M:t())
 end
 
-
 function JoystickController:getCurrentPose()
   return self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
 end
@@ -175,7 +195,8 @@ end
 local function satisfiesBounds(self, positions)
   local state = self.state:clone()
   state:setVariablePositions(positions, self.joint_monitor:getJointNames())
-  local collisions = self.planning_scene:checkSelfCollision(state)
+  self.planning_scene:syncPlanningScene()
+  local collisions = self.planning_scene:checkSelfCollision(state) or self.planning_scene:isStateColliding(self.move_group:getName(),state)
   if state:satisfiesBounds(0.0) then
     if collisions then
       ros.ERROR("Self Collision detected")
@@ -291,7 +312,6 @@ function JoystickController:getTeleoperationForces()
   deltatorques[1] = self.right_joy[1] -- Pitch
   deltatorques[2] = self.right_joy[2] -- Yaw
   deltatorques[3] = -self.dpad[1] * stepSizeR -- Roll
-
   return deltaforces/2, deltatorques/2, buttonEvents, newMessage --TODO make this more suffisticated
 end
 
@@ -317,16 +337,24 @@ function JoystickController:tracking(q_dot, duration)
   duration = duration or ros.Time.now() - BEGIN_EXECUTION
   local group = self.move_group
   local state = self.state:clone()
-
   local q_des = self.lastCommandJointPositons + q_dot
+  if q_dot:norm() < 1e-12 then
+    self.converged = true
+    --BEGIN_EXECUTION = ros.Time.now()
+    self.FIRSTPOINT = true
+  else
+    self.converged = false
+    self.FIRSTPOINT = false
+    ros.WARN("tracking is NOT CONVERED")
+  end
 
   if not self.converged then
     if self:isValid(q_des, self.lastCommandJointPositons) then
       if not publisherPointPositionCtrl then
-        local myTopic = string.format("%s/joint_command",self.controller_name)
-        ros.WARN(myTopic)
-        publisherPointPositionCtrl = self.nh:advertise(string.format(myTopic, self.controller_name), joint_pos_spec)
+        publisherPointPositionCtrl = self.nh:advertise(self.robotControllerTopic, joint_pos_spec)
+        ros.WARN(publisherPointPositionCtrl:getTopic())
       end
+      --[[
       if self.FIRSTPOINT then
         sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
         self.FIRSTPOINT = false
@@ -335,6 +363,8 @@ function JoystickController:tracking(q_dot, duration)
         ros.INFO("GoGoGo")
         sendPositionCommand(q_des, q_dot, group, duration)
       end
+      ]]
+      sendPositionCommand(q_des, q_dot, group, duration)
       self.lastCommandJointPositons:copy(q_des)
     else
       if publisherPointPositionCtrl then
@@ -342,7 +372,7 @@ function JoystickController:tracking(q_dot, duration)
       end
       publisherPointPositionCtrl = nil
       ros.ERROR("command is not valid!!!")
-      --os.exit()
+      return false, 'command is not valid!!!'
     end
   else
     self.lastCommandJointPositons = state:copyJointGroupPositions(group:getName()):clone()
@@ -356,15 +386,8 @@ function JoystickController:tracking(q_dot, duration)
     ros.DEBUG((tostring(q_dot)))
   end
 
-  if q_dot:norm() < 1e-12 then
-    self.converged = true
-    --BEGIN_EXECUTION = ros.Time.now()
-    self.FIRSTPOINT = true
-  else
-    self.converged = false
-    self.FIRSTPOINT = false
-    ros.WARN("tracking is NOT CONVERED")
-  end
+
+  return true, 'success'
 end
 
 
@@ -458,27 +481,32 @@ function JoystickController:handleButtonsEvents(buttonEvents)
 end
 
 
+local function taskStep (delta, vel) -- simple clipping
+  local step = vel
+  local size = torch.norm(step)
+  if (size > delta) then
+	 step = step * (delta / size)
+  end
+  return step
+end
+
+
 function JoystickController:getQdot(vel6D)
   local jac = self.state:getJacobian(self.move_group:getName())
-
-  local inv_jac = inverse(jac)
-  local jacobian_condition = torch.norm(jac) * torch.norm(inv_jac)
-  if jacobian_condition > 50 then
-    ros.ERROR(string.format("detected ill-conditioned Jacobian: %f", jacobian_condition))
-    --vel6D:zero()
-  end
-
-  return inv_jac*(vel6D*self.dt:toSec()), jac
+  local delta = 0.005
+  local delta_task = taskStep(delta, vel6D)
+  local weight_task = 0.5
+  local weight_anything = 0.5
+  local tmp = torch.cat({jac, (delta_task*weight_task),(torch.diag(torch.ones(6)*weight_anything))})
+  local delta_q = inverse(tmp) * delta_task
+  return delta_q[{{1,jac:size(2)}}], jac
 end
 
 
 function JoystickController:getNewRobotState()
-  ros.spinOnce()
-  local p,l = self.joint_monitor:getNextPositionsTensor()
+  local p,l = self.joint_monitor:getNextPositionsTensor(self.dt*2)
   self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
   self.lastCommandJointPositons:copy(p)
-  self.current_pose = self:getCurrentPose()
-  --ros.ERROR("getNew RobotSTATE")
 end
 
 
@@ -486,23 +514,17 @@ function JoystickController:update()
   --xBox 360 Joystick
   --self.current_pose = self.move_group:getCurrentPose()
   local deltaForces, detlaTorques, buttonEvents, newMessage = self:getTeleoperationForces()
-  ros.INFO("deltaForces")
-  ros.INFO(tostring(deltaForces))
-  ros.INFO("detlaTorques")
-  ros.INFO(tostring(detlaTorques))
+  self:getNewRobotState()
+  ros.DEBUG("deltaForces")
+  ros.DEBUG(tostring(deltaForces))
+  ros.DEBUG("detlaTorques")
+  ros.DEBUG(tostring(detlaTorques))
   if newMessage then
     self:handleButtonsEvents(buttonEvents)
   end
 
-  if (torch.norm(deltaForces)+torch.norm(detlaTorques)) < 0.1 then -- only reset the timer if almost zero changes are applied to avoid rapid accellarations
-    self.start_time = ros.Time.now()
-  end
-
   if self.converged then
-    self:getNewRobotState()
-  else
-    self.state:setVariablePositions(self.lastCommandJointPositons, self.joint_monitor:getJointNames())
-    self.current_pose = self:getCurrentPose()
+    self.start_time = ros.Time.now()
   end
 
   self:updateDeltaT()
@@ -510,34 +532,15 @@ function JoystickController:update()
   local curr_time = ros.Time.now()
   local q_dot = self:getStep(deltaForces, detlaTorques, curr_time-self.start_time)
   if self.dt:toSec()>0.15 then
-
     ros.ERROR("dt is to large !!" .. self.dt:toSec())
     q_dot:zero()
   end
 
+  local succ, msg = true, "IDLE"
   if buttonEvents.empty then
-    --while torch.max(torch.abs(q_dot)) > 0.001 do
-    --q_reference = clamp(q_dot , -max_vel, max_vel)   -- limit to max velocity
-    --while (q_dot - q_reference):norm() > 0.0 do
-      q_dot = self:getStep(deltaForces, detlaTorques, curr_time-self.start_time)
-      --q_reference = clamp(q_dot , -max_vel, max_vel)   -- limit to max velocity
-      --ros.INFO("clipping on !!")
-      --os.exit()
-    --end
-    self:tracking(q_dot:clone(), self.dt)
-
-    --[[
-      local q_des = self.lastCommandJointPositons + q_dot
-    local succ, msg ,plan = self.ctrl:moveq(q_des,SPEED_LIMIT[currentSpeedLimit])
-    if succ then
-      if plan then
-        self.move_group:execute(plan)
-      end
-    else
-      ros.ERROR(msg)
-    end
-    ]]
+      succ, msg = self:tracking(q_dot:clone(), self.dt)
   end
+  return succ, msg
 end
 
 
