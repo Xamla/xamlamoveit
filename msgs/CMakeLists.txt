@@ -62,6 +62,7 @@ add_service_files(
    FILES
    QueryMoveGroupInterfaces.srv
    SetString.srv
+   GetSelected.srv
    StatusController.srv
 )
 

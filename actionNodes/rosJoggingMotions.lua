@@ -39,7 +39,7 @@ local function shutdownSetup()
 end
 
 local srv_spec = ros.SrvSpec('roscpp/GetLoggers')
-local get_string_spec = ros.SrvSpec('std_srvs/Trigger')
+local get_string_spec = ros.SrvSpec('xamlamoveit_msgs/GetSelected')
 local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
 local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
 local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
@@ -85,7 +85,9 @@ end
 
 function getMoveGroupHandler(request, response, header)
   response.success = true
-  response.message = cntr.move_group:getName()
+  response.selected = cntr.move_group:getName()
+  response.collection = all_group_joint_names
+  print(response)
   return true
 end
 
@@ -105,11 +107,9 @@ end
 function getControllerNameHandler(request, response, header)
   local name = cntr.controller_name
   if name then
-    response.success = true
-    response.message = name
+    response.selected = name
   else
-    response.success = false
-    response.message = ""
+    response.selected = ""
   end
   return true
 end

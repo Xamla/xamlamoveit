@@ -21,6 +21,14 @@ function MonitorBuffer:count()
 end
 
 
+function MonitorBuffer:getPastIndex(offset)
+  local offset = offset or 0
+  local tmp_index = self.WINDOW_SIZE + self.write_pos - offset
+  local index = tmp_index % self.WINDOW_SIZE + 1
+  return self.buffer[{index,{}}]:clone()
+end
+
+
 function MonitorBuffer:avail()
   return self.WINDOW_SIZE - self:count()
 end

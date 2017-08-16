@@ -1,0 +1,3 @@
+---
+string selected # informational, e.g. for selected option
+string[] collection
