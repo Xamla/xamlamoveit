@@ -1,4 +1,3 @@
-#!/usr/bin/env th
 local ros = require 'ros'
 local tf = ros.tf
 require 'ros.actionlib.SimpleActionServer'
@@ -19,100 +18,98 @@ local nodehandle, sp, worker, service_queue
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/QueryMoveGroupInterfaces')
 local msg_spec = ros.MsgSpec('xamlamoveit_msgs/MoveGroupInterfaceDescription')
 
-
 function query_service_handler(request, response, header)
-  local robot_model_loader = moveit.RobotModelLoader("robot_description")
-  local robot_model = robot_model_loader:getModel()
+    local robot_model_loader = moveit.RobotModelLoader('robot_description')
+    local robot_model = robot_model_loader:getModel()
 
-  local all_EE_parent_group_names, all_EE_parent_link_names  = robot_model:getEndEffectorParentGroups()
-  local all_group_joint_names = robot_model:getJointModelGroupNames()
+    local all_EE_parent_group_names, all_EE_parent_link_names = robot_model:getEndEffectorParentGroups()
+    local all_group_joint_names = robot_model:getJointModelGroupNames()
 
-  for k,v in pairs(all_group_joint_names) do
-    local l = ros.Message('xamlamoveit_msgs/MoveGroupInterfaceDescription')
-    l.name = v
-    l.move_group_ids = robot_model:getJointModelSubGroupNames(v)
-    table.insert(response.move_group_interfaces, l)
-  end
-  return true
+    for k, v in pairs(all_group_joint_names) do
+        local l = ros.Message('xamlamoveit_msgs/MoveGroupInterfaceDescription')
+        l.name = v
+        l.move_group_ids = robot_model:getJointModelSubGroupNames(v)
+        table.insert(response.move_group_interfaces, l)
+    end
+    return true
 end
-
 
 local function initSetup()
-  ros.init('MoveActions')
-  nodehandle = ros.NodeHandle()
-  service_queue = ros.CallbackQueue()
+    ros.init('MoveActions')
+    nodehandle = ros.NodeHandle()
+    service_queue = ros.CallbackQueue()
 
-  sp = ros.AsyncSpinner()  -- background job
-  worker = Worker(nodehandle)
-  sp:start()
+    sp = ros.AsyncSpinner() -- background job
+    worker = Worker(nodehandle)
+    sp:start()
 end
-
 
 local function shutdownSetup()
-  sp:stop()
-  ros.shutdown()
+    sp:stop()
+    ros.shutdown()
 end
 
-
 local function movePActionServerGoal(goal_handle)
-  ros.INFO("movePActionServerGoal")
+    ros.INFO('movePActionServerGoal')
 
-  local g = goal_handle:acceptNewGoal()
-  local suc = true
-  local traj = {
-      starttime = ros.Time.now(), duration = t1,
-      goal_handle = goal_handle, goal = g,
-      accept = function()
-        --goal_handle:setAccepted('Starting trajectory execution')
-        return true
-      end,
-      proceed = function()
-        --if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
-          return true
-        --else
-        --  ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
-        --  return false
-        --end
-      end,
-      abort = function(self, msg)
-        goal_handle:setAborted(nil, msg or 'Error')
-      end,
-      completed = function()
-        local r = goal_handle:createResult()
-        r.result = worker.errorCodes.SUCCESSFUL
-        goal_handle:setSucceeded(r, 'Completed')
-      end
+    local g = goal_handle:acceptNewGoal()
+    local suc = true
+    local traj = {
+        starttime = ros.Time.now(),
+        duration = t1,
+        goal_handle = goal_handle,
+        goal = g,
+        accept = function()
+            --goal_handle:setAccepted('Starting trajectory execution')
+            return true
+        end,
+        proceed = function()
+            --if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+            return true
+            --else
+            --  ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
+            --  return false
+            --end
+        end,
+        abort = function(self, msg)
+            goal_handle:setAborted(nil, msg or 'Error')
+        end,
+        completed = function()
+            local r = goal_handle:createResult()
+            r.result = worker.errorCodes.SUCCESSFUL
+            goal_handle:setSucceeded(r, 'Completed')
+        end
     }
 
     if suc then
-      worker:doTrajectoryAsync(traj)    -- queue for processing
+        worker:doTrajectoryAsync(traj) -- queue for processing
     else
-      -- trajectory is not valid, immediately abort it
-      ros.WARN('Aborting trajectory processing: ' .. reason)
-      local r = goal_handle:createResult()
-      r.result = worker.errorCodes.INVALID_GOAL
-      goal_handle:setRejected(r, 'Validation of trajectory failed')
+        -- trajectory is not valid, immediately abort it
+        ros.WARN('Aborting trajectory processing: ' .. reason)
+        local r = goal_handle:createResult()
+        r.result = worker.errorCodes.INVALID_GOAL
+        goal_handle:setRejected(r, 'Validation of trajectory failed')
     end
 end
 
-
 local function moveJActionServerCancel(goal_handle)
-  ros.INFO("moveJActionServerCancel")
-  goal_handle:setPreempted(nil, msg or 'Error')
+    ros.INFO('moveJActionServerCancel')
+    goal_handle:setPreempted(nil, msg or 'Error')
 end
 
-
 local function moveJActionServerGoal(goal_handle)
-  ros.INFO("moveJActionServerGoal")
-  local feedback = goal_handle:createFeeback()
-  local g = goal_handle:acceptNewGoal()
-  local traj = {
-    starttime = ros.Time.now(), duration = t1,
-    goal_handle = goal_handle, goal = g,
-    accept = function()
-      print("in accept")
-      return true
-      --[[
+    ros.INFO('moveJActionServerGoal')
+    local feedback = goal_handle:createFeeback()
+    local g = goal_handle:acceptNewGoal()
+    local traj = {
+        starttime = ros.Time.now(),
+        duration = t1,
+        goal_handle = goal_handle,
+        goal = g,
+        accept = function()
+            print('in accept')
+            return true
+            --[[
       if goal_handle:getGoalStatus().status == GoalStatus.PENDING then
         goal_handle:setAccepted('Starting trajectory execution')
         return true
@@ -121,9 +118,9 @@ local function moveJActionServerGoal(goal_handle)
         return false
       end
       ]]
-    end,
-    proceed = function()
-      --[[
+        end,
+        proceed = function()
+            --[[
         if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
         return true
       else
@@ -131,69 +128,66 @@ local function moveJActionServerGoal(goal_handle)
         return false
       end
       ]]
-      return true
-    end,
-    abort = function(self, msg)
-      goal_handle:setAborted(nil, msg or 'Error')
-    end,
-    completed = function()
-      local r = goal_handle:createResult()
-      r.result = worker.errorCodes.SUCCESSFUL
-      goal_handle:setSucceeded(r, 'Completed')
-    end
-  }
-   worker:doTrajectoryAsync(traj)    -- queue for processing
+            return true
+        end,
+        abort = function(self, msg)
+            goal_handle:setAborted(nil, msg or 'Error')
+        end,
+        completed = function()
+            local r = goal_handle:createResult()
+            r.result = worker.errorCodes.SUCCESSFUL
+            goal_handle:setSucceeded(r, 'Completed')
+        end
+    }
+    worker:doTrajectoryAsync(traj) -- queue for processing
 end
-
 
 local function moveP_ActionServer_Cancel(goal_handle)
-  ros.INFO("moveP_ActionServer_Cancel")
-  goal_handle:setPreempted(nil, 'NOT IMPLEMENTED YET')
+    ros.INFO('moveP_ActionServer_Cancel')
+    goal_handle:setPreempted(nil, 'NOT IMPLEMENTED YET')
 end
-
 
 local function moveActionServer()
-  initSetup()
+    initSetup()
 
-  --moveGroup = initializeMoveGroup()
-  local psi = moveit.PlanningSceneInterface()
-  environmentSetup.labRoboteur(psi)
-  --local dp = moveGroup:getCurrentPose()
-  local dt = 1/125
+    --moveGroup = initializeMoveGroup()
+    local psi = moveit.PlanningSceneInterface()
+    environmentSetup.labRoboteur(psi)
+    --local dp = moveGroup:getCurrentPose()
+    local dt = 1 / 125
 
-  ros.console.setLoggerLevel('actionlib', ros.console.Level.Warn)
+    ros.console.setLoggerLevel('actionlib', ros.console.Level.Warn)
 
-  local mj = actionlib.SimpleActionServer(nodehandle, 'moveJ_action', 'xamlamoveit_msgs/moveJ')
-  local mp = actionlib.SimpleActionServer(nodehandle, 'moveP_action', 'xamlamoveit_msgs/moveP')
-  --local ml = actionlib.ActionServer(nodehandle, 'test_action', 'actionlib/Test')
+    local mj = actionlib.SimpleActionServer(nodehandle, 'moveJ_action', 'xamlamoveit_msgs/moveJ')
+    local mp = actionlib.SimpleActionServer(nodehandle, 'moveP_action', 'xamlamoveit_msgs/moveP')
+    --local ml = actionlib.ActionServer(nodehandle, 'test_action', 'actionlib/Test')
 
-  mj:registerGoalCallback(moveJActionServerGoal)
-  mj:registerPreemptCallback(moveJActionServerCancel)
-  mp:registerGoalCallback(movePActionServerGoal)
-  mp:registerPreemptCallback(moveP_ActionServer_Cancel)
+    mj:registerGoalCallback(moveJActionServerGoal)
+    mj:registerPreemptCallback(moveJActionServerCancel)
+    mp:registerGoalCallback(movePActionServerGoal)
+    mp:registerPreemptCallback(moveP_ActionServer_Cancel)
 
-  print('Starting action server...')
-  mj:start()
-  mp:start()
-  --ml:start()
+    print('Starting action server...')
+    mj:start()
+    mp:start()
+    --ml:start()
 
-  info_server = nodehandle:advertiseService('/query_move_group_interface', srv_spec, query_service_handler, service_queue)
-  while ros.ok() do
-    worker:spin()
-    if not service_queue:isEmpty() then
-      print('[!] incoming service call')
-      service_queue:callAvailable()
+    info_server = nodehandle:advertiseService('/query_move_group_interface', srv_spec, query_service_handler, service_queue)
+    while ros.ok() do
+        worker:spin()
+        if not service_queue:isEmpty() then
+            print('[!] incoming service call')
+            service_queue:callAvailable()
+        end
+        ros.spinOnce()
+        collectgarbage()
     end
-    ros.spinOnce()
-    collectgarbage()
-  end
-  info_server:shutdown()
-  worker:shutdown()
-  mj:shutdown()
-  mp:shutdown()
-  --ml:shutdown()
-  shutdownSetup()
+    info_server:shutdown()
+    worker:shutdown()
+    mj:shutdown()
+    mp:shutdown()
+    --ml:shutdown()
+    shutdownSetup()
 end
-
 
 moveActionServer()

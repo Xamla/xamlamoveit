@@ -31,7 +31,6 @@ function testSyncApi()
 
   g.group_name.data = 'manipulator'
   g.goal.positions = testJointPosition
-  print(g)
   local state = ac:sendGoalAndWait(g, 5, 5)
   ros.INFO('Finished with states: %s (%d)', SimpleClientGoalState[state], state)
   local result = ac:getResult()

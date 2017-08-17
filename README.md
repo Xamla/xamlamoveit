@@ -3,6 +3,16 @@
 Provides specialized planning functions and sensore interfaces.
 
 ## Todo:
+### Robot emulation
+
+Node: [tvpSimulationNode](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/tvpSimulationNode.lua)
+
+Dieser Node ist aktuell nur auf den sda10d eingestellt. Dies kann aber leicht noch erweitert werden auf beliebige roboter typen.
+Der Node startet für jede controller gruppe, die in config spezfiziert ist, einen tvp-controler.
+Die config tabele muss mit der controller.yaml übereinstimmen damit moveit trajektorien abspielen kann.
+Die Joint states aktuallisieren sich mit einem feedback delay:
+- delay:  0.150 sec
+- cycleTime: 0.008 sec
 
 ### Jogging in JointSpace
  Node: [rosJoggingMotions](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/rosJoggingMotions.lua)

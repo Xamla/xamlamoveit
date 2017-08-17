@@ -3,7 +3,7 @@ local ros = require 'ros'
 local tf = ros.tf
 local controller = require 'xamlamoveit.controller'
 local TvpController = controller.TvpController
-local GenerativeSimulationWorker = require 'xamlamoveit.actionNodes.GenerativeSimulationWorker'
+local GenerativeSimulationWorker = require 'xamlamoveit.xutils.GenerativeSimulationWorker'
 local MonitorBuffer = require 'xamlamoveit.xutils.MonitorBuffer'
 
 local actionlib = ros.actionlib
@@ -42,6 +42,28 @@ local TrajectoryResultStatus = {
 }
 
 local config = {
+    {
+        name = '',
+        ns = '/sda10d',
+        group = 0,
+        joints = {
+            'arm_left_joint_1_s',
+            'arm_left_joint_2_l',
+            'arm_left_joint_3_e',
+            'arm_left_joint_4_u',
+            'arm_left_joint_5_r',
+            'arm_left_joint_6_b',
+            'arm_left_joint_7_t',
+            'arm_right_joint_1_s',
+            'arm_right_joint_2_l',
+            'arm_right_joint_3_e',
+            'arm_right_joint_4_u',
+            'arm_right_joint_5_r',
+            'arm_right_joint_6_b',
+            'arm_right_joint_7_t',
+            'torso_joint_b1'
+        }
+    },
     {
         name = 'sda10d_r1_controller',
         ns = '/sda10d',
@@ -236,16 +258,17 @@ local function initControllers(delay, dt)
     local offset = math.ceil(delay / dt:toSec())
     for i, v in ipairs(config) do
         lastCommandJointPosition[v.name] = torch.ones(#v.joints) * 1.3
-        if v.name == 'sda10d_b1_controller' then
-            lastCommandJointPosition[v.name]:zero()
-        end
 
         controller[v.name] = TvpController(#v.joints)
         feedback_buffer_pos[v.name] = MonitorBuffer.new(offset + 1, #v.joints)
         feedback_buffer_pos[v.name].offset = offset
         feedback_buffer_vel[v.name] = MonitorBuffer.new(offset + 1, #v.joints)
         feedback_buffer_vel[v.name].offset = offset
-        actionServer[v.name] = ActionServer(nodehandle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
+        if #v.name>0 then
+            actionServer[v.name] = ActionServer(nodehandle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
+        else
+            actionServer[v.name] = ActionServer(nodehandle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
+        end
         actionServer[v.name]:registerGoalCallback(
             function(gh)
                 moveJActionServerGoal(gh, feedback_buffer_pos[v.name], feedback_buffer_vel[v.name])
@@ -278,10 +301,13 @@ function jointCommandCb(msg, header)
 end
 
 initSetup('sda10d')
+
 local jointtrajmsg_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 local subscriber = nodehandle:subscribe('joint_command', jointtrajmsg_spec, 1)
 subscriber:registerCallback(jointCommandCb)
 local joint_state_publisher = nodehandle:advertise('/joint_states', joint_sensor_spec, 1)
+
+
 local function sendJointState(position, velocity, joint_names, seq)
     local m = ros.Message(joint_sensor_spec)
     m.header.seq = seq
@@ -290,6 +316,7 @@ local function sendJointState(position, velocity, joint_names, seq)
     m.position:set(position)
     joint_state_publisher:publish(m)
 end
+
 
 local function simulation(delay, dt)
     local seq = 1
@@ -319,5 +346,12 @@ local function simulation(delay, dt)
     shutdownActionServer()
 end
 
-simulation()
+local cmd=torch.CmdLine()
+cmd:option('-delay', 0.150, 'Feedback delay time')
+cmd:option('-cycleTime', 0.008, "Node cycle time")
+local params = cmd:parse(arg)
+
+
+
+simulation(params.delay,params.cycleTime)
 shutdownSetup()
