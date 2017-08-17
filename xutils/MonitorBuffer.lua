@@ -7,7 +7,7 @@ function MonitorBuffer:__init(windowSize, vectorDim)
   self.DIM = vectorDim
   self.WINDOW_SIZE = windowSize
   self.write_pos = 0
-
+  self.offset = 0
   self.buffer = torch.zeros(self.WINDOW_SIZE,self.DIM)
 end
 
@@ -22,7 +22,7 @@ end
 
 
 function MonitorBuffer:getPastIndex(offset)
-  local offset = offset or 0
+  local offset = offset or self.offset
   local tmp_index = self.WINDOW_SIZE + self.write_pos - offset
   local index = tmp_index % self.WINDOW_SIZE + 1
   return self.buffer[{index,{}}]:clone()
