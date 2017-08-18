@@ -13,23 +13,10 @@ local GoalStatus = actionlib.GoalStatus
 local joint_sensor_spec = ros.MsgSpec('sensor_msgs/JointState')
 local joint_msg = ros.Message(joint_sensor_spec)
 
-function table.indexof(t, x)
-    for i, y in ipairs(t) do
-        if y == x then
-            return i
-        end
-    end
-    return -1
-end
-
-function table.findIndex(t, condition)
-    for i, v in ipairs(t) do
-        if condition(v, i) then
-            return i
-        end
-    end
-    return -1
-end
+local xamlamoveit = require 'xamlamoveit'
+local xutils = xamlamoveit.xutils
+local printf = xutils.printf
+local xtable = xutils.Xtable
 
 -- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryResult.html
 local TrajectoryResultStatus = {
@@ -116,22 +103,22 @@ local function shutdownSetup()
     ros.shutdown()
 end
 
-local function isSimilar(A, B)
-    local similar = true
-    if #A == #B then
-        for ia, a in A do
-            for ib, b in B do
-                local si = a == b
-                if not si then
-                    similar = false
-                    break
-                end
-            end
+local function isSubset(A, B)
+    for ia, a in ipairs(A) do
+        if table.indexof(B,a)==-1 then
+            return false
         end
-    else
-        similar = false
     end
-    return similar
+    return true
+end
+
+local function isSimilar(A, B)
+    if #A == #B then
+        return isSubset(A,B)
+    else
+        return false
+    end
+    return true
 end
 
 local new_message = false
@@ -183,10 +170,13 @@ local function decodeJointTrajectoryMsg(trajectory)
     return time, pos, vel, acc
 end
 
-local function moveJAction_serverGoal(goal_handle, q_buffer, qd_buffer)
+local function moveJAction_serverGoal(goal_handle, q_buffer, qd_buffer, target_joint_names)
     ros.INFO('moveJAction_serverGoal')
     local g = goal_handle:getGoal()
-
+    if not isSubset(g.goal.trajectory.joint_names,target_joint_names) then
+        ros.ERROR('not correct set of joints for this group')
+        return
+    end
     -- decode trajectory
     local time, pos, vel, acc = decodeJointTrajectoryMsg(g.goal.trajectory)
     local traj = {
@@ -199,6 +189,7 @@ local function moveJAction_serverGoal(goal_handle, q_buffer, qd_buffer)
         q_buffer = q_buffer,
         qd_buffer = qd_buffer,
         joint_names = g.goal.trajectory.joint_names,
+        state_joint_names = joint_name_collection,
         accept = function()
             if goal_handle:getGoalStatus().status == GoalStatus.PENDING then
                 goal_handle:setAccepted('Starting trajectory execution')
@@ -271,20 +262,24 @@ local function initControllers(delay, dt)
         else
             action_server[v.name] = ActionServer(nodehandle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
         end
-        action_server[v.name]:registerGoalCallback(
-            function(gh)
-                moveJAction_serverGoal(gh, feedback_buffer_pos[v.name], feedback_buffer_vel[v.name])
-            end
-        )
-        action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
-        action_server[v.name]:start()
     end
+
     controller = TvpController(#joint_name_collection)
     feedback_buffer_pos = MonitorBuffer.new(offset + 1, #joint_name_collection)
     feedback_buffer_pos.offset = offset
     feedback_buffer_vel = MonitorBuffer.new(offset + 1, #joint_name_collection)
     feedback_buffer_vel.offset = offset
     last_command_joint_position = torch.ones(#joint_name_collection) * 1.3
+
+    for i, v in ipairs(config) do
+        action_server[v.name]:registerGoalCallback(
+            function(gh)
+                moveJAction_serverGoal(gh, feedback_buffer_pos, feedback_buffer_vel, v.joints)
+            end
+        )
+        action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
+        action_server[v.name]:start()
+    end
 end
 
 local function shutdownAction_server()

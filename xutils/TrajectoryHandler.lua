@@ -16,7 +16,7 @@ local TrajectoryHandlerStatus = {
     Completed = 1000
 }
 
-local TrajectoryHandler = torch.class('xamlamoveit.xutils.TrajectoryHandler',xutils)
+local TrajectoryHandler = torch.class('xamlamoveit.xutils.TrajectoryHandler', xutils)
 
 function TrajectoryHandler:__init(ringSize, servoTime, reverseConnection, traj, flush, waitCovergence, maxBuffering, logger)
     self.ringSize = ringSize
@@ -40,10 +40,23 @@ function TrajectoryHandler:cancel()
     end
 end
 
+
+
 local function reachedGoal(self)
+    local state_pos = self.traj.q_buffer:getPastIndex()
+    local state_vel = self.traj.qd_buffer:getPastIndex()
+    local feedback_idx =
+        table.findIndicesTensor(
+        self.traj.state_joint_names,
+        function(x)
+            return table.indexof(self.traj.joint_names, x) > -1
+        end
+    )
+
     local q_goal = self.sampler:getGoalPosition()
-    local q_actual = self.traj.q_buffer:getPastIndex()--self.realtimeState.q_actual
-    local qd_actual = self.traj.qd_buffer:getPastIndex() --self.realtimeState.qd_actual
+    local q_actual = state_pos[feedback_idx]
+    --self.realtimeState.q_actual
+    local qd_actual = state_vel[feedback_idx]
 
     local goal_distance = torch.norm(q_goal - q_actual)
 
@@ -58,7 +71,6 @@ local function reachedGoal(self)
 end
 
 function TrajectoryHandler:update()
-
     if self.status < 0 or self.status == TrajectoryHandlerStatus.Completed then
         return false
     end
@@ -68,16 +80,15 @@ function TrajectoryHandler:update()
         return false -- all data sent, nothing to do
     end
 
-
     -- self.logger.debug('avail: %d', avail)
 
     if not self.sampler:atEnd() then -- if trajectory is not at end
         self.status = TrajectoryHandlerStatus.Streaming
 
         local pts = self.sampler:generateNextPoints(1) -- send new trajectory points via reverse conncection
-        self.reverseConnection:sendPoints(pts,self.traj.joint_names)
+        self.reverseConnection:sendPoints(pts, self.traj.joint_names)
     else -- all servo points have been sent, wait for robot to empty its queue
-        self.reverseConnection:sendPoints({},self.traj.joint_names) -- send zero count
+        self.reverseConnection:sendPoints({}, self.traj.joint_names) -- send zero count
         if (reachedGoal(self) or not self.waitCovergence) then -- when buffer is empty we are done
             self.status = TrajectoryHandlerStatus.Completed
             return false
@@ -88,6 +99,5 @@ function TrajectoryHandler:update()
 
     return true -- not yet at end of trajectory
 end
-
 
 return TrajectoryHandler

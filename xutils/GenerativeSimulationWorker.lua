@@ -1,6 +1,10 @@
 local ros = require 'ros'
 local xutils = require 'xamlamoveit.xutils.env'
 local TrajectoryHandler = require 'xamlamoveit.xutils.TrajectoryHandler'
+local xamlamoveit = require 'xamlamoveit'
+local xutils = xamlamoveit.xutils
+local printf = xutils.printf
+local xtable = xutils.Xtable
 
 local TrajectoryHandlerStatus = {
     ProtocolError = -3,
@@ -26,7 +30,7 @@ errorCodes.ABORT = -2
 errorCodes.NO_IK_FOUND = -3
 errorCodes.INVALID_LINK_NAME = -4
 
-local SimulationConnection = torch.class('SimulationConnection',xutils)
+local SimulationConnection = torch.class('SimulationConnection', xutils)
 function SimulationConnection:__init(nh, logger)
     self.nodehandle = nh
     self.joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
@@ -55,7 +59,7 @@ end
 function SimulationConnection:sendPoints(points, joint_names)
     for j = 1, #points do
         local q = points[j]
-        self:sendPositionCommand(q,nil,joint_names)
+        self:sendPositionCommand(q, nil, joint_names)
     end
 end
 
@@ -147,7 +151,7 @@ function GenerativeSimulationWorker:createTrajectoryHandler(traj, flush, waitCov
     if waitCovergence == nil then
         waitCovergence = true
     end
-    return TrajectoryHandler.new(self.ringSize or 10, self.servoTime or 0.008,self.reverseConnection, traj, flush, waitCovergence, maxBuffering, self.logger)
+    return TrajectoryHandler.new(self.ringSize or 10, self.servoTime or 0.008, self.reverseConnection, traj, flush, waitCovergence, maxBuffering, self.logger)
 end
 
 function GenerativeSimulationWorker:cancelCurrentTrajectory(abortMsg)
@@ -163,6 +167,25 @@ function GenerativeSimulationWorker:cancelCurrentTrajectory(abortMsg)
         self.currentTrajectory = nil
         handler:cancel()
     end
+end
+
+function table.indexof(t, x)
+    for i, y in ipairs(t) do
+        if y == x then
+            return i
+        end
+    end
+    return -1
+end
+
+local function findIndicesTensor(t, condition)
+    local result = torch.ByteTensor(#t):zero()
+    for i, v in ipairs(t) do
+        if condition(v) then
+            result[i] = 1
+        end
+    end
+    return result
 end
 
 local function dispatchTrajectory(self)
@@ -189,9 +212,18 @@ local function dispatchTrajectory(self)
                         local time = torch.Tensor(2)
                         time[1] = 0
                         time[2] = traj.time[1]
-
+                        local feedback_idx =
+                            table.findIndicesTensor(
+                            traj.state_joint_names,
+                            function(x)
+                                return table.indexof(traj.joint_names, x) > -1
+                            end
+                        )
+                        self.logger.warn('get feedback')
+                        local state_pos = traj.q_buffer:getPastIndex()
+                        local state_vel = traj.qd_buffer:getPastIndex()
                         local pos  --Feedback
-                        pos[1] = traj.q_buffer:getPastIndex()
+                        pos[1] = state_pos[feedback_idx]
                         pos[2] = traj.pos[1]
                         local targetDistance = torch.norm(pos[1] - pos[2])
                         if targetDistance > self.maxSinglePointTrajectoryDistance then
@@ -203,8 +235,7 @@ local function dispatchTrajectory(self)
                             return
                         end
 
-                        local vel = traj.qd_buffer:getPastIndex()
-
+                        local vel = state_vel[feedback_idx]
                         traj.time = time
                         traj.pos = pos
                         traj.vel = vel
@@ -264,7 +295,13 @@ local function workerCore(self)
 end
 
 function GenerativeSimulationWorker:spin()
-    local ok, err = pcall(function() workerCore(self) end)
+    local ok,
+        err =
+        pcall(
+        function()
+            workerCore(self)
+        end
+    )
     -- abort current trajectory
     if (not ok) and self.currentPlan then
         local traj = self.currentPlan.traj
