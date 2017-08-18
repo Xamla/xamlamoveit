@@ -1,3 +1,4 @@
+#!/usr/bin/env th
 local torch = require 'torch'
 local ros = require 'ros'
 local tf = ros.tf
