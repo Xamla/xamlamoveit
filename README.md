@@ -10,7 +10,7 @@ Node: [tvpSimulationNode](https://github.com/Xamla/Rosvita.Control/blob/master/l
 Dieser Node ist aktuell nur auf den sda10d eingestellt. Dies kann aber leicht noch erweitert werden auf beliebige roboter typen.
 Der Node startet für jede controller gruppe, die in config spezfiziert ist, einen tvp-controler.
 Die config tabele muss mit der controller.yaml übereinstimmen damit moveit trajektorien abspielen kann.
-Die Joint states aktuallisieren sich mit einem feedback delay:
+Die Joint states aktuallisieren sich mit einem feedback delay (parameters können noch nicht von aussen gestzt werden):
 - delay:  0.150 sec
 - cycleTime: 0.008 sec
 
@@ -31,10 +31,12 @@ Die Joint states aktuallisieren sich mit einem feedback delay:
         - `collection` alle möglichen MoveGroups
 
 - ```/joggingJoystickServer/set_movegroup_name```
-    - Message: xamlamoveit_msgs/GetSelected
+    - Message: xamlamoveit_msgs/SetString
+    - Request:
+        - `data` new MoveGroup name
     - Response:
-        - `selected` actuel active MoveGroup
-        - `collection` alle möglichen MoveGroups
+        - `success`  indicate successful run of triggered service
+        - `message` informational, e.g. for error messages
 
 - ```/joggingJoystickServer/set_controller_name```
     - Message: xamlamoveit_msgs/SetString
@@ -61,6 +63,10 @@ Die Joint states aktuallisieren sich mit einem feedback delay:
 - ```/joggingJoystickServer/get_velocity_limits```
     -  NOT IMPLEMENTED
 
+Simple test script: [testJoggingController](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/tests/testJoggingController.lua)
+- press m to start. Dann 1 - 7 oder (-1) - (-7)
+- press s to stop.
+- press q to quit-
 
 ## Based on torch-moveit
 
