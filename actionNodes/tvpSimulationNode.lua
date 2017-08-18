@@ -249,7 +249,7 @@ end
 
 local function initControllers(delay, dt)
     local offset = math.ceil(delay / dt:toSec())
-
+    config = nodehandle:getParamVariable("/move_group/controller_list")
     for i, v in ipairs(config) do
         for ii, vv in ipairs(v.joints) do
             if table.indexof(joint_name_collection, vv) == -1 then
