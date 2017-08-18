@@ -347,10 +347,10 @@ local function simulation(delay, dt)
     shutdownAction_server()
 end
 
-local cmd = torch.CmdLine()
-cmd:option('-delay', 0.150, 'Feedback delay time')
-cmd:option('-cycleTime', 0.008, 'Node cycle time')
-local params = cmd:parse(arg)
+--local cmd = torch.CmdLine()
+--cmd:option('-delay', 0.150, 'Feedback delay time')
+--cmd:option('-cycleTime', 0.008, 'Node cycle time')
+--local params = cmd:parse(arg)
 
-simulation(params.delay, params.cycleTime)
+simulation(0.150, 0.008)
 shutdownSetup()

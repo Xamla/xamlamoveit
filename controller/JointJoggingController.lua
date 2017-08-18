@@ -124,13 +124,15 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
   self.planning_scene = moveit.PlanningScene(self.kinematic_model)
   self.planning_scene:syncPlanningScene()
   print(self.kinematic_model:printModelInfo())
+
+  self.robotControllerTopic = string.format('/%s/joint_command',self.controller_name)
 end
 
 local function satisfiesBounds(self, positions)
   local state = self.state:clone()
   state:setVariablePositions(positions, self.joint_monitor:getJointNames())
   self.planning_scene:syncPlanningScene()
-  local collisions = self.planning_scene:checkSelfCollision(state) or self.planning_scene:isStateColliding(self.move_group,state)
+  local collisions = self.planning_scene:checkSelfCollision(state) --or self.planning_scene:isStateColliding(self.move_group,state)
   if state:satisfiesBounds(0.0) then
     if collisions then
       ros.ERROR("Self Collision detected")
@@ -197,7 +199,7 @@ end
 
 
 function JointJoggingController:getOutTopic()
-  return string.format('/%s/joint_command',self.controller_name)
+  return self.robotControllerTopic
 end
 
 
@@ -224,21 +226,21 @@ function JointJoggingController:tracking(q_dot, duration)
   duration = duration or ros.Time.now() - BEGIN_EXECUTION
   local group = self.move_group
   local state = self.state:clone()
-
   local q_des = self.lastCommandJointPositons + q_dot
+
   if not self.CONVERED or self.FIRSTPOINT then
     if self:isValid(q_des, self.lastCommandJointPositons) then
       if not publisherPointPositionCtrl then
-        local myTopic = string.format('%s/joint_command',self.controller_name)
-        ros.WARN(myTopic)
-        publisherPointPositionCtrl = self.nh:advertise(myTopic, joint_pos_spec)
+        publisherPointPositionCtrl = self.nh:advertise(self.robotControllerTopic, joint_pos_spec)
+        ros.WARN(publisherPointPositionCtrl:getTopic())
       end
       --if self.FIRSTPOINT then
       --  sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
       --  self.FIRSTPOINT = false
       --else
-        sendPositionCommand(q_des, q_dot, group, duration)
+      --  sendPositionCommand(q_des, q_dot, group, duration)
       --end
+      sendPositionCommand(q_des, q_dot, group, duration)
       self.lastCommandJointPositons:copy(q_des)
     else
       if publisherPointPositionCtrl then
@@ -287,7 +289,6 @@ function JointJoggingController:update()
 
   self:updateDeltaT()
 
-  local curr_time = ros.Time.now()
   local succ, msg = true, "IDLE"
   if self.new_message and ros.ok() then
     succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)

@@ -59,10 +59,10 @@ function main()
   sp:start()
 
   local moveGroup, psi = initializeMoveIt("arm_left")
-  local myTopic = "/jogging_joystick_server/jogging_command"
+  local myTopic = "/joggingJoystickServer/jogging_command"
   local publisherPointPositionCtrl = nodehandle:advertise(myTopic, joint_traj_spec)
   local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
-  local start_stop_controll_client = nodehandle:serviceClient('/jogging_joystick_server/start_stop_tracking', set_bool_spec)
+  local start_stop_controll_client = nodehandle:serviceClient('/joggingJoystickServer/start_stop_tracking', set_bool_spec)
 
   local names = std.StringVector()
   moveGroup:getActiveJoints(names)

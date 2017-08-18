@@ -156,12 +156,19 @@ local function joggingJoystickServer()
   local ns = nh:getNamespace()
   local psi = moveit.PlanningSceneInterface()
   local dt = ros.Duration(1/125)
-
+  local controller_name, succ = nh:getParamString("controller_name")
+  if not succ then
+    controller_name = "sda10d"
+  end
   local robot_model_loader = moveit.RobotModelLoader("robot_description")
   local robot_model = robot_model_loader:getModel()
 
   all_EE_parent_group_names, all_EE_parent_link_names  = robot_model:getEndEffectorParentGroups()
   all_group_joint_names = robot_model:getJointModelGroupNames()
+  local planningGroup, succ = nh:getParamString("move_group")
+  if not succ or (table.indexof(all_group_joint_names, planningGroup or "") < 0)then
+    planningGroup = all_group_joint_names[1]
+  end
 
   ---Services
   --set_limits
@@ -178,8 +185,8 @@ local function joggingJoystickServer()
   --status
   status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 
-  cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(all_group_joint_names[1]), "", dt)
-  while not cntr:connect(string.format('%s/jogging_command',ns)) do
+  cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(planningGroup), controller_name, dt)
+  while not cntr:connect('jogging_command') do
     dt:sleep()
     ros.spinOnce()
   end
@@ -187,6 +194,7 @@ local function joggingJoystickServer()
   local success = true
   while ros.ok() do
     if run then
+    ros.INFO("RUNNING")
       success, last_status_message_tracking = cntr:update()
       if not success then
         ros.WARN(last_status_message_tracking)
