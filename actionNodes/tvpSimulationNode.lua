@@ -136,9 +136,10 @@ end
 
 local new_message = false
 local seq = 1
-local lastCommandJointPosition = {}
+local joint_name_collection = {}
+local last_command_joint_position = {}
 local controller = {}
-local actionServer = {}
+local action_server = {}
 local feedback_buffer_pos = {}
 local feedback_buffer_vel = {}
 
@@ -181,8 +182,9 @@ local function decodeJointTrajectoryMsg(trajectory)
 
     return time, pos, vel, acc
 end
-local function moveJActionServerGoal(goal_handle, q_buffer, qd_buffer)
-    ros.INFO('moveJActionServerGoal')
+
+local function moveJAction_serverGoal(goal_handle, q_buffer, qd_buffer)
+    ros.INFO('moveJAction_serverGoal')
     local g = goal_handle:getGoal()
 
     -- decode trajectory
@@ -256,31 +258,37 @@ end
 
 local function initControllers(delay, dt)
     local offset = math.ceil(delay / dt:toSec())
-    for i, v in ipairs(config) do
-        lastCommandJointPosition[v.name] = torch.ones(#v.joints) * 1.3
 
-        controller[v.name] = TvpController(#v.joints)
-        feedback_buffer_pos[v.name] = MonitorBuffer.new(offset + 1, #v.joints)
-        feedback_buffer_pos[v.name].offset = offset
-        feedback_buffer_vel[v.name] = MonitorBuffer.new(offset + 1, #v.joints)
-        feedback_buffer_vel[v.name].offset = offset
-        if #v.name>0 then
-            actionServer[v.name] = ActionServer(nodehandle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
-        else
-            actionServer[v.name] = ActionServer(nodehandle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
+    for i, v in ipairs(config) do
+        for ii, vv in ipairs(v.joints) do
+            if table.indexof(joint_name_collection, vv) == -1 then
+                joint_name_collection[#joint_name_collection + 1] = vv
+            end
         end
-        actionServer[v.name]:registerGoalCallback(
+
+        if #v.name > 0 then
+            action_server[v.name] = ActionServer(nodehandle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
+        else
+            action_server[v.name] = ActionServer(nodehandle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
+        end
+        action_server[v.name]:registerGoalCallback(
             function(gh)
-                moveJActionServerGoal(gh, feedback_buffer_pos[v.name], feedback_buffer_vel[v.name])
+                moveJAction_serverGoal(gh, feedback_buffer_pos[v.name], feedback_buffer_vel[v.name])
             end
         )
-        actionServer[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
-        actionServer[v.name]:start()
+        action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
+        action_server[v.name]:start()
     end
+    controller = TvpController(#joint_name_collection)
+    feedback_buffer_pos = MonitorBuffer.new(offset + 1, #joint_name_collection)
+    feedback_buffer_pos.offset = offset
+    feedback_buffer_vel = MonitorBuffer.new(offset + 1, #joint_name_collection)
+    feedback_buffer_vel.offset = offset
+    last_command_joint_position = torch.ones(#joint_name_collection) * 1.3
 end
 
-local function shutdownActionServer()
-    for i, v in pairs(actionServer) do
+local function shutdownAction_server()
+    for i, v in pairs(action_server) do
         v:shutdown()
     end
 end
@@ -289,9 +297,9 @@ function jointCommandCb(msg, header)
     if #msg.points > 0 then
         for igroup, group in ipairs(config) do
             for i, name in ipairs(msg.joint_names) do
-                local index = table.indexof(group.joints, name)
+                local index = table.indexof(joint_name_collection, name)
                 if index > -1 then
-                    lastCommandJointPosition[group.name][index] = msg.points[1].positions[i]
+                    last_command_joint_position[index] = msg.points[1].positions[i]
                 end
             end
         end
@@ -307,7 +315,6 @@ local subscriber = nodehandle:subscribe('joint_command', jointtrajmsg_spec, 1)
 subscriber:registerCallback(jointCommandCb)
 local joint_state_publisher = nodehandle:advertise('/joint_states', joint_sensor_spec, 1)
 
-
 local function sendJointState(position, velocity, joint_names, seq)
     local m = ros.Message(joint_sensor_spec)
     m.header.seq = seq
@@ -317,7 +324,6 @@ local function sendJointState(position, velocity, joint_names, seq)
     joint_state_publisher:publish(m)
 end
 
-
 local function simulation(delay, dt)
     local seq = 1
     local delay = delay or 0.15
@@ -326,32 +332,29 @@ local function simulation(delay, dt)
     initControllers(delay, dt)
 
     while ros.ok() do
-        for i, v in ipairs(config) do
-            controller[v.name]:update(lastCommandJointPosition[v.name], dt:toSec())
-            feedback_buffer_pos[v.name]:add(controller[v.name].state.pos)
-            feedback_buffer_vel[v.name]:add(controller[v.name].state.vel)
+        controller:update(last_command_joint_position, dt:toSec())
+        feedback_buffer_pos:add(controller.state.pos)
+        feedback_buffer_vel:add(controller.state.vel)
 
-            local pos = feedback_buffer_pos[v.name]:getPastIndex(offset)
-            local vel = feedback_buffer_vel[v.name]:getPastIndex(offset)
+        local pos = feedback_buffer_pos:getPastIndex(offset)
+        local vel = feedback_buffer_vel:getPastIndex(offset)
 
-            if pos then
-                sendJointState(pos, vel, v.joints, seq)
-            end
+        if pos then
+            sendJointState(pos, vel, joint_name_collection, seq)
         end
+
         seq = seq + 1
         dt:sleep()
         worker:spin()
         ros.spinOnce()
     end
-    shutdownActionServer()
+    shutdownAction_server()
 end
 
-local cmd=torch.CmdLine()
+local cmd = torch.CmdLine()
 cmd:option('-delay', 0.150, 'Feedback delay time')
-cmd:option('-cycleTime', 0.008, "Node cycle time")
+cmd:option('-cycleTime', 0.008, 'Node cycle time')
 local params = cmd:parse(arg)
 
-
-
-simulation(params.delay,params.cycleTime)
+simulation(params.delay, params.cycleTime)
 shutdownSetup()
