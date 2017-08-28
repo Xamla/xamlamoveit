@@ -2,10 +2,13 @@
 local torch = require 'torch'
 local ros = require 'ros'
 local tf = ros.tf
-local controller = require 'xamlamoveit.controller'
+local xamlamoveit = require 'xamlamoveit'
+local xutils = xamlamoveit.xutils
+local printf = xutils.printf
+local xtable = xutils.Xtable
+
+local controller = xamlamoveit.controller
 local TvpController = controller.TvpController
-local GenerativeSimulationWorker = require 'xamlamoveit.xutils.GenerativeSimulationWorker'
-local MonitorBuffer = require 'xamlamoveit.xutils.MonitorBuffer'
 
 local actionlib = ros.actionlib
 local ActionServer = actionlib.ActionServer
@@ -14,10 +17,10 @@ local GoalStatus = actionlib.GoalStatus
 local joint_sensor_spec = ros.MsgSpec('sensor_msgs/JointState')
 local joint_msg = ros.Message(joint_sensor_spec)
 
-local xamlamoveit = require 'xamlamoveit'
-local xutils = xamlamoveit.xutils
-local printf = xutils.printf
-local xtable = xutils.Xtable
+local jointtrajmsg_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
+local subscriber
+
+local GenerativeSimulationWorker = require 'xamlamoveit.xutils.GenerativeSimulationWorker'
 
 -- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryResult.html
 local TrajectoryResultStatus = {
@@ -29,6 +32,7 @@ local TrajectoryResultStatus = {
     GOAL_TOLERANCE_VIOLATED = -5
 }
 
+--[[
 local config = {
     {
         name = '',
@@ -87,8 +91,10 @@ local config = {
         joints = {'torso_joint_b1'}
     }
 }
-
+]]
+local config = {}
 local nodehandle, sp, worker
+
 local function initSetup(ns)
     ros.init(ns)
     nodehandle = ros.NodeHandle('~')
@@ -106,7 +112,7 @@ end
 
 local function isSubset(A, B)
     for ia, a in ipairs(A) do
-        if table.indexof(B,a)==-1 then
+        if table.indexof(B, a) == -1 then
             return false
         end
     end
@@ -115,7 +121,7 @@ end
 
 local function isSimilar(A, B)
     if #A == #B then
-        return isSubset(A,B)
+        return isSubset(A, B)
     else
         return false
     end
@@ -174,7 +180,7 @@ end
 local function moveJAction_serverGoal(goal_handle, q_buffer, qd_buffer, target_joint_names)
     ros.INFO('moveJAction_serverGoal')
     local g = goal_handle:getGoal()
-    if not isSubset(g.goal.trajectory.joint_names,target_joint_names) then
+    if not isSubset(g.goal.trajectory.joint_names, target_joint_names) then
         ros.ERROR('not correct set of joints for this group')
         return
     end
@@ -248,47 +254,6 @@ local function FollowJointTrajectory_Cancel(goalHandle)
     end
 end
 
-local function initControllers(delay, dt)
-    local offset = math.ceil(delay / dt:toSec())
-    config = nodehandle:getParamVariable("/move_group/controller_list")
-    for i, v in ipairs(config) do
-        for ii, vv in ipairs(v.joints) do
-            if table.indexof(joint_name_collection, vv) == -1 then
-                joint_name_collection[#joint_name_collection + 1] = vv
-            end
-        end
-
-        if #v.name > 0 then
-            action_server[v.name] = ActionServer(nodehandle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
-        else
-            action_server[v.name] = ActionServer(nodehandle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
-        end
-    end
-
-    controller = TvpController(#joint_name_collection)
-    feedback_buffer_pos = MonitorBuffer.new(offset + 1, #joint_name_collection)
-    feedback_buffer_pos.offset = offset
-    feedback_buffer_vel = MonitorBuffer.new(offset + 1, #joint_name_collection)
-    feedback_buffer_vel.offset = offset
-    last_command_joint_position = torch.ones(#joint_name_collection) * 1.3
-
-    for i, v in ipairs(config) do
-        action_server[v.name]:registerGoalCallback(
-            function(gh)
-                moveJAction_serverGoal(gh, feedback_buffer_pos, feedback_buffer_vel, v.joints)
-            end
-        )
-        action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
-        action_server[v.name]:start()
-    end
-end
-
-local function shutdownAction_server()
-    for i, v in pairs(action_server) do
-        v:shutdown()
-    end
-end
-
 function jointCommandCb(msg, header)
     if #msg.points > 0 then
         for igroup, group in ipairs(config) do
@@ -304,11 +269,97 @@ function jointCommandCb(msg, header)
     end
 end
 
-initSetup('sda10d')
+local function initControllers(delay, dt)
+    local offset = math.ceil(delay / dt:toSec())
 
-local jointtrajmsg_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
-local subscriber = nodehandle:subscribe('joint_command', jointtrajmsg_spec, 1)
-subscriber:registerCallback(jointCommandCb)
+    config = nodehandle:getParamVariable('/move_group/controller_list')
+    local start_time = ros.Time.now()
+    local current_time = ros.Time.now()
+    local attemts = 0
+    while config == nil do
+        attemts = attemts + 1
+        ros.WARN('no controller specified in "/move_group/controller_list". Retry in 5sec')
+        while current_time:toSec() - start_time:toSec() < 5 do
+            current_time = ros.Time.now()
+            sys.sleep(0.01)
+        end
+        start_time = ros.Time.now()
+        current_time = ros.Time.now()
+        config = nodehandle:getParamVariable('/move_group/controller_list')
+
+        if not ros.ok() then
+            return -1, 'Ros is not ok'
+        end
+
+        if attemts > 5 then
+            return -2, 'Reached max attempts'
+        end
+    end
+    local ns
+    for i, v in ipairs(config) do
+        for ii, vv in ipairs(v.joints) do
+            if table.indexof(joint_name_collection, vv) == -1 then
+                joint_name_collection[#joint_name_collection + 1] = vv
+            end
+        end
+
+        if #v.name > 0 then
+            action_server[v.name] = ActionServer(nodehandle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
+        else
+            action_server[v.name] = ActionServer(nodehandle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
+        end
+        ns = string.split(action_server[v.name].node:getNamespace(), '/')
+    end
+    controller = TvpController(#joint_name_collection)
+    feedback_buffer_pos = xutils.MonitorBuffer(offset + 1, #joint_name_collection)
+    feedback_buffer_pos.offset = offset
+    feedback_buffer_vel = xutils.MonitorBuffer(offset + 1, #joint_name_collection)
+    feedback_buffer_vel.offset = offset
+    last_command_joint_position = torch.ones(#joint_name_collection) * 1.3
+
+    for i, v in ipairs(config) do
+        action_server[v.name]:registerGoalCallback(
+            function(gh)
+                moveJAction_serverGoal(gh, feedback_buffer_pos, feedback_buffer_vel, v.joints)
+            end
+        )
+        action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
+        action_server[v.name]:start()
+    end
+
+    subscriber = nodehandle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
+    subscriber:registerCallback(jointCommandCb)
+    return 0, 'Success'
+end
+
+local function shutdownAction_server()
+    for i, v in pairs(action_server) do
+        v:shutdown()
+    end
+end
+
+local function parseRosParametersFromCommandLine(args)
+    local result = {}
+    local residual = {}
+    for i, v in ipairs(args) do
+        if i > 0 then
+            local tmp = string.split(v, ':=')
+            if #tmp > 1 then
+                result[tmp[1]] = tmp[2]
+            else
+                residual[i] = v
+            end
+        end
+    end
+    local cmd = torch.CmdLine()
+    cmd:option('-delay', 0.150, 'Feedback delay time')
+    cmd:option('-frequency', 0.008, 'Node cycle time')
+    return table.merge(result,cmd:parse(residual))
+end
+
+local parameter = parseRosParametersFromCommandLine(arg) or {}
+initSetup(parameter["__name"]) -- TODO
+
 local joint_state_publisher = nodehandle:advertise('/joint_states', joint_sensor_spec, 1)
 
 local function sendJointState(position, velocity, joint_names, seq)
@@ -321,12 +372,23 @@ local function sendJointState(position, velocity, joint_names, seq)
 end
 
 local function simulation(delay, dt)
+
     local seq = 1
-    local delay = delay or 0.15
+    local value, succ = nodehandle:getParamDouble(string.format('%s/feedback_delay', nodehandle:getNamespace()))
+    if succ then
+        delay = value
+    end
+    value, succ = nodehandle:getParamDouble('frequency')
+    if succ then
+        dt = value
+    end
     local dt = ros.Duration(dt or 0.008)
     local offset = math.ceil(delay / dt:toSec())
-    initControllers(delay, dt)
-
+    local err, msg = initControllers(delay, dt)
+    if err < 0 then
+        ros.ERROR('Could not initialize controller. ' .. msg)
+        return
+    end
     while ros.ok() do
         controller:update(last_command_joint_position, dt:toSec())
         feedback_buffer_pos:add(controller.state.pos)
@@ -347,10 +409,7 @@ local function simulation(delay, dt)
     shutdownAction_server()
 end
 
---local cmd = torch.CmdLine()
---cmd:option('-delay', 0.150, 'Feedback delay time')
---cmd:option('-cycleTime', 0.008, 'Node cycle time')
---local params = cmd:parse(arg)
 
-simulation(0.150, 0.008)
+
+simulation(parameter.delay, parameter.frequency)
 shutdownSetup()

@@ -2,7 +2,7 @@ local ros = require 'ros'
 local tf = ros.tf
 require 'ros.actionlib.SimpleActionServer'
 local GoalStatus = require 'ros.actionlib.GoalStatus'
-require 'xamlamoveit.actionNodes.Worker'
+require 'xamlamoveit.xutils.Worker'
 local actionlib = ros.actionlib
 
 local moveit = require 'moveit'
@@ -34,9 +34,9 @@ function query_service_handler(request, response, header)
     return true
 end
 
-local function initSetup()
+local function initSetup(name)
     ros.init('MoveActions')
-    nodehandle = ros.NodeHandle()
+    nodehandle = ros.NodeHandle(name)
     service_queue = ros.CallbackQueue()
 
     sp = ros.AsyncSpinner() -- background job
@@ -60,16 +60,16 @@ local function movePActionServerGoal(goal_handle)
         goal_handle = goal_handle,
         goal = g,
         accept = function()
-            --goal_handle:setAccepted('Starting trajectory execution')
+            goal_handle:setAccepted('Starting trajectory execution')
             return true
         end,
         proceed = function()
-            --if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
-            return true
-            --else
-            --  ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
-            --  return false
-            --end
+            if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+                return true
+            else
+                ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
+                return false
+            end
         end,
         abort = function(self, msg)
             goal_handle:setAborted(nil, msg or 'Error')
@@ -107,28 +107,21 @@ local function moveJActionServerGoal(goal_handle)
         goal_handle = goal_handle,
         goal = g,
         accept = function()
-            print('in accept')
-            return true
-            --[[
-      if goal_handle:getGoalStatus().status == GoalStatus.PENDING then
-        goal_handle:setAccepted('Starting trajectory execution')
-        return true
-      else
-        ros.WARN('Status of queued trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
-        return false
-      end
-      ]]
+            if goal_handle:getGoalStatus().status == GoalStatus.PENDING then
+                goal_handle:setAccepted('Starting trajectory execution')
+                return true
+            else
+                ros.WARN('Status of queued trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
+                return false
+            end
         end,
         proceed = function()
-            --[[
-        if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
-        return true
-      else
-        ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
-        return false
-      end
-      ]]
-            return true
+            if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+                return true
+            else
+                ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
+                return false
+            end
         end,
         abort = function(self, msg)
             goal_handle:setAborted(nil, msg or 'Error')
@@ -147,14 +140,15 @@ local function moveP_ActionServer_Cancel(goal_handle)
     goal_handle:setPreempted(nil, 'NOT IMPLEMENTED YET')
 end
 
-local function moveActionServer()
-    initSetup()
+local function moveActionServer(parameter)
+    local parameter = parameter or {}
+    initSetup(parameter["__name"])
 
     --moveGroup = initializeMoveGroup()
     local psi = moveit.PlanningSceneInterface()
     environmentSetup.labRoboteur(psi)
     --local dp = moveGroup:getCurrentPose()
-    local dt = 1 / 125
+    local dt = parameter.frequency or 1 / 125
 
     ros.console.setLoggerLevel('actionlib', ros.console.Level.Warn)
 
@@ -190,4 +184,23 @@ local function moveActionServer()
     shutdownSetup()
 end
 
-moveActionServer()
+local function parseRosParametersFromCommandLine(args)
+    local result = {}
+    local residual = {}
+    for i, v in ipairs(args) do
+        if i > 0 then
+            local tmp = string.split(v, ':=')
+            if #tmp > 1 then
+                result[tmp[1]] = tmp[2]
+            else
+                residual[i] = v
+            end
+        end
+    end
+    local cmd = torch.CmdLine()
+    cmd:option('-frequency', 0.008, 'Node cycle time')
+    return table.merge(result,cmd:parse(residual))
+end
+
+local parameter = parseRosParametersFromCommandLine(arg) or {}
+moveActionServer(parameter)

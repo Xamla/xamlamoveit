@@ -23,8 +23,8 @@ local all_group_joint_names = {}
 
 local last_status_message_tracking = "IDLE"
 
-local function initSetup(ns)
-  ros.init(ns)
+local function initSetup(name)
+  ros.init(name)
   nodehandle = ros.NodeHandle("~")
   service_queue = ros.CallbackQueue()
 
@@ -149,9 +149,9 @@ function getStatusHandler(request, response, header)
   return true
 end
 
-local function joggingJoystickServer()
+local function joggingJoystickServer(name)
 
-  initSetup("joggingJoystickServer")
+  initSetup(name or "joggingJoystickServer")
   local nh = nodehandle
   local ns = nh:getNamespace()
   local psi = moveit.PlanningSceneInterface()
@@ -208,5 +208,19 @@ local function joggingJoystickServer()
   shutdownSetup()
 end
 
+function parseRosParametersFromCommandLine(args)
+  local result = {}
+  for i, v in ipairs(args) do
+      if i > 0 then
+          local tmp = string.split(v, ':=')
+          if #tmp > 1 then
+              result[tmp[1]] = tmp[2]
+          end
+      end
+  end
+  return result
+end
 
-joggingJoystickServer()
+local result = parseRosParametersFromCommandLine(arg) or {}
+
+joggingJoystickServer(result["__name"])
