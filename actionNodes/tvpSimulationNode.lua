@@ -7,8 +7,8 @@ local xutils = xamlamoveit.xutils
 local printf = xutils.printf
 local xtable = xutils.Xtable
 
-local controller = xamlamoveit.controller
-local TvpController = controller.TvpController
+local xamlacontroller = xamlamoveit.controller
+local TvpController = xamlacontroller.TvpController
 
 local actionlib = ros.actionlib
 local ActionServer = actionlib.ActionServer
@@ -93,16 +93,15 @@ local config = {
 }
 ]]
 local config = {}
-local nodehandle, sp, worker
+local node_handle, sp, worker
 
 local function initSetup(ns)
     ros.init(ns)
-    nodehandle = ros.NodeHandle('~')
-    service_queue = ros.CallbackQueue()
+    node_handle = ros.NodeHandle('~')
+    --service_queue = ros.CallbackQueue()
 
     sp = ros.AsyncSpinner() -- background job
     sp:start()
-    worker = GenerativeSimulationWorker.new(nodehandle)
 end
 
 local function shutdownSetup()
@@ -138,21 +137,15 @@ local feedback_buffer_pos = {}
 local feedback_buffer_vel = {}
 
 local function decodeJointTrajectoryMsg(trajectory)
-    local function copyMapped(dst, src, map)
-        for k, v in pairs(map) do
-            dst[k] = src[v]
-        end
-    end
+    local point_count = #trajectory.points
+    local time = torch.zeros(point_count) -- convert trajectory to internal tensor format
+    local pos = torch.zeros(point_count, #trajectory.joint_names)
+    local vel = torch.zeros(point_count, #trajectory.joint_names)
+    local acc = torch.zeros(point_count, #trajectory.joint_names)
+    local has_velocity = true
+    local has_acceleration = true
 
-    local pointCount = #trajectory.points
-    local time = torch.zeros(pointCount) -- convert trajectory to internal tensor format
-    local pos = torch.zeros(pointCount, #trajectory.joint_names)
-    local vel = torch.zeros(pointCount, #trajectory.joint_names)
-    local acc = torch.zeros(pointCount, #trajectory.joint_names)
-    local hasVelocity = true
-    local hasAcceleration = true
-
-    for i = 1, pointCount do
+    for i = 1, point_count do
         local pt = trajectory.points[i]
         time[i] = pt.time_from_start:toSec()
         pos[i]:copy(pt.positions)
@@ -160,18 +153,22 @@ local function decodeJointTrajectoryMsg(trajectory)
         if pt.velocities ~= nil and pt.velocities:nElement() > 0 then
             vel[i]:copy(pt.velocities)
         else
-            hasVelocity = false
+            has_velocity = false
         end
 
         if pt.accelerations ~= nil and pt.accelerations:nElement() > 0 then
             acc[i]:copy(pt.accelerations)
         else
-            hasAcceleration = false
+            has_acceleration = false
         end
     end
 
-    if not hasAcceleration then
+    if not has_acceleration then
         acc = nil
+    end
+
+    if not has_velocity then
+        vel = nil
     end
 
     return time, pos, vel, acc
@@ -272,7 +269,7 @@ end
 local function initControllers(delay, dt)
     local offset = math.ceil(delay / dt:toSec())
 
-    config = nodehandle:getParamVariable('/move_group/controller_list')
+    config = node_handle:getParamVariable('/move_group/controller_list')
     local start_time = ros.Time.now()
     local current_time = ros.Time.now()
     local attemts = 0
@@ -285,7 +282,7 @@ local function initControllers(delay, dt)
         end
         start_time = ros.Time.now()
         current_time = ros.Time.now()
-        config = nodehandle:getParamVariable('/move_group/controller_list')
+        config = node_handle:getParamVariable('/move_group/controller_list')
 
         if not ros.ok() then
             return -1, 'Ros is not ok'
@@ -304,9 +301,9 @@ local function initControllers(delay, dt)
         end
 
         if #v.name > 0 then
-            action_server[v.name] = ActionServer(nodehandle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
+            action_server[v.name] = ActionServer(node_handle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
         else
-            action_server[v.name] = ActionServer(nodehandle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
+            action_server[v.name] = ActionServer(node_handle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
@@ -327,8 +324,10 @@ local function initControllers(delay, dt)
         action_server[v.name]:start()
     end
 
-    subscriber = nodehandle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
+    subscriber = node_handle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
     subscriber:registerCallback(jointCommandCb)
+
+    worker = GenerativeSimulationWorker.new(ros.NodeHandle(string.format('/%s',ns[1])))
     return 0, 'Success'
 end
 
@@ -338,51 +337,36 @@ local function shutdownAction_server()
     end
 end
 
-local function parseRosParametersFromCommandLine(args)
-    local result = {}
-    local residual = {}
-    for i, v in ipairs(args) do
-        if i > 0 then
-            local tmp = string.split(v, ':=')
-            if #tmp > 1 then
-                result[tmp[1]] = tmp[2]
-            else
-                residual[i] = v
-            end
-        end
-    end
-    local cmd = torch.CmdLine()
-    cmd:option('-delay', 0.150, 'Feedback delay time')
-    cmd:option('-frequency', 0.008, 'Node cycle time')
-    return table.merge(result,cmd:parse(residual))
-end
+local cmd = torch.CmdLine()
+cmd:option('-delay', 0.150, 'Feedback delay time')
+cmd:option('-frequency', 0.008, 'Node cycle time')
 
-local parameter = parseRosParametersFromCommandLine(arg) or {}
+local parameter = xutils.parseRosParametersFromCommandLine(arg,cmd) or {}
 initSetup(parameter["__name"]) -- TODO
 
-local joint_state_publisher = nodehandle:advertise('/joint_states', joint_sensor_spec, 1)
+local joint_state_publisher = node_handle:advertise('/joint_states', joint_sensor_spec, 1)
 
-local function sendJointState(position, velocity, joint_names, seq)
+local function sendJointState(position, velocity, joint_names, sequence)
     local m = ros.Message(joint_sensor_spec)
-    m.header.seq = seq
+    m.header.seq = sequence
     m.header.stamp = ros.Time.now()
     m.name = joint_names
     m.position:set(position)
+    m.velocity:set(velocity)
     joint_state_publisher:publish(m)
 end
 
 local function simulation(delay, dt)
-
-    local seq = 1
-    local value, succ = nodehandle:getParamDouble(string.format('%s/feedback_delay', nodehandle:getNamespace()))
+    local sim_seq = 1
+    local value, succ = node_handle:getParamDouble(string.format('%s/feedback_delay', node_handle:getNamespace()))
     if succ then
         delay = value
     end
-    value, succ = nodehandle:getParamDouble('frequency')
+    value, succ = node_handle:getParamDouble('frequency')
     if succ then
         dt = value
     end
-    local dt = ros.Duration(dt or 0.008)
+    dt = ros.Duration(dt or 0.008)
     local offset = math.ceil(delay / dt:toSec())
     local err, msg = initControllers(delay, dt)
     if err < 0 then
@@ -398,16 +382,17 @@ local function simulation(delay, dt)
         local vel = feedback_buffer_vel:getPastIndex(offset)
 
         if pos then
-            sendJointState(pos, vel, joint_name_collection, seq)
+            sendJointState(pos, vel, joint_name_collection,sim_seq)
         end
 
-        seq = seq + 1
+        sim_seq = sim_seq + 1
         dt:sleep()
         worker:spin()
         ros.spinOnce()
     end
     shutdownAction_server()
 end
+
 
 
 

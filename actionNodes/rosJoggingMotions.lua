@@ -13,7 +13,7 @@ local xutils = xamlamoveit.xutils
 local printf = xutils.printf
 local xtable = xutils.Xtable
 
-local nodehandle, sp
+local node_handle, sp
 
 local cntr
 local run = false
@@ -25,7 +25,7 @@ local last_status_message_tracking = "IDLE"
 
 local function initSetup(name)
   ros.init(name)
-  nodehandle = ros.NodeHandle("~")
+  node_handle = ros.NodeHandle("~")
   service_queue = ros.CallbackQueue()
 
   sp = ros.AsyncSpinner()  -- background job
@@ -152,7 +152,7 @@ end
 local function joggingJoystickServer(name)
 
   initSetup(name or "joggingJoystickServer")
-  local nh = nodehandle
+  local nh = node_handle
   local ns = nh:getNamespace()
   local psi = moveit.PlanningSceneInterface()
   local dt = ros.Duration(1/125)
@@ -208,19 +208,6 @@ local function joggingJoystickServer(name)
   shutdownSetup()
 end
 
-function parseRosParametersFromCommandLine(args)
-  local result = {}
-  for i, v in ipairs(args) do
-      if i > 0 then
-          local tmp = string.split(v, ':=')
-          if #tmp > 1 then
-              result[tmp[1]] = tmp[2]
-          end
-      end
-  end
-  return result
-end
-
-local result = parseRosParametersFromCommandLine(arg) or {}
+local result = xutils.parseRosParametersFromCommandLine(arg) or {}
 
 joggingJoystickServer(result["__name"])

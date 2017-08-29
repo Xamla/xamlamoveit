@@ -27,14 +27,13 @@ local function initializeMoveIt(groupName, velocityScaling)
 end
 
 function main(params)
-  ros.init('JoystickTest')
-  -- What does this command?
+  ros.init(params["__name"] or 'JoystickTest')
   local nodehandle = ros.NodeHandle("~")
   local sp = ros.AsyncSpinner()  -- background job
   sp:start()
 
   local moveGroup, psi = initializeMoveIt(params.groupName)
-  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, params.controller_name, 1/124, false)
+  local joyCtr = Controller.JoystickController(nodehandle, moveGroup, params.controller_name, params.frequency, false)
   joyCtr:connect(params.topic)
   while ros.ok() do
     joyCtr:update()
@@ -48,10 +47,10 @@ function main(params)
   ros.shutdown()
 end
 
-local cmd=torch.CmdLine()
+local cmd = torch.CmdLine()
 cmd:option('-topic', "/joy", 'Topic to expect joystick messages.')
 cmd:option('-groupName', "arm_left", "Move Group Id prepared by moveit")
 cmd:option('-controller_name', "", "basicly the namespace where we find the joint_command topic")
-local params = cmd:parse(arg)
-
+cmd:option('-frequency',1/124 , "Controller update frequence.")
+local params = xutils.parseRosParametersFromCommandLine(arg,cmd)
 main(params)

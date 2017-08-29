@@ -1,4 +1,6 @@
-geometry_msgs/Pose goal
+geometry_msgs/Pose[] waypoints
+float64[] velocities_constraints
+float64[] accelerations_constraints
 std_msgs/String group_name
 ---
 int32 result

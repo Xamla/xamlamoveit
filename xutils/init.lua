@@ -60,4 +60,21 @@ if not printf then
 end
 
 
+function xutils.parseRosParametersFromCommandLine(args,cmd)
+  local cmd = cmd or  torch.CmdLine()
+  local result = {}
+  local residual = {}
+  for i, v in ipairs(args) do
+      if i > 0 then
+          local tmp = string.split(v, ':=')
+          if #tmp > 1 then
+              result[tmp[1]] = tmp[2]
+          else
+              residual[i] = v
+          end
+      end
+  end
+  return table.merge(result,cmd:parse(residual))
+end
+
 return xutils

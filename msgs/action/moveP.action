@@ -1,4 +1,4 @@
-moveit_msgs/PositionIKRequest goal
+moveit_msgs/PositionIKRequest[] waypoints
 ---
 #result definition
 int32 result

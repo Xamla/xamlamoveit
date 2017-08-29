@@ -98,8 +98,8 @@ local function createVariableNameMap(self)
     return map
 end
 
-local max_acc = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978})/4
-local max_vel = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978})/2
+local max_acc = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978}) / 4
+local max_vel = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978}) / 2
 local controller = require 'xamlamoveit.controller.env'
 local JoystickController = torch.class('xamlamoveit.controller.JoystickController', controller)
 
@@ -190,9 +190,7 @@ local function satisfiesBounds(self, positions)
     local state = self.state:clone()
     state:setVariablePositions(positions, self.joint_monitor:getJointNames())
     self.planning_scene:syncPlanningScene()
-    local collisions =
-        self.planning_scene:checkSelfCollision(state) or
-        self.planning_scene:isStateColliding(self.move_group:getName(), state)
+    local collisions = self.planning_scene:checkSelfCollision(state) or self.planning_scene:isStateColliding(self.move_group:getName(), state)
     if state:satisfiesBounds(0.0) then
         if collisions then
             ros.ERROR('Self Collision detected')
@@ -251,7 +249,7 @@ function JoystickController:getTeleoperationForces()
     end
 
     while self.subscriber_joy:hasMessage() do
-        ros.WARN('NEW MESSAGE RECEIVED')
+        ros.DEBUG('NEW MESSAGE RECEIVED')
         newMessage = true
         msg = self.subscriber_joy:read()
     end
@@ -290,22 +288,8 @@ function JoystickController:getTeleoperationForces()
         end
 
         if self.debug then
-            ros.DEBUG(
-                string.format(
-                    'axis: joystic left: %f04,%f04,%f04',
-                    self.left_joy[1],
-                    self.left_joy[2],
-                    self.left_joy[3]
-                )
-            )
-            ros.DEBUG(
-                string.format(
-                    'axis: joystic Right: %f04,%f04,%f04',
-                    self.right_joy[1],
-                    self.right_joy[2],
-                    self.right_joy[3]
-                )
-            )
+            ros.DEBUG(string.format('axis: joystic left: %f04,%f04,%f04', self.left_joy[1], self.left_joy[2], self.left_joy[3]))
+            ros.DEBUG(string.format('axis: joystic Right: %f04,%f04,%f04', self.right_joy[1], self.right_joy[2], self.right_joy[3]))
             ros.DEBUG(string.format('axis: joystic dpad: %f04,%f04', self.dpad[1], self.dpad[2]))
         end
     end
@@ -340,7 +324,7 @@ function JoystickController:tracking(q_dot, duration)
     duration = duration or ros.Time.now() - BEGIN_EXECUTION
     local group = self.move_group
     local state = self.state:clone()
-    local q_des = self.lastCommandJointPositons + q_dot *self.dt:toSec()
+    local q_des = self.lastCommandJointPositons + q_dot * self.dt:toSec()
     if q_dot:norm() < 1e-12 then
         self.converged = true
         --BEGIN_EXECUTION = ros.Time.now()
@@ -357,16 +341,6 @@ function JoystickController:tracking(q_dot, duration)
                 publisherPointPositionCtrl = self.nh:advertise(self.robotControllerTopic, joint_pos_spec)
                 ros.WARN(publisherPointPositionCtrl:getTopic())
             end
-            --[[
-      if self.FIRSTPOINT then
-        sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
-        self.FIRSTPOINT = false
-        ros.INFO('FIRSTPOINT')
-      else
-        ros.INFO('GoGoGo')
-        sendPositionCommand(q_des, q_dot, group, duration)
-      end
-      ]]
             sendPositionCommand(q_des, q_dot, group, duration)
             self.lastCommandJointPositons:copy(q_des)
         else
@@ -395,24 +369,24 @@ end
 function targetTransformation(target_frame, offset, rotation_rpy)
     local tmp_offset_tf = tf.Transform():setOrigin(offset)
     local rotation = tmp_offset_tf:getRotation()
-    --tmp_offset_tf:setRotation(rotation:setRPY(rotation_rpy[1],rotation_rpy[2],rotation_rpy[3]))
+    tmp_offset_tf:setRotation(rotation:setRPY(rotation_rpy[1],rotation_rpy[2],rotation_rpy[3]))
 
     local curr_pose_inv = target_frame:clone():inverse()
     local curr_pose = target_frame:clone()
-    tmp_offset_tf:fromTensor(curr_pose:toTensor() * tmp_offset_tf:toTensor() * curr_pose_inv:toTensor())
+    --tmp_offset_tf:fromTensor(pseudoInverse(curr_pose:toTensor()) * tmp_offset_tf:toTensor() * curr_pose:toTensor())
 
-    return tmp_offset_tf:getOrigin(), rotation_rpy
- --tmp_offset_tf:getRotation():getRPY()
+    return tmp_offset_tf:getOrigin(), tmp_offset_tf:getRotation():getAxisAngle()
 end
 
 function JoystickController:getStep(D_force, D_torques, timespan)
     local D_torques = D_torques or torch.zeros(3)
+
     local opt = {}
     opt.stiffness = 1.0
     opt.damping = 0.2
 
     local K, D = opt.stiffness, opt.damping
-     --stiffness and damping
+    --stiffness and damping
     local s = timespan or 1.0
     local offset = -D_force / (K + D * s:toSec())
     local x_rot_des = (-D_torques / (K + D * s:toSec())) -- want this in EE KO
@@ -426,11 +400,6 @@ function JoystickController:getStep(D_force, D_torques, timespan)
 
     offset, x_rot_des = targetTransformation(self.current_pose, offset, x_rot_des)
 
-    if offset:norm() > 0.1 then
-        offset = offset * 0.1 / offset:norm()
-    end
-
-    --print(offset)
     local vel6D = torch.DoubleTensor(6)
     vel6D[{{1, 3}}]:copy(offset)
     vel6D[{{4, 6}}]:copy(x_rot_des)
@@ -486,16 +455,16 @@ local function taskStep(delta, vel) -- simple clipping
     if (size > delta) then
         step = step * (delta / size)
     end
-    return step
+    return vel
 end
 
 function JoystickController:getQdot(vel6D)
     local jac = self.state:getJacobian(self.move_group:getName())
     local delta = 0.5
     local delta_task = taskStep(delta, vel6D)
+    local weight_task = 1.0
+    local weight_anything = 0.05
 
-    local weight_task = 0.0
-    local weight_anything = 0.5
     local tmp = torch.cat({jac, (delta_task * weight_task), (torch.diag(torch.ones(6) * weight_anything))})
     local delta_q = inverse(tmp) * delta_task
 
