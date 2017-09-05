@@ -11,33 +11,14 @@ local environmentSetup = xamlamoveit.environmentsetup
 
 local xutils = xamlamoveit.xutils
 
-local nodehandle, sp, worker, service_queue, ik_service_queue
+local nodehandle, sp, worker
 
-local srv_spec = ros.SrvSpec('xamlamoveit_msgs/QueryMoveGroupInterfaces')
-local msg_spec = ros.MsgSpec('xamlamoveit_msgs/MoveGroupInterfaceDescription')
-
-function queryServiceHandler(request, response, header)
-    local robot_model_loader = moveit.RobotModelLoader('robot_description')
-    local robot_model = robot_model_loader:getModel()
-
-    local all_EE_parent_group_names, all_EE_parent_link_names = robot_model:getEndEffectorParentGroups()
-    local all_group_joint_names = robot_model:getJointModelGroupNames()
-
-    for k, v in pairs(all_group_joint_names) do
-        local l = ros.Message(msg_spec)
-        l.name = v
-        l.move_group_ids = robot_model:getJointModelSubGroupNames(v)
-        table.insert(response.move_group_interfaces, l)
-    end
-    return true
-end
+local xamla_services
 
 local function initSetup(name)
     ros.init('MoveActions')
     nodehandle = ros.NodeHandle(name)
-    service_queue = ros.CallbackQueue()
-    ik_service_queue = ros.CallbackQueue()
-
+    xamla_services = xutils.InfoServices(nodehandle)
     sp = ros.AsyncSpinner() -- background job
     worker = Worker(nodehandle)
     sp:start()
@@ -91,7 +72,6 @@ end
 
 local function moveJActionServerGoal(goal_handle, mode)
     ros.INFO('moveJActionServerGoal')
-    print(goal_handle)
     local g = goal_handle:getGoal()
     local traj = {
         planning_mode = mode,
@@ -182,25 +162,16 @@ local function moveActionServer(parameter)
     mj_moveit:start()
     mj_moveit_tuned:start()
     mp:start()
+    xamla_services:start()
     --ml:start()
-    local info_server =
-        nodehandle:advertiseService('/query_move_group_interface', srv_spec, queryServiceHandler, service_queue)
-
     while ros.ok() do
         worker:spin()
-        if not service_queue:isEmpty() then
-            ros.INFO('[!] incoming service call')
-            service_queue:callAvailable()
-        end
-        if not ik_service_queue:isEmpty() then
-            ros.INFO('[!] incoming ik service call')
-            ik_service_queue:callAvailable()
-        end
+        xamla_services:spin()
         ros.spinOnce()
         collectgarbage()
     end
 
-    info_server:shutdown()
+    xamla_services:shutdown()
     worker:shutdown()
     mj_direct:shutdown()
     mj_moveit:shutdown()

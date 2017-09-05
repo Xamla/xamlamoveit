@@ -1,0 +1,3 @@
+string[] joint_names
+---
+sensor_msgs/JointState current_joint_position

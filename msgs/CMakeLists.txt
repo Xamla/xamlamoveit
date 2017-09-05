@@ -64,6 +64,7 @@ add_service_files(
    SetString.srv
    GetSelected.srv
    StatusController.srv
+   GetCurrentJointState.srv
 )
 
 ## Generate actions in the 'action' folder

@@ -2,4 +2,8 @@
 string name
 
 # The names of the move group ids within the interface
-string[] move_group_ids
+string[] sub_move_group_ids
+
+string[] joint_names
+
+string[] end_effector_names
