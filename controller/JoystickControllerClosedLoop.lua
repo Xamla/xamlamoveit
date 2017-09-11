@@ -1,16 +1,16 @@
-local ros = require 'ros'
-local moveit = require 'moveit'
+local ros = require "ros"
+local moveit = require "moveit"
 local tf = ros.tf
 local timer = torch.Timer()
-local planning = require 'xamlamoveit.planning'
-local xutils = require 'xamlamoveit.xutils'
+local planning = require "xamlamoveit.planning"
+local xutils = require "xamlamoveit.xutils"
 
 local DEFAULT_HEIGHT = 0.1 -- m
 local CARRIER_WIDTH = 0.3 -- m
 local CARRIER_HEIGHT = 0.2 -- m
 local SPEED_LIMIT = {fast = 1, slow = 0.2}
 local SENSITIVITY_THRESHOLD = 0.2
-local currentSpeedLimit = 'slow'
+local currentSpeedLimit = "slow"
 local continuousMode = false
 
 local blockedAxis = {
@@ -48,7 +48,7 @@ local stepSizeR = 0.1
 
 local buttonEvents = {}
 for k, v in pairs(buttonMapping) do
-    if k ~= 'RT' and k ~= 'LT' then
+    if k ~= "RT" and k ~= "LT" then
         buttonEvents[k] = {timespan = ros.Time.now():toSec(), value = 0}
     else
         buttonEvents[k] = {timespan = ros.Time.now():toSec(), value = 1}
@@ -58,13 +58,13 @@ end
 local publisherPointPositionCtrl
 local lastJoystickMessage
 
-local test_spec = ros.MsgSpec('trajectory_msgs/JointTrajectoryPoint')
+local test_spec = ros.MsgSpec("trajectory_msgs/JointTrajectoryPoint")
 -- JointPosition --
-local joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
+local joint_pos_spec = ros.MsgSpec("trajectory_msgs/JointTrajectory")
 ---
 --@param desired joint angle position
 local function sendPositionCommand(q_des, q_dot, group)
-    ros.INFO('sendPositionCommand')
+    ros.INFO("sendPositionCommand")
     local m = ros.Message(joint_pos_spec)
     local mPoint = ros.Message(test_spec)
     local names = std.StringVector()
@@ -100,10 +100,10 @@ end
 
 local max_acc = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978}) / 4
 local max_vel = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978}) / 2
-local controller = require 'xamlamoveit.controller.env'
-local JoystickController = torch.class('xamlamoveit.controller.JoystickController', controller)
+local controller = require "xamlamoveit.controller.env"
+local JoystickControllerClosedLoop = torch.class("xamlamoveit.controller.JoystickControllerClosedLoop", controller)
 
-function JoystickController:__init(node_handle, move_group, ctr_name, dt, debug)
+function JoystickControllerClosedLoop:__init(node_handle, move_group, ctr_name, dt, debug)
     self.debug = debug or false
     if self.debug then
         ros.console.set_logger_level(nil, ros.console.Level.Debug)
@@ -115,7 +115,7 @@ function JoystickController:__init(node_handle, move_group, ctr_name, dt, debug)
     self.nh = node_handle
     self.x_des = nil
     self.q_des = nil
-    self.move_group = move_group or error('move_group should not be nil')
+    self.move_group = move_group or error("move_group should not be nil")
 
     self.converged = false
     self.state = move_group:getCurrentState()
@@ -129,17 +129,17 @@ function JoystickController:__init(node_handle, move_group, ctr_name, dt, debug)
     local ready = false
     while not ready and ros.ok() do
         ready = self.joint_monitor:waitReady(0.01)
-        ros.ERROR('joint states not ready')
+        ros.ERROR("joint states not ready")
     end
 
-    if torch.type(dt) == 'number' or torch.type(dt) == 'nil' then
+    if torch.type(dt) == "number" or torch.type(dt) == "nil" then
         self.dt = ros.Duration(dt)
-    elseif torch.type(dt) == 'nil' then
+    elseif torch.type(dt) == "nil" then
         self.dt = ros.Duration(0.01)
-    elseif torch.type(dt) == 'ros.Duration' then
+    elseif torch.type(dt) == "ros.Duration" then
         self.dt = dt
     else
-        error('dt has unsupported type')
+        error("dt has unsupported type")
     end
 
     self.left_joy = torch.zeros(3)
@@ -150,14 +150,14 @@ function JoystickController:__init(node_handle, move_group, ctr_name, dt, debug)
     self.start_time = ros.Time.now()
     BEGIN_EXECUTION = ros.Time.now()
 
-    self.controller_name = ctr_name or 'pos_based_pos_traj_controller'
+    self.controller_name = ctr_name or "pos_based_pos_traj_controller"
 
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+    self.robot_model_loader = moveit.RobotModelLoader("robot_description")
     self.kinematic_model = self.robot_model_loader:getModel()
     self.planning_scene = moveit.PlanningScene(self.kinematic_model)
     self.planning_scene:syncPlanningScene()
     --print(self.kinematic_model:printModelInfo())
-    self.robotControllerTopic = string.format('/%s/joint_command', self.controller_name)
+    self.robotControllerTopic = string.format("/%s/joint_command", self.controller_name)
 end
 
 local function clamp(t, min, max)
@@ -169,7 +169,7 @@ end
 -- @param W: weight Matrix. (Optional)
 local function pseudoInverse(M, W)
     local Weights = W or torch.eye(M:size(1))
-    assert(M:size(1) == Weights:size()[1], 'Data matrix M and weight matrix W need to have the same number of cols')
+    assert(M:size(1) == Weights:size()[1], "Data matrix M and weight matrix W need to have the same number of cols")
     local inv = M:t() * Weights * M
     -- make it definite
     inv:add(1e-15, torch.eye(inv:size(1)))
@@ -182,7 +182,7 @@ local function inverse(M)
     return M:t() * torch.inverse(M * M:t())
 end
 
-function JoystickController:getCurrentPose()
+function JoystickControllerClosedLoop:getCurrentPose()
     return self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
 end
 
@@ -190,56 +190,63 @@ local function satisfiesBounds(self, positions)
     local state = self.state:clone()
     state:setVariablePositions(positions, self.joint_monitor:getJointNames())
     self.planning_scene:syncPlanningScene()
-    local collisions = self.planning_scene:checkSelfCollision(state) or self.planning_scene:isStateColliding(self.move_group:getName(), state)
+    local collisions =
+        self.planning_scene:checkSelfCollision(state) or
+        self.planning_scene:isStateColliding(self.move_group:getName(), state)
     if state:satisfiesBounds(0.0) then
         if collisions then
-            ros.ERROR('Self Collision detected')
-            return false, 'Self Collision detected!!'
+            ros.ERROR("Self Collision detected")
+            return false, "Self Collision detected!!"
         end
     else
         state:enforceBounds()
         positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
         collisions = self.planning_scene:checkSelfCollision(state)
         if not collisions then
-            ros.WARN('Target position is out of bounds!!')
-            return true, 'Target position is out of bounds!!'
+            ros.WARN("Target position is out of bounds!!")
+            return true, "Target position is out of bounds!!"
         else
-            return false, 'Self Collision detected!!'
+            return false, "Self Collision detected!!"
         end
     end
-    return true, 'Success'
+    return true, "Success"
 end
 
 --@param desired joint angle position
-function JoystickController:isValid(q_des, q_curr) -- avoid large jumps in posture values and check if q_des tensor is valid
+function JoystickControllerClosedLoop:isValid(q_des, q_curr) -- avoid large jumps in posture values and check if q_des tensor is valid
     local diff = 2
     if q_des:nDimension() > 0 then
-        ros.DEBUG('q_des checked')
+        ros.DEBUG("q_des checked")
         if satisfiesBounds(self, q_des) then
-            ros.DEBUG('satisfiesBounds')
+            ros.DEBUG("satisfiesBounds")
             if q_curr then
                 diff = torch.norm(q_curr - q_des)
             end
         end
     end
-    ros.DEBUG(string.format('Difference between q_des and q_curr diff = %f', diff))
+    ros.DEBUG(string.format("Difference between q_des and q_curr diff = %f", diff))
     return diff < 1
 end
 
-function JoystickController:connect(topic)
-    local topic = topic or 'joy'
-    local joy_spec = 'sensor_msgs/Joy'
+function JoystickControllerClosedLoop:connect(topic)
+    local topic = topic or "joy"
+    local joy_spec = "sensor_msgs/Joy"
     self.subscriber_joy = self.nh:subscribe(topic, joy_spec, 1)
     print('Subscribed to "joy" node. Please start using your joystick.')
+    local ready = self.joint_monitor:waitReady()
+    if not ready then
+        return false, "Could not collect joint states"
+    end
     self:getNewRobotState()
+    return true
 end
 
-function JoystickController:shutdown()
+function JoystickControllerClosedLoop:shutdown()
     self.subscriber_joy:shutdown()
 end
 
 --- dummy function to simulate forces. (joystick is required)
-function JoystickController:getTeleoperationForces()
+function JoystickControllerClosedLoop:getTeleoperationForces()
     local newMessage
     local msg
 
@@ -249,28 +256,30 @@ function JoystickController:getTeleoperationForces()
     end
 
     while self.subscriber_joy:hasMessage() do
-        ros.DEBUG('NEW MESSAGE RECEIVED')
+        ros.DEBUG("NEW MESSAGE RECEIVED")
         newMessage = true
         msg = self.subscriber_joy:read()
     end
     if newMessage then
         local axis = msg.axes
 
-        self.left_joy = axis[{{1, 3}}]:type('torch.DoubleTensor')
+        self.left_joy = axis[{{1, 3}}]:type("torch.DoubleTensor")
         local tmp = torch.abs(self.left_joy)
         self.left_joy[tmp:lt(SENSITIVITY_THRESHOLD)] = 0.0 --reduce noise to avoid drifting
-        self.left_joy[tmp:gt(SENSITIVITY_THRESHOLD)] = self.left_joy[tmp:gt(SENSITIVITY_THRESHOLD)] - SENSITIVITY_THRESHOLD --reduce noise to avoid drifting
+        self.left_joy[tmp:gt(SENSITIVITY_THRESHOLD)] =
+            self.left_joy[tmp:gt(SENSITIVITY_THRESHOLD)] - SENSITIVITY_THRESHOLD --reduce noise to avoid drifting
 
-        self.right_joy = axis[{{4, 6}}]:type('torch.DoubleTensor')
+        self.right_joy = axis[{{4, 6}}]:type("torch.DoubleTensor")
         tmp = torch.abs(self.right_joy)
         self.right_joy[tmp:lt(SENSITIVITY_THRESHOLD)] = 0.0 --reduce noise to avoid drifting
-        self.right_joy[tmp:gt(SENSITIVITY_THRESHOLD)] = self.right_joy[tmp:gt(SENSITIVITY_THRESHOLD)] - SENSITIVITY_THRESHOLD --reduce noise to avoid drifting
+        self.right_joy[tmp:gt(SENSITIVITY_THRESHOLD)] =
+            self.right_joy[tmp:gt(SENSITIVITY_THRESHOLD)] - SENSITIVITY_THRESHOLD --reduce noise to avoid drifting
 
-        self.dpad = axis[{{7, 8}}]:type('torch.DoubleTensor')
+        self.dpad = axis[{{7, 8}}]:type("torch.DoubleTensor")
 
         for k, v in pairs(buttonMapping) do
             local currentButtonValue
-            if k == 'LT' or k == 'RT' then
+            if k == "LT" or k == "RT" then
                 if msg.axes[v] < 0 then
                     currentButtonValue = -1
                 else
@@ -288,9 +297,23 @@ function JoystickController:getTeleoperationForces()
         end
 
         if self.debug then
-            ros.DEBUG(string.format('axis: joystic left: %f04,%f04,%f04', self.left_joy[1], self.left_joy[2], self.left_joy[3]))
-            ros.DEBUG(string.format('axis: joystic Right: %f04,%f04,%f04', self.right_joy[1], self.right_joy[2], self.right_joy[3]))
-            ros.DEBUG(string.format('axis: joystic dpad: %f04,%f04', self.dpad[1], self.dpad[2]))
+            ros.DEBUG(
+                string.format(
+                    "axis: joystic left: %f04,%f04,%f04",
+                    self.left_joy[1],
+                    self.left_joy[2],
+                    self.left_joy[3]
+                )
+            )
+            ros.DEBUG(
+                string.format(
+                    "axis: joystic Right: %f04,%f04,%f04",
+                    self.right_joy[1],
+                    self.right_joy[2],
+                    self.right_joy[3]
+                )
+            )
+            ros.DEBUG(string.format("axis: joystic dpad: %f04,%f04", self.dpad[1], self.dpad[2]))
         end
     end
 
@@ -304,7 +327,7 @@ function JoystickController:getTeleoperationForces()
     return deltaforces, deltatorques, buttonEvents, newMessage --TODO make this more suffisticated
 end
 
-function JoystickController:updateDeltaT()
+function JoystickControllerClosedLoop:updateDeltaT()
     self.dt = ros.Time.now() - self.time_last
     while self.dt:toSec() < 0.008 do -- dt set to 125Hz
         self.dt = ros.Time.now() - self.time_last
@@ -313,18 +336,18 @@ function JoystickController:updateDeltaT()
     local tmpDT = torch.mean(self.dt_monitor.buffer[{{1, self.dt_monitor:count()}, {}}])
     --self.dt:fromSec(tmpDT)
     self.time_last = ros.Time.now()
-    ros.DEBUG(string.format('Delta Time: %dHz', 1 / self.dt:toSec()))
+    ros.DEBUG(string.format("Delta Time: %dHz", 1 / self.dt:toSec()))
 end
 
-function JoystickController:tracking(q_dot, duration)
-    if type(duration) == 'number' then
+function JoystickControllerClosedLoop:tracking(q_dot, duration)
+    if type(duration) == "number" then
         duration = ros.Duration(duration)
     end
 
     duration = duration or ros.Time.now() - BEGIN_EXECUTION
     local group = self.move_group
     local state = self.state:clone()
-    local q_des = self.lastCommandJointPositons + q_dot * self.dt:toSec()
+    local q_des = self.lastCommandJointPositons + q_dot * (self.dt:toSec()*10)
     if q_dot:norm() < 1e-12 then
         self.converged = true
         --BEGIN_EXECUTION = ros.Time.now()
@@ -332,7 +355,7 @@ function JoystickController:tracking(q_dot, duration)
     else
         self.converged = false
         self.FIRSTPOINT = false
-        ros.WARN('tracking is NOT CONVERED')
+        ros.WARN("tracking is NOT CONVERED")
     end
 
     if not self.converged then
@@ -348,28 +371,28 @@ function JoystickController:tracking(q_dot, duration)
                 publisherPointPositionCtrl:shutdown()
             end
             publisherPointPositionCtrl = nil
-            ros.ERROR('command is not valid!!!')
-            return false, 'command is not valid!!!'
+            ros.ERROR("command is not valid!!!")
+            return false, "command is not valid!!!"
         end
     else
         self.lastCommandJointPositons = state:copyJointGroupPositions(group:getName()):clone()
     end
     if self.debug then
-        ros.DEBUG('q_curr')
+        ros.DEBUG("q_curr")
         ros.DEBUG(tostring(self.lastCommandJointPositons))
-        ros.DEBUG('q_des')
+        ros.DEBUG("q_des")
         ros.DEBUG(tostring(q_des))
-        ros.DEBUG('q_dot')
+        ros.DEBUG("q_dot")
         ros.DEBUG((tostring(q_dot)))
     end
 
-    return true, 'success'
+    return true, "success"
 end
 
 function targetTransformation(target_frame, offset, rotation_rpy)
     local tmp_offset_tf = tf.Transform():setOrigin(offset)
     local rotation = tmp_offset_tf:getRotation()
-    tmp_offset_tf:setRotation(rotation:setRPY(rotation_rpy[1],rotation_rpy[2],rotation_rpy[3]))
+    tmp_offset_tf:setRotation(rotation:setRPY(rotation_rpy[1], rotation_rpy[2], rotation_rpy[3]))
 
     local curr_pose_inv = target_frame:clone():inverse()
     local curr_pose = target_frame:clone()
@@ -378,7 +401,7 @@ function targetTransformation(target_frame, offset, rotation_rpy)
     return tmp_offset_tf:getOrigin(), tmp_offset_tf:getRotation():getAxisAngle()
 end
 
-function JoystickController:getStep(D_force, D_torques, timespan)
+function JoystickControllerClosedLoop:getStep(D_force, D_torques, timespan)
     local D_torques = D_torques or torch.zeros(3)
 
     local opt = {}
@@ -405,14 +428,14 @@ function JoystickController:getStep(D_force, D_torques, timespan)
     vel6D[{{4, 6}}]:copy(x_rot_des)
     local q_dot_des, jacobian = self:getQdot(vel6D)
 
-    ros.DEBUG(string.format('-------------> time: %d', s:toSec()))
-    ros.DEBUG(string.format('-------------> D_force %s', tostring(D_force)))
-    ros.DEBUG(string.format('-------------> q_dot_des %s', tostring(q_dot_des)))
+    ros.DEBUG(string.format("-------------> time: %d", s:toSec()))
+    ros.DEBUG(string.format("-------------> D_force %s", tostring(D_force)))
+    ros.DEBUG(string.format("-------------> q_dot_des %s", tostring(q_dot_des)))
 
     return q_dot_des, jacobian
 end
 
-function JoystickController:handleButtonsEvents(buttonEvents)
+function JoystickControllerClosedLoop:handleButtonsEvents(buttonEvents)
     --print(buttonEvents)
     if buttonEvents.RT.value == -1 then
         if buttonEvents.X.changed then
@@ -433,9 +456,9 @@ function JoystickController:handleButtonsEvents(buttonEvents)
     elseif buttonEvents.XBOX.changed and buttonEvents.XBOX.timespan > 0.1 then
         --self:moveToCenter()
     elseif buttonEvents.BACK.changed then
-        self:setSpeed('slow')
+        self:setSpeed("slow")
     elseif buttonEvents.START.changed then
-        self:setSpeed('fast')
+        self:setSpeed("fast")
     elseif buttonEvents.B.changed and buttonEvents.B.timespan > 0.1 then
         --self:moveToQuadrant(1)
     elseif buttonEvents.Y.changed and buttonEvents.Y.timespan > 0.1 then
@@ -458,7 +481,7 @@ local function taskStep(delta, vel) -- simple clipping
     return vel
 end
 
-function JoystickController:getQdot(vel6D)
+function JoystickControllerClosedLoop:getQdot(vel6D)
     local jac = self.state:getJacobian(self.move_group:getName())
     local delta = 0.5
     local delta_task = taskStep(delta, vel6D)
@@ -472,20 +495,21 @@ function JoystickController:getQdot(vel6D)
     return delta_q[{{1, jac:size(2)}}], jac
 end
 
-function JoystickController:getNewRobotState()
-    local p, l = self.joint_monitor:getNextPositionsTensor(self.dt * 2)
+function JoystickControllerClosedLoop:getNewRobotState()
+    local p, l = self.joint_monitor:getNextPositionsTensor(self.dt * 3)
     self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
+    self.state:update()
     self.lastCommandJointPositons:copy(p)
 end
 
-function JoystickController:update()
+function JoystickControllerClosedLoop:update()
     --xBox 360 Joystick
-    --self.current_pose = self.move_group:getCurrentPose()
+    self.current_pose = self:getCurrentPose()
     local deltaForces, detlaTorques, buttonEvents, newMessage = self:getTeleoperationForces()
     self:getNewRobotState()
-    ros.DEBUG('deltaForces')
+    ros.DEBUG("deltaForces")
     ros.DEBUG(tostring(deltaForces))
-    ros.DEBUG('detlaTorques')
+    ros.DEBUG("detlaTorques")
     ros.DEBUG(tostring(detlaTorques))
     if newMessage then
         self:handleButtonsEvents(buttonEvents)
@@ -500,21 +524,21 @@ function JoystickController:update()
     local curr_time = ros.Time.now()
     local q_dot = self:getStep(deltaForces, detlaTorques, curr_time - self.start_time)
     if self.dt:toSec() > 0.15 then
-        ros.ERROR('dt is to large !!' .. self.dt:toSec())
+        ros.ERROR("dt is to large !!" .. self.dt:toSec())
         q_dot:zero()
     end
 
-    local succ, msg = true, 'IDLE'
+    local succ, msg = true, "IDLE"
     if buttonEvents.empty then
         succ, msg = self:tracking(q_dot:clone(), self.dt)
     end
     return succ, msg
 end
 
-function JoystickController:setSpeed(speed)
-    ros.INFO(string.format('Set speed to %s', speed))
+function JoystickControllerClosedLoop:setSpeed(speed)
+    ros.INFO(string.format("Set speed to %s", speed))
     currentSpeedLimit = speed
-    if speed == 'fast' then
+    if speed == "fast" then
         stepSizeZ = 1
         stepSizeR = 5.
     else
@@ -523,29 +547,29 @@ function JoystickController:setSpeed(speed)
     end
 end
 
-function JoystickController:blockAxis(axisIndex, value)
-    ros.INFO(string.format('Set block axis %d to %s', axisIndex, value))
+function JoystickControllerClosedLoop:blockAxis(axisIndex, value)
+    ros.INFO(string.format("Set block axis %d to %s", axisIndex, value))
     blockedAxis[axisIndex] = value
 end
 
-function JoystickController:setContinuousMode(active)
-    ros.INFO(string.format('Set continuousMode to %s', active))
+function JoystickControllerClosedLoop:setContinuousMode(active)
+    ros.INFO(string.format("Set continuousMode to %s", active))
     continuousMode = active
 end
 
-function JoystickController:resetAxes()
-    ros.INFO('Free all axes')
+function JoystickControllerClosedLoop:resetAxes()
+    ros.INFO("Free all axes")
     blockedAxis[1] = false
     blockedAxis[2] = false
     blockedAxis[3] = false
 end
 
-function JoystickController:moveToOrthogonalPose()
+function JoystickControllerClosedLoop:moveToOrthogonalPose()
     local function normalize(x)
         return x / x:norm()
     end
 
-    ros.INFO('Drive to orthogonal pose')
+    ros.INFO("Drive to orthogonal pose")
     local zAxis = normalize(torch.Tensor({0, 0, 1}))
     local basePose = self.move_group:getCurrentPose():toTensor()
     local xAxis = basePose[{1, {1, 3}}]
@@ -565,4 +589,4 @@ function JoystickController:moveToOrthogonalPose()
     end
 end
 
-return JoystickController
+return JoystickControllerClosedLoop

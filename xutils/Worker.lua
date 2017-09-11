@@ -1,7 +1,7 @@
-local ros = require 'ros'
+local ros = require "ros"
 local tf = ros.tf
-local moveit = require 'moveit'
-local planning = require 'xamlamoveit.planning'
+local moveit = require "moveit"
+local planning = require "xamlamoveit.planning"
 
 local errorCodes = {}
 errorCodes.SUCCESSFUL = 1
@@ -10,7 +10,7 @@ errorCodes.ABORT = -2
 errorCodes.NO_IK_FOUND = -3
 errorCodes.INVALID_LINK_NAME = -4
 
-local Worker = torch.class('Worker')
+local Worker = torch.class("Worker")
 
 function Worker:__init(nh)
     self.trajectoryQueue = {} -- list of pending trajectories
@@ -51,7 +51,7 @@ function Worker:cancelCurrentPlan(abortMsg)
                 if traj.manipulator ~= nil then
                     traj.manipulator:stop()
                 end
-                traj:abort(abortMsg or 'Canceled') -- abort callback
+                traj:abort(abortMsg or "Canceled") -- abort callback
             end
         end
         self.currentPlan = nil
@@ -63,27 +63,32 @@ local function computeIK(planner, group_name, robot_state_msg, ik_link_names, po
     if robot_state_msg then
         robot_state:fromRobotStateMsg(robot_state_msg)
     end
+    robot_state:update()
     --setEndEffectorLink(name)
     local all_EE_names = planner.robot_model:getEndEffectorNames()
     local all_group_joint_names = planner.robot_model:getJointModelGroupNames()
-    print('')
-    print('all_EE_names')
-    print('----------')
+    print("")
+    print("all_EE_names")
+    print("----------")
     print(all_EE_names)
-    print('')
-    print('all_group_joint_names')
-    print('----------')
+    print("")
+    print("all_group_joint_names")
+    print("----------")
     print(all_group_joint_names)
-    print('')
+    print("")
+    print(robot_state:getVariablePositions())
+    print(poses[1])
+    print(group_name)
     local suc = robot_state:setFromIK(group_name, poses[1])
+    print(suc)
     return robot_state, suc
 end
 
 local function checkMoveGroupName(name)
-    local robot_model_loader = moveit.RobotModelLoader('robot_description')
+    local robot_model_loader = moveit.RobotModelLoader("robot_description")
     local robot_model = robot_model_loader:getModel()
     local all_group_joint_names = robot_model:getJointModelGroupNames()
-
+    ros.INFO("available move_groups:\n%s", tostring(all_group_joint_names))
     for k, v in pairs(all_group_joint_names) do
         if name == v then
             return true
@@ -110,7 +115,7 @@ end
 
 --TODO move this funtion to tf.StampedTransform
 local function convertPoseMessage2Transform(pose_msg)
-    transform_auxiliar = tf.Transform()
+    local transform_auxiliar = tf.Transform()
     transform_auxiliar:setOrigin(
         torch.Tensor({pose_msg.pose.position.x, pose_msg.pose.position.y, pose_msg.pose.position.z})
     )
@@ -126,10 +131,10 @@ local function convertPoseMessage2Transform(pose_msg)
 end
 
 local function initializeMoveGroup(group_id, velocity_scaling)
-    local group_id = group_id or 'manipulator'
+    local group_id = group_id or "manipulator"
     if checkMoveGroupName(group_id) then
         local velocity_scaling = velocity_scaling or 0.5
-        ros.INFO('connection with movegroup: ' .. group_id)
+        ros.INFO("connection with movegroup: " .. group_id)
         local manipulator = moveit.MoveGroupInterface(group_id)
 
         manipulator:setMaxVelocityScalingFactor(velocity_scaling)
@@ -141,7 +146,7 @@ local function initializeMoveGroup(group_id, velocity_scaling)
         local cs = manipulator:getCurrentState()
         manipulator:setStartStateToCurrentState()
         local currentPose = manipulator:getCurrentPose():toTensor()
-        print('Current robot pose:')
+        print("Current robot pose:")
         print(currentPose)
 
         printf('MoveIt! initialization done. Current end effector link: "%s"', manipulator:getEndEffectorLink())
@@ -173,7 +178,7 @@ local function handleMoveJTrajectory(self, traj)
     status = self.errorCodes.SUCCESSFUL
     ros.INFO('xamlamoveit_msgs/moveJActionGoal')
     group_name = traj.goal.goal.group_name.data
-    ros.INFO('Specified groupName: ' .. group_name)
+    ros.INFO("Specified groupName: " .. group_name)
     velocities_constraints = traj.goal.goal.velocities_constraints
     accelerations_constraints = traj.goal.goal.accelerations_constraints
     manipulator = initializeMoveGroup(group_name)
@@ -216,43 +221,54 @@ local function handleMoveJTrajectory(self, traj)
     return suc, msg, traj, status
 end
 
-local function handleMovePTrajectory(traj)
-    ros.INFO('xamlamoveit_msgs/movePActionGoal')
+local function handleMovePTrajectory(self, traj)
+    ros.INFO("xamlamoveit_msgs/movePActionGoal")
     local group_name
     local manipulator
     local planner
     local velocities_constraints, accelerations_constraints
     local suc, msg, plan, status
-
-    group_name = traj.goal.goal.goal.group_name
-    ros.INFO('group_name: %s', group_name)
+    status = self.errorCodes.SUCCESSFUL
+    print(traj.goal.goal.waypoints[1])
+    group_name = traj.goal.goal.waypoints[1].group_name
+    ros.INFO("group_name: %s", group_name)
     manipulator = initializeMoveGroup(group_name)
     if not manipulator then
+        ros.ERROR("could not initialize move group interface.")
         status = self.errorCodes.INVALID_GOAL
     else
         planner = planning.MoveitPlanning.new(self.nodeHandle, manipulator)
-        local avoid_collisions = traj.goal.goal.goal.avoid_collisions
-        local robot_state_msg = traj.goal.goal.goal.robot_state
+        local avoid_collisions = traj.goal.goal.waypoints[1].avoid_collisions
+        local robot_state_msg = traj.goal.goal.waypoints[1].robot_state
         if #traj.goal.goal.waypoints[1].pose_stamped_vector ~= #traj.goal.goal.waypoints[1].ik_link_names then
             status = self.errorCodes.INVALID_GOAL
-            msg = 'Number of pose and link names do not correspond'
+            msg = "Number of pose and link names do not correspond"
             ros.ERROR(msg)
             suc = false
         else
             local poses = {}
             for i, k in ipairs(traj.goal.goal.waypoints[1].pose_stamped_vector) do
+                print(k)
                 table.insert(poses, convertPoseMessage2Transform(k))
             end
 
             local ik_link_names = traj.goal.goal.waypoints[1].ik_link_names
             local ik_link_name = traj.goal.goal.waypoints[1].ik_link_names
-            local pose = traj.goal.goal.waypoints[1].pose_stamped
+            local pose
+            if #poses > 1 then
+                print(traj.goal.goal.waypoints[1].pose_stamped)
+                ros.ERROR("WHATE")
+                pose = convertPoseMessage2Transform(traj.goal.goal.waypoints[1].pose_stamped)
+            elseif #poses == 1 then
+                pose = poses[1]
+            end
+
             local result, ik_suc
-            if poses then
-                print('multiple poses specified ')
+            if pose == nil and #poses > 1 then
+                ros.INFO("multiple poses specified ")
                 result, ik_suc = computeIK(planner, group_name, robot_state_msg, ik_link_names, poses, avoid_collisions)
             else
-                print('only one pose specified ')
+                ros.INFO("only one pose specified ")
                 result,
                     ik_suc = computeIK(planner, group_name, robot_state_msg, {ik_link_name}, {pose}, avoid_collisions)
             end
@@ -260,11 +276,11 @@ local function handleMovePTrajectory(traj)
                 assert(result)
                 suc, msg, plan = planner:moveq(result)
                 if plan == nil then
-                    ros.ERROR('INVALID_GOAL')
+                    ros.ERROR("INVALID_GOAL")
                     status = self.errorCodes.INVALID_GOAL
                 end
             else
-                msg = 'NO_IK_FOUND'
+                msg = "NO_IK_FOUND"
                 ros.ERROR(msg)
                 status = self.errorCodes.NO_IK_FOUND
             end
@@ -275,14 +291,12 @@ local function handleMovePTrajectory(traj)
     return suc, msg, traj, status
 end
 
-
-
 local function dispatchTrajectory(self)
     local status = 0
     if self.currentPlan == nil then
         if #self.trajectoryQueue > 0 then -- check if new trajectory is available
             while #self.trajectoryQueue > 0 do
-                print('#self.trajectoryQueue ' .. #self.trajectoryQueue)
+                print("#self.trajectoryQueue " .. #self.trajectoryQueue)
                 local traj = table.remove(self.trajectoryQueue, 1)
                 if traj.accept == nil or traj:accept() then -- call optional accept callback
                     if traj.flush ~= nil then
@@ -292,9 +306,9 @@ local function dispatchTrajectory(self)
                         waitCovergence = traj.waitCovergence
                     end
 
-                    if traj.goal.spec.type == 'xamlamoveit_msgs/moveJActionGoal' then
+                    if traj.goal.spec.type == "xamlamoveit_msgs/moveJActionGoal" then
                         suc, msg, traj, status = handleMoveJTrajectory(self, traj)
-                    elseif traj.goal.spec.type == 'xamlamoveit_msgs/movePActionGoal' then
+                    elseif traj.goal.spec.type == "xamlamoveit_msgs/movePActionGoal" then
                         suc, msg, traj, status = handleMovePTrajectory(self, traj)
                     end
 
@@ -327,8 +341,8 @@ local function dispatchTrajectory(self)
                     if traj.manipulator ~= nil then
                         traj.manipulator:stop()
                     end
-                    ros.ERROR('status: ' .. status)
-                    traj:abort('status: ' .. status, status) -- abort callback
+                    ros.ERROR("status: " .. status)
+                    traj:abort("status: " .. status, status) -- abort callback
                 end
                 self.currentPlan = nil
             elseif status == self.errorCodes.SUCCESSFUL then
@@ -339,7 +353,7 @@ local function dispatchTrajectory(self)
             end
         else
             -- robot not ready or proceed callback returned false
-            self:cancelCurrentPlan('Stop plan execution.')
+            self:cancelCurrentPlan("Stop plan execution.")
         end
     end
 end
@@ -359,7 +373,7 @@ function Worker:spin()
             if traj.manipulator ~= nil then
                 traj.manipulator:stop()
             end
-            ros.ERROR('currentPlan failed')
+            ros.ERROR("currentPlan failed")
             traj:abort()
         end
         self.currentPlan = nil

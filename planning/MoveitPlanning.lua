@@ -408,13 +408,13 @@ function MoveitPlanning:generateDirectPlan_qq(
     acceleration_base,
     check_path)
     velocity_scaling = velocity_scaling or 1.0
-    velocity_base = velocity_base or torch.ones(#self.JOINT_NAMES) * math.pi
+    velocity_base = velocity_base or torch.ones(#self.JOINT_NAMES) * math.pi/4
     if velocity_base:nDimension() < 1 then
         velocity_base = torch.ones(#self.JOINT_NAMES) * math.pi
     end
-    acceleration_base = acceleration_base or torch.Ones(#self.JOINT_NAMES) * math.pi
+    acceleration_base = acceleration_base or torch.ones(#self.JOINT_NAMES) * math.pi/10
     if acceleration_base:nDimension() < 1 then
-        acceleration_base = torch.ones(#self.JOINT_NAMES) * math.pi
+        acceleration_base = torch.ones(#self.JOINT_NAMES) * math.pi/10
     end
     if check_path == nil then
         check_path = true
