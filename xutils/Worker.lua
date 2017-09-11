@@ -149,10 +149,9 @@ local function initializeMoveGroup(group_id, velocity_scaling)
     end
 end
 
-
 local function executePlan(plan, manipulator, traj)
     if plan then
-        print(plan)
+        print("plan ", plan)
         local trajectory = plan:getTrajectoryMsg()
         local viaPoints = trajectory.joint_trajectory.points
         local jointNames = trajectory.joint_trajectory.joint_names
@@ -165,12 +164,13 @@ local function executePlan(plan, manipulator, traj)
     return traj
 end
 
-local function handleMoveJTrajectory(self,traj)
+local function handleMoveJTrajectory(self, traj)
     local group_name
     local manipulator
     local planner
     local velocities_constraints, accelerations_constraints
     local suc, msg, plan, status
+    status = self.errorCodes.SUCCESSFUL
     ros.INFO('xamlamoveit_msgs/moveJActionGoal')
     group_name = traj.goal.goal.group_name.data
     ros.INFO('Specified groupName: ' .. group_name)
@@ -181,12 +181,13 @@ local function handleMoveJTrajectory(self,traj)
         status = self.errorCodes.INVALID_GOAL
     else
         planner = planning.MoveitPlanning.new(self.nodeHandle, manipulator)
+        local wpTraj = {}
+        for i = 1, #traj.goal.goal.waypoints do
+            wpTraj[i] = traj.goal.goal.waypoints[i].positions
+        end
         if traj.planning_mode == 1 then
-            suc,
-                msg,
-                plan =
-                planner:moveq(
-                traj.goal.goal.waypoints[1].positions,
+            plan, suc, msg = planner:moveqtraj(
+                wpTraj,
                 1.0,
                 velocities_constraints,
                 accelerations_constraints
