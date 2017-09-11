@@ -31,8 +31,6 @@ local errorCodes = {
     NO_IK_SOLUTION = -31
 }
 
-local JOINT_NAMES = {}
-
 --@param desired joint angle position
 local function isValid(q_des, q_curr) -- avoid large jumps in posture values and check if q_des tensor is valid
     local diff = 2
@@ -57,12 +55,12 @@ function MoveitPlanning:__init(nh, move_group, dt)
     self.errorCodes = errorCodes
     local tmp = self.g:getJoints()
     local src_names = self.g:getCurrentState():getVariableNames()
-    JOINT_NAMES = {}
+    self.JOINT_NAMES = {}
     for i, dst_name in ipairs(tmp) do
         local found = false
         for j = 1, #src_names do
             if src_names[j] == dst_name then
-                table.insert(JOINT_NAMES, dst_name)
+                table.insert(self.JOINT_NAMES, dst_name)
                 break
             end
         end
@@ -114,9 +112,9 @@ end
 
 function MoveitPlanning:getJointPositionsFromRobotState(state)
     local p = state:getVariablePositions()
-    local q = torch.zeros(#JOINT_NAMES)
+    local q = torch.zeros(#self.JOINT_NAMES)
     local src_names = state:getVariableNames()
-    for i, dst_name in ipairs(JOINT_NAMES) do
+    for i, dst_name in ipairs(self.JOINT_NAMES) do
         local found = false
         for j = 1, #src_names do
             if src_names[j] == dst_name then
@@ -378,7 +376,7 @@ local function generateRobotTrajectory(self, trajectory, dt)
         local r = original:clone()
         for i = 1, #dstNames do
             local dstName = dstNames[i]
-            for j, srcName in ipairs(JOINT_NAMES) do
+            for j, srcName in ipairs(self.JOINT_NAMES) do
                 if srcName == dstName then
                     r[i] = values[j]
                     break
@@ -410,13 +408,13 @@ function MoveitPlanning:generateDirectPlan_qq(
     acceleration_base,
     check_path)
     velocity_scaling = velocity_scaling or 1.0
-    velocity_base = velocity_base or torch.ones(#JOINT_NAMES) * math.pi
+    velocity_base = velocity_base or torch.ones(#self.JOINT_NAMES) * math.pi
     if velocity_base:nDimension() < 1 then
-        velocity_base = torch.ones(#JOINT_NAMES) * math.pi
+        velocity_base = torch.ones(#self.JOINT_NAMES) * math.pi
     end
-    acceleration_base = acceleration_base or torch.Ones(#JOINT_NAMES) * math.pi
+    acceleration_base = acceleration_base or torch.Ones(#self.JOINT_NAMES) * math.pi
     if acceleration_base:nDimension() < 1 then
-        acceleration_base = torch.ones(#JOINT_NAMES) * math.pi
+        acceleration_base = torch.ones(#self.JOINT_NAMES) * math.pi
     end
     if check_path == nil then
         check_path = true
@@ -430,7 +428,7 @@ function MoveitPlanning:generateDirectPlan_qq(
     end
 
     local dt = 0.008
-    local waypoints = torch.Tensor(2, #JOINT_NAMES)
+    local waypoints = torch.Tensor(2, #self.JOINT_NAMES)
     waypoints[1] = q_start
     waypoints[2] = q_end
 
@@ -445,13 +443,13 @@ function MoveitPlanning:generateDirectPlan_qq(
     if torch.isTypeOf(vel, torch.DoubleTensor) then
         maxVelocities = vel
     else
-        maxVelocities = torch.Tensor(#JOINT_NAMES):fill(vel)
+        maxVelocities = torch.Tensor(#self.JOINT_NAMES):fill(vel)
     end
 
     if torch.isTypeOf(acc, torch.DoubleTensor) then
         maxAccelerations = acc
     else
-        maxAccelerations = torch.Tensor(#JOINT_NAMES):fill(acc)
+        maxAccelerations = torch.Tensor(#self.JOINT_NAMES):fill(acc)
     end
 
     local path = op.Path(waypoints, 1.0)
@@ -572,12 +570,12 @@ function MoveitPlanning:moveqtraj(q_waypoints, velocity_scaling, velocity_base, 
     local waypoints
     local q_start = self:getCurrentJointPositions()
     if torch.isTensor(q_waypoints) then
-        assert(waypoints:nDimension() == 2 and waypoints:size(2) == 6)
-        waypoints = torch.Tensor(waypoints:size(1) + 1, 6)
+        assert(waypoints:nDimension() == 2 and waypoints:size(2) == #self.JOINT_NAMES)
+        waypoints = torch.Tensor(waypoints:size(1) + 1, #self.JOINT_NAMES)
         waypoints[1] = q_start
         waypoints[{2, waypoints:size()}] = q_waypoints
     elseif type(q_waypoints) == 'table' then
-        waypoints = torch.Tensor(#q_waypoints + 1, 6)
+        waypoints = torch.Tensor(#q_waypoints + 1, #self.JOINT_NAMES)
         waypoints[1] = q_start
         for i, q in ipairs(q_waypoints) do
             if torch.isTensor(q) then
@@ -593,9 +591,21 @@ function MoveitPlanning:moveqtraj(q_waypoints, velocity_scaling, velocity_base, 
     local vel = velocity_base * velocity_scaling
     local acc = acceleration_base * velocity_scaling
 
-    local maxVelocities = torch.Tensor(#JOINT_NAMES):fill(vel)
-    local maxAccelerations = torch.Tensor(#JOINT_NAMES):fill(acc)
+    local maxVelocities
+    if (torch.isTensor(vel)) then
+        maxVelocities = vel
+    else
+        maxVelocities = torch.Tensor(#self.JOINT_NAMES):fill(vel)
+    end
 
+    local maxAccelerations
+    if (torch.isTensor(acc)) then
+        maxAccelerations = acc
+    else
+        maxAccelerations = torch.Tensor(#self.JOINT_NAMES):fill(acc)
+    end
+
+    print(waypoints)
     local path = op.Path(waypoints, 1.0)
     local trajectory = op.Trajectory(path, maxVelocities, maxAccelerations, dt)
 
