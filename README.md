@@ -2,7 +2,34 @@
 
 Provides specialized planning functions and sensore interfaces.
 
+
+## MoveJ commands
+MoveJ Kommandos sollen immer von einem definierten Startpunkt zu einem definierten Endpunkt führen.
+Hierbei sollen bestimmte Garantien erfüllt werden. Genauigkeit bei der Trajectory-Verfolgung, sowohl in Räumlichen als auch Zeitlichen Rahmen, müssen in gewissen Tolleranzen bleiben.
+
+### global parameters:
+- path_execution_tolerance and max_start_point_distance_tolerance (gegebenenfals gleich?): Dies ist die Fehlertoleranz wärend der Ausführung der Trajectorie, in radians.
+- duration_tolerance: Diese Property soll die Tolereanz in sek. angeben, die der Roboter hat, um den letzten Punkt der Trajektorie zu erreichen der Kommandiert wurde.
+- goal_tolerance: Toleranz für jedes Joint um den Zielzustand zu erreichen. Wenn die Zielposition mit +/- goal_tolerance erreicht wird, war die Ausführung erfolgreich.
+
+### meta parameter für movej mit optim path planner
+- max Vel,Acc <- pro joint
+- bool collisionCheck
+- double maxDeviation: Gibt an wie genau die Wegpunkte angefahren werden sollen unter Berücksichtigung von max Vel,Acc.
+
 ## Todo
+
+### Execution Monitoring
+- was wurde als command geschickt?
+- was wurde gefahren
+- detection von der initialen Roboterbewegung zur t0 Festlegung
+
+### NodeServer:
+Plänne und Jogging Kommandos sollen hier durchgehen:
+- jogging wird nur activiert wenn alle actions aus sind
+- moveJ nur mit start und goal 0 velocity am ende und start
+- Collision Checks mit distanz informationen
+
 
 ### Robot emulation
 
