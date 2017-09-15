@@ -54,7 +54,9 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
 	FILES
 #	XamlaGripper.msg
-	MoveGroupInterfaceDescription.msg
+  MoveGroupInterfaceDescription.msg
+  ComponentState.msg
+  JointPathPoint.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -65,6 +67,9 @@ add_service_files(
    GetSelected.srv
    StatusController.srv
    GetCurrentJointState.srv
+   GetOptimJointTrajectory.srv
+   GetOptimJointPath.srv
+   GetComponentState.srv
 )
 
 ## Generate actions in the 'action' folder

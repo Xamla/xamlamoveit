@@ -1,0 +1,21 @@
+# Mandatory name of group to compute the path for
+string group_name
+string[] joint_names
+
+# A sequence of waypoints to be followed
+JointPathPoint[] waypoints
+
+float64[] max_velocity
+float64[] max_acceleration
+
+float64 max_deviation
+
+float64 dt
+
+---
+
+# The computed solution trajectory, for the desired group, in configuration space
+trajectory_msgs/JointTrajectory solution
+
+# The error code of the computation
+moveit_msgs/MoveItErrorCodes error_code

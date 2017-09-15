@@ -1,0 +1,22 @@
+# Mandatory name of group to compute the path for
+string group_name
+
+# A sequence of waypoints to be followed by the specified link,
+# while moving the specified group, such that the group moves only
+# in a straight line between waypoints
+string[] joint_names
+JointPathPoint[] waypoints
+
+# The maximum distance (in Cartesian space) between consecutive points
+# in the returned path. This must always be specified and > 0
+float64 max_deviation
+
+uint32 num_steps
+
+---
+
+# The computed solution trajectory, for the desired group, in configuration space
+JointPathPoint[] path
+
+# The error code of the computation
+moveit_msgs/MoveItErrorCodes error_code
