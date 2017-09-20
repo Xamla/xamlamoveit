@@ -1,6 +1,4 @@
-trajectory_msgs/JointTrajectoryPoint[] waypoints #last waypoint is alwas the goal
-float64[] velocities_constraints
-float64[] accelerations_constraints
+trajectory_msgs/JointTrajectory trajectory
 std_msgs/String group_name
 ---
 #result definition

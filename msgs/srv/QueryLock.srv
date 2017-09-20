@@ -1,0 +1,15 @@
+bool release
+string[] id_resources
+string id_lock
+
+---
+
+bool success
+
+string[] id_resources
+string id_lock
+
+time creation_date
+time expiration_date
+
+string error_msg

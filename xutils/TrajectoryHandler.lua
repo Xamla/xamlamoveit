@@ -60,7 +60,7 @@ local function reachedGoal(self)
 
     local goal_distance = torch.norm(q_goal - q_actual)
 
-    self.logger.debug('Convergence cycle %d: |qd_actual|: %f; goal_distance (joints): %f;', self.convergenceCycle, qd_actual:norm(), goal_distance)
+    self.logger.info('Convergence cycle %d: |qd_actual|: %f; goal_distance (joints): %f;', self.convergenceCycle, qd_actual:norm(), goal_distance)
 
     self.convergenceCycle = self.convergenceCycle + 1
     if self.convergenceCycle >= MAX_CONVERGENCE_CYCLES then
