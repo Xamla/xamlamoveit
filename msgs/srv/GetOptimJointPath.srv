@@ -13,6 +13,8 @@ float64 max_deviation
 
 uint32 num_steps
 
+bool moveit_adaptive_plan
+
 ---
 
 # The computed solution trajectory, for the desired group, in configuration space

@@ -71,6 +71,7 @@ add_service_files(
    GetOptimJointPath.srv
    GetComponentState.srv
    QueryLock.srv
+   QueryJointStateCollisions.srv
 )
 
 ## Generate actions in the 'action' folder

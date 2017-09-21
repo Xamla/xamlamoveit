@@ -1,0 +1,10 @@
+string  move_group_name
+string[] joint_names
+float64[] positions
+
+---
+
+bool success
+
+bool in_collision
+string message
