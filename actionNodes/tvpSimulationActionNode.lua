@@ -1,26 +1,15 @@
 #!/usr/bin/env th
 local torch = require 'torch'
 local ros = require 'ros'
-local tf = ros.tf
 local xamlamoveit = require 'xamlamoveit'
 local xutils = xamlamoveit.xutils
-local printf = xutils.printf
-local xtable = xutils.Xtable
-
-local xamlacontroller = xamlamoveit.controller
-local TvpController = xamlacontroller.TvpController
-
 local actionlib = ros.actionlib
 local ActionServer = actionlib.ActionServer
 local GoalStatus = actionlib.GoalStatus
 
-local joint_sensor_spec = ros.MsgSpec('sensor_msgs/JointState')
-local joint_msg = ros.Message(joint_sensor_spec)
-
-local jointtrajmsg_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
-local subscriber
-
 local GenerativeSimulationWorker = require 'xamlamoveit.xutils.GenerativeSimulationWorker'
+
+local xamla_sysmon = require 'xamla_sysmon'
 
 -- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryResult.html
 local TrajectoryResultStatus = {
@@ -32,66 +21,6 @@ local TrajectoryResultStatus = {
     GOAL_TOLERANCE_VIOLATED = -5
 }
 
---[[
-local config = {
-    {
-        name = '',
-        ns = '/sda10d',
-        group = 0,
-        joints = {
-            'arm_left_joint_1_s',
-            'arm_left_joint_2_l',
-            'arm_left_joint_3_e',
-            'arm_left_joint_4_u',
-            'arm_left_joint_5_r',
-            'arm_left_joint_6_b',
-            'arm_left_joint_7_t',
-            'arm_right_joint_1_s',
-            'arm_right_joint_2_l',
-            'arm_right_joint_3_e',
-            'arm_right_joint_4_u',
-            'arm_right_joint_5_r',
-            'arm_right_joint_6_b',
-            'arm_right_joint_7_t',
-            'torso_joint_b1'
-        }
-    },
-    {
-        name = 'sda10d_r1_controller',
-        ns = '/sda10d',
-        group = 0,
-        joints = {
-            'arm_left_joint_1_s',
-            'arm_left_joint_2_l',
-            'arm_left_joint_3_e',
-            'arm_left_joint_4_u',
-            'arm_left_joint_5_r',
-            'arm_left_joint_6_b',
-            'arm_left_joint_7_t'
-        }
-    },
-    {
-        name = 'sda10d_r2_controller',
-        ns = '/sda10d',
-        group = 1,
-        joints = {
-            'arm_right_joint_1_s',
-            'arm_right_joint_2_l',
-            'arm_right_joint_3_e',
-            'arm_right_joint_4_u',
-            'arm_right_joint_5_r',
-            'arm_right_joint_6_b',
-            'arm_right_joint_7_t'
-        }
-    },
-    {
-        name = 'sda10d_b1_controller',
-        ns = '/sda10d',
-        group = 2,
-        joints = {'torso_joint_b1'}
-    }
-}
-]]
 local config = {}
 local node_handle, sp, worker
 
@@ -174,7 +103,7 @@ local function decodeJointTrajectoryMsg(trajectory)
     return time, pos, vel, acc
 end
 
-local function moveJAction_serverGoal(goal_handle, q_buffer, qd_buffer, target_joint_names)
+local function moveJAction_serverGoal(goal_handle, joint_monitor, target_joint_names)
     ros.INFO('moveJAction_serverGoal')
     local g = goal_handle:getGoal()
     if not isSubset(g.goal.trajectory.joint_names, target_joint_names) then
@@ -190,8 +119,7 @@ local function moveJAction_serverGoal(goal_handle, q_buffer, qd_buffer, target_j
         acc = acc,
         goalHandle = goal_handle,
         goal = g,
-        q_buffer = q_buffer,
-        qd_buffer = qd_buffer,
+        joint_monitor = joint_monitor,
         joint_names = g.goal.trajectory.joint_names,
         state_joint_names = joint_name_collection,
         accept = function()
@@ -207,7 +135,10 @@ local function moveJAction_serverGoal(goal_handle, q_buffer, qd_buffer, target_j
             if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
                 return true
             else
-                ros.WARN('Goal status of current trajectory no longer ACTIVE (actual: %d).', goal_handle:getGoalStatus().status)
+                ros.WARN(
+                    'Goal status of current trajectory no longer ACTIVE (actual: %d).',
+                    goal_handle:getGoalStatus().status
+                )
                 return false
             end
         end,
@@ -251,23 +182,17 @@ local function FollowJointTrajectory_Cancel(goalHandle)
     end
 end
 
-function jointCommandCb(msg, header)
-    if #msg.points > 0 then
-        for igroup, group in ipairs(config) do
-            for i, name in ipairs(msg.joint_names) do
-                local index = table.indexof(joint_name_collection, name)
-                if index > -1 then
-                    last_command_joint_position[index] = msg.points[1].positions[i]
-                end
-            end
-        end
-        seq = seq + 1
-        new_message = true
+local error_state = false
+local function updateSystemState(msg, header)
+    if msg.system_status ~= 0 and error_state == false then
+        error_state = true
+    elseif msg.system_status == 0 and error_state == true then
+        error_state = false
     end
 end
 
-local function initControllers(delay, dt)
-    local offset = math.ceil(delay / dt:toSec())
+
+local function initActions()
 
     config = node_handle:getParamVariable('/move_group/controller_list')
     local start_time = ros.Time.now()
@@ -301,33 +226,56 @@ local function initControllers(delay, dt)
         end
 
         if #v.name > 0 then
-            action_server[v.name] = ActionServer(node_handle, string.format('%s/joint_trajectory_action', v.name), 'control_msgs/FollowJointTrajectory')
+            action_server[v.name] =
+                ActionServer(
+                node_handle,
+                string.format('%s/joint_trajectory_action', v.name),
+                'control_msgs/FollowJointTrajectory'
+            )
         else
-            action_server[v.name] = ActionServer(node_handle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
+            action_server[v.name] =
+                ActionServer(node_handle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
-    controller = TvpController(#joint_name_collection)
-    feedback_buffer_pos = xutils.MonitorBuffer(offset + 1, #joint_name_collection)
-    feedback_buffer_pos.offset = offset
-    feedback_buffer_vel = xutils.MonitorBuffer(offset + 1, #joint_name_collection)
-    feedback_buffer_vel.offset = offset
-    last_command_joint_position = torch.ones(#joint_name_collection) * 1.3
+    print(joint_name_collection)
+    local joint_monitor = xutils.JointMonitor(joint_name_collection)
+    local timeout = ros.Duration(2.01)
+    if not joint_monitor:waitReady(timeout) then
+        ros.ERROR("FAILED init")
+        os.exit()
+    end
 
+    --[[local start = ros.Time.now()
+    local wait_duration = ros.Rate(10)
+    local timeout = ros.Duration(2.01)
+    local ready = true
+    while not joint_monitor:isReady() do
+        local elapsed = ros.Time.now() - start
+        if (not ros.ok()) or ((timeout ~= nil) and (elapsed > timeout)) then
+            ros.WARN(string.format('Joint states not available during: %s sec', tostring(elapsed)))
+            return false
+        end
+        ros.spinOnce()
+        wait_duration:sleep()
+    end
+    --]]
+    if not ready then
+        ros.ERROR("joint_monitor has difficulties finding joints")
+    end
     for i, v in ipairs(config) do
         action_server[v.name]:registerGoalCallback(
             function(gh)
-                moveJAction_serverGoal(gh, feedback_buffer_pos, feedback_buffer_vel, v.joints)
+                moveJAction_serverGoal(gh, joint_monitor, v.joints)
             end
         )
         action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
         action_server[v.name]:start()
+        print(v.name)
     end
 
-    subscriber = node_handle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
-    subscriber:registerCallback(jointCommandCb)
 
-    worker = GenerativeSimulationWorker.new(ros.NodeHandle(string.format('/%s',ns[1])))
+    worker = GenerativeSimulationWorker.new(ros.NodeHandle(string.format('/%s', ns[1])))
     return 0, 'Success'
 end
 
@@ -338,63 +286,70 @@ local function shutdownAction_server()
 end
 
 local cmd = torch.CmdLine()
-cmd:option('-delay', 0.150, 'Feedback delay time')
-cmd:option('-frequency', 0.008, 'Node cycle time')
 
-local parameter = xutils.parseRosParametersFromCommandLine(arg,cmd) or {}
-initSetup(parameter["__name"]) -- TODO
+local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
+initSetup(parameter['__name']) -- TODO
 
-local joint_state_publisher = node_handle:advertise('/joint_states', joint_sensor_spec, 1)
 
-local function sendJointState(position, velocity, joint_names, sequence)
-    local m = ros.Message(joint_sensor_spec)
-    m.header.seq = sequence
-    m.header.stamp = ros.Time.now()
-    m.name = joint_names
-    m.position:set(position)
-    m.velocity:set(velocity)
-    joint_state_publisher:publish(m)
-end
+local function init()
+    local err, msg = initActions()
 
-local function simulation(delay, dt)
-    local sim_seq = 1
-    local value, succ = node_handle:getParamDouble(string.format('%s/feedback_delay', node_handle:getNamespace()))
-    if succ then
-        delay = value
-    end
-    value, succ = node_handle:getParamDouble('frequency')
-    if succ then
-        dt = value
-    end
-    dt = ros.Duration(dt or 0.008)
-    local offset = math.ceil(delay / dt:toSec())
-    local err, msg = initControllers(delay, dt)
     if err < 0 then
         ros.ERROR('Could not initialize controller. ' .. msg)
         return
     end
+
+    return ros.Rate(1/worker.servoTime)
+end
+
+local function reset()
+    shutdownAction_server()
+    return init()
+end
+
+local function simulation()
+    local heartbeat = xamla_sysmon.Heartbeat.new()
+    heartbeat:start(node_handle, 0.5) --[Hz]
+    heartbeat:updateStatus(heartbeat.BUSY, 'WORKING ...')
+    heartbeat:publish()
+    local system_state_subscriber =
+        node_handle:subscribe(
+        '/xamla_sysmon/system_status',
+        'xamla_sysmon_msgs/SystemStatus',
+        1,
+        {'udp', 'tcp'},
+        {tcp_nodelay = true}
+    )
+    local dt = init()
+    local initialized = true
+    system_state_subscriber:registerCallback(updateSystemState)
+
     while ros.ok() do
-        controller:update(last_command_joint_position, dt:toSec())
-        feedback_buffer_pos:add(controller.state.pos)
-        feedback_buffer_vel:add(controller.state.vel)
+        if error_state == false then
+            if initialized == false then
+                xutils.tic('Initialize')
+                ros.INFO('Reinizialise')
+                dt = init()
+                heartbeat:updateStatus(heartbeat.BUSY, 'WORKING ...')
+                initialized = true
+                xutils.toc('Initialize')
+            end
+        else
+            if initialized then
+                ros.ERROR('error state')
+                shutdownAction_server()
+                initialized = false
+            end
 
-        local pos = feedback_buffer_pos:getPastIndex(offset)
-        local vel = feedback_buffer_vel:getPastIndex(offset)
-
-        if pos then
-            sendJointState(pos, vel, joint_name_collection,sim_seq)
         end
 
-        sim_seq = sim_seq + 1
-        dt:sleep()
-        worker:spin()
         ros.spinOnce()
+        heartbeat:publish()
+        worker:spin()
+        dt:sleep()
     end
     shutdownAction_server()
 end
 
-
-
-
-simulation(parameter.delay, parameter.frequency)
+simulation()
 shutdownSetup()
