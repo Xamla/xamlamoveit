@@ -1,2 +1,0 @@
-local EnvironmentSetup = {}
-return EnvironmentSetup

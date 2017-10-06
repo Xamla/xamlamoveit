@@ -43,8 +43,7 @@ end
 
 
 local function reachedGoal(self)
-    local state_pos = self.traj.q_buffer:getPastIndex()
-    local state_vel = self.traj.qd_buffer:getPastIndex()
+    local state_pos = self.traj.joint_monitor:getNextPositionsTensor()
     local feedback_idx =
         table.findIndicesTensor(
         self.traj.state_joint_names,
@@ -56,18 +55,18 @@ local function reachedGoal(self)
     local q_goal = self.sampler:getGoalPosition()
     local q_actual = state_pos[feedback_idx]
     --self.realtimeState.q_actual
-    local qd_actual = state_vel[feedback_idx]
+    --local qd_actual = state_vel[feedback_idx]
 
     local goal_distance = torch.norm(q_goal - q_actual)
 
-    self.logger.info('Convergence cycle %d: |qd_actual|: %f; goal_distance (joints): %f;', self.convergenceCycle, qd_actual:norm(), goal_distance)
+    self.logger.info('Convergence cycle %d: goal_distance (joints): %f;', self.convergenceCycle, goal_distance)
 
     self.convergenceCycle = self.convergenceCycle + 1
     if self.convergenceCycle >= MAX_CONVERGENCE_CYCLES then
         error(string.format('Did not reach goal after %d convergence cycles.', MAX_CONVERGENCE_CYCLES))
     end
 
-    return qd_actual:norm() < GOAL_CONVERGENCE_VELOCITY_THRESHOLD and goal_distance < GOAL_CONVERGENCE_POSITION_THRESHOLD
+    return goal_distance < GOAL_CONVERGENCE_POSITION_THRESHOLD
 end
 
 function TrajectoryHandler:update()

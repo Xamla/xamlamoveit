@@ -18,7 +18,9 @@ dependencies = {
    "torch-moveit",
    "dmp",
    "optimplan",
-   "luaposix"
+   "luaposix",
+   "uuid",
+   "xamla_sysmon"
 }
 
 build = {

@@ -7,7 +7,7 @@ local printf = xutils.printf
 local xtable = xutils.Xtable
 
 local xamlacontroller = xamlamoveit.controller
-local TvpController = xamlacontroller.TvpController
+local Controller = xamlacontroller.TvpController
 
 local jointtrajmsg_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 local joint_sensor_spec = ros.MsgSpec('sensor_msgs/JointState')
@@ -127,6 +127,7 @@ local seq = 1
 local joint_name_collection = {}
 local last_command_joint_position = {}
 local last_command_joint_velocity = {}
+local last_command_time = ros.Time.now()
 local controller = {}
 local feedback_buffer_pos = {}
 local feedback_buffer_vel = {}
@@ -137,17 +138,20 @@ local function jointCommandCb(msg, header)
             for i, name in ipairs(msg.joint_names) do
                 local index = table.indexof(joint_name_collection, name)
                 if index > -1 then
-                    print(msg.points[1])
+                    --print(msg.points[1])
                     last_command_joint_position[index] = msg.points[1].positions[i]
-                    if msg.points[1].velocities:nDimension()>0 then
+                    if msg.points[1].velocities:nDimension() > 0 then
                         last_command_joint_velocity[index] = msg.points[1].velocities[i]
+                    else
+                        last_command_joint_velocity[index] = 0
                     end
                 end
             end
         end
         seq = seq + 1
         new_message = true
-        ros.INFO("jointCommandCb")
+        last_command_time = ros.Time.now()
+        ros.DEBUG('jointCommandCb')
     end
 end
 
@@ -221,7 +225,7 @@ local function initControllers(delay, dt)
         end
         ns = string.split(v.name, '/')
     end
-    controller = TvpController(#joint_name_collection)
+    controller = Controller(#joint_name_collection)
     feedback_buffer_pos = xutils.MonitorBuffer(offset + 1, #joint_name_collection)
     feedback_buffer_pos.offset = offset
     feedback_buffer_vel = xutils.MonitorBuffer(offset + 1, #joint_name_collection)
@@ -253,7 +257,7 @@ local function sendJointState(position, velocity, joint_names, sequence)
     local m = ros.Message(joint_sensor_spec)
     m.header.seq = sequence
     m.header.stamp = ros.Time.now()
-    m.frame_id = "global"
+    --m.frame_id = "global"
     m.name = joint_names
     m.position:set(position)
     m.velocity:set(velocity)
@@ -306,7 +310,24 @@ local function simulation(delay, dt)
     local pos, vel
     dt:reset()
     while ros.ok() do
-
+        if not timeout_error and dt:expectedCycleTime():toSec() * 2 <= dt:cycleTime():toSec() then
+            local err =
+                string.format(
+                'exeeded cycleTime delay: expected :%f actual: %f, diff: %f',
+                dt:expectedCycleTime():toSec() * 2,
+                dt:cycleTime():toSec(),
+                dt:expectedCycleTime():toSec() * 2 - dt:cycleTime():toSec()
+            )
+            if timeout_recovery_counter >= 200 then
+                heartbeat:updateStatus(heartbeat.COMM_ERROR, err)
+            end
+            timeout_recovery_counter = 0
+            timeout_error = true
+        end
+        if timeout_error == true and timeout_recovery_counter >= 200 then
+            timeout_error = false
+            heartbeat:updateStatus(heartbeat.BUSY, 'recovered')
+        end
         if error_state == false then
             if initialized == false then
                 sim_seq = 1
@@ -317,8 +338,11 @@ local function simulation(delay, dt)
                 controller.state.pos:copy(last_command_joint_position)
                 initialized = true
                 xutils.toc('Initialize')
+                dt:reset()
             end
             controller:update(last_command_joint_position, dt:expectedCycleTime():toSec())
+            --controller:update(last_command_joint_position, ros.Time.now():toSec() - last_command_time:toSec())
+            ros.DEBUG("latency: %f",ros.Time.now():toSec() - last_command_time:toSec())
         else
             if initialized then
                 ros.ERROR('error state')
@@ -337,22 +361,7 @@ local function simulation(delay, dt)
         ros.spinOnce()
 
         sim_seq = sim_seq + 1
-        if dt:expectedCycleTime():toSec() * 2 <= dt:cycleTime():toSec() then
-            local err =
-                string.format(
-                'exeeded cycleTime delay: expected :%f actual: %f, diff: %f',
-                dt:expectedCycleTime():toSec() * 2,
-                dt:cycleTime():toSec(),
-                dt:expectedCycleTime():toSec() * 2 - dt:cycleTime():toSec()
-            )
-            heartbeat:updateStatus(heartbeat.COMM_ERROR, err)
-            timeout_recovery_counter = 0
-            timeout_error = true
-        end
-        if timeout_error == true and timeout_recovery_counter >= 10 then
-            timeout_error = false
-            heartbeat:updateStatus(heartbeat.BUSY, 'recovered')
-        end
+
         timeout_recovery_counter = timeout_recovery_counter + 1
         heartbeat:publish()
         dt:sleep()

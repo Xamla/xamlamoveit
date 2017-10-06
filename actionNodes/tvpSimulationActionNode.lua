@@ -67,10 +67,11 @@ local feedback_buffer_vel = {}
 
 local function decodeJointTrajectoryMsg(trajectory)
     local point_count = #trajectory.points
+    local dim = #trajectory.joint_names
     local time = torch.zeros(point_count) -- convert trajectory to internal tensor format
-    local pos = torch.zeros(point_count, #trajectory.joint_names)
-    local vel = torch.zeros(point_count, #trajectory.joint_names)
-    local acc = torch.zeros(point_count, #trajectory.joint_names)
+    local pos = torch.zeros(point_count, dim)
+    local vel = torch.zeros(point_count, dim)
+    local acc = torch.zeros(point_count, dim)
     local has_velocity = true
     local has_acceleration = true
 
@@ -242,8 +243,7 @@ local function initActions()
     local joint_monitor = xutils.JointMonitor(joint_name_collection)
     local timeout = ros.Duration(2.01)
     if not joint_monitor:waitReady(timeout) then
-        ros.ERROR("FAILED init")
-        os.exit()
+        error("FAILED init")
     end
 
     --[[local start = ros.Time.now()

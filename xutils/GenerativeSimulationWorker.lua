@@ -1,10 +1,5 @@
 local ros = require 'ros'
-local xutils = require 'xamlamoveit.xutils.env'
 local TrajectoryHandler = require 'xamlamoveit.xutils.TrajectoryHandler'
-local xamlamoveit = require 'xamlamoveit'
-local xutils = xamlamoveit.xutils
-local printf = xutils.printf
-local xtable = xutils.Xtable
 
 local TrajectoryHandlerStatus = {
     ProtocolError = -3,
@@ -30,7 +25,7 @@ errorCodes.ABORT = -2
 errorCodes.NO_IK_FOUND = -3
 errorCodes.INVALID_LINK_NAME = -4
 
-local SimulationConnection = torch.class('SimulationConnection', xutils)
+local SimulationConnection = torch.class('SimulationConnection')
 function SimulationConnection:__init(nh, logger)
     self.nodehandle = nh
     self.joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
@@ -53,6 +48,7 @@ function SimulationConnection:sendPositionCommand(q_des, q_dot, joint_names)
     mPoint.time_from_start = ros.Duration(0.008)
     --ros.Time.now() - BEGIN_EXECUTION
     m.points = {mPoint}
+    m.header.stamp = ros.Time.now()
     self.publisher_point_position_ctrl:publish(m)
 end
 
@@ -75,6 +71,7 @@ function GenerativeSimulationWorker:__init(nh)
     self.nodehandle = nh
     self.errorCodes = errorCodes
     self.logger = logger
+    self.servoTime = 0.008
     self.reverseConnection = SimulationConnection.new(nh, logger)
 end
 
@@ -115,35 +112,6 @@ function GenerativeSimulationWorker:cancelCurrentPlan(abortMsg)
     end
 end
 
-local function checkMoveGroupName(name)
-    local robot_model_loader = moveit.RobotModelLoader('robot_description')
-    local robot_model = robot_model_loader:getModel()
-    local all_group_joint_names = robot_model:getJointModelGroupNames()
-
-    for k, v in pairs(all_group_joint_names) do
-        if name == v then
-            return true
-        end
-    end
-    return false
-end
-
-local function checkConvergence(cq, target, jointNames)
-    local fullJointStateNames = cq:getVariableNames()
-    local currrentPosition = cq:getVariablePositions()
-    local sum = 0
-    for i, v in ipairs(jointNames) do
-        if v == fullJointStateNames[i] then
-            sum = sum + math.abs(target[i] - currrentPosition[i])
-        end
-    end
-    if (sum / #jointNames) < 1e-4 then
-        return true
-    else
-        return false
-    end
-end
-
 function GenerativeSimulationWorker:createTrajectoryHandler(traj, flush, waitCovergence, maxBuffering)
     if flush == nil then
         flush = true
@@ -151,7 +119,16 @@ function GenerativeSimulationWorker:createTrajectoryHandler(traj, flush, waitCov
     if waitCovergence == nil then
         waitCovergence = true
     end
-    return TrajectoryHandler.new(self.ringSize or 10, self.servoTime or 0.008, self.reverseConnection, traj, flush, waitCovergence, maxBuffering, self.logger)
+    return TrajectoryHandler.new(
+        self.ringSize or 10,
+        self.servoTime or 0.008,
+        self.reverseConnection,
+        traj,
+        flush,
+        waitCovergence,
+        maxBuffering,
+        self.logger
+    )
 end
 
 function GenerativeSimulationWorker:cancelCurrentTrajectory(abortMsg)
@@ -167,25 +144,6 @@ function GenerativeSimulationWorker:cancelCurrentTrajectory(abortMsg)
         self.currentTrajectory = nil
         handler:cancel()
     end
-end
-
-function table.indexof(t, x)
-    for i, y in ipairs(t) do
-        if y == x then
-            return i
-        end
-    end
-    return -1
-end
-
-local function findIndicesTensor(t, condition)
-    local result = torch.ByteTensor(#t):zero()
-    for i, v in ipairs(t) do
-        if condition(v) then
-            result[i] = 1
-        end
-    end
-    return result
 end
 
 local function dispatchTrajectory(self)
@@ -207,39 +165,6 @@ local function dispatchTrajectory(self)
 
                     if traj.maxBuffering ~= nil then
                         maxBuffering = math.max(1, traj.maxBuffering)
-                    end
-                    if traj.time:nElement() == 1 then
-                        local time = torch.Tensor(2)
-                        time[1] = 0
-                        time[2] = traj.time[1]
-                        local feedback_idx =
-                            table.findIndicesTensor(
-                            traj.state_joint_names,
-                            function(x)
-                                return table.indexof(traj.joint_names, x) > -1
-                            end
-                        )
-                        self.logger.warn('get feedback')
-                        local state_pos = traj.q_buffer:getPastIndex()
-                        local state_vel = traj.qd_buffer:getPastIndex()
-                        local pos  --Feedback
-                        pos[1] = state_pos[feedback_idx]
-                        pos[2] = traj.pos[1]
-                        local targetDistance = torch.norm(pos[1] - pos[2])
-                        if targetDistance > self.maxSinglePointTrajectoryDistance then
-                            self.logger.error(
-                                'Single point trajectory target lies too far away from current joint configuration (distance: %f; maxSinglePointTrajectoryDistance: %f).',
-                                targetDistance,
-                                self.maxSinglePointTrajectoryDistance
-                            )
-                            return
-                        end
-
-                        local vel = state_vel[feedback_idx]
-                        traj.time = time
-                        traj.pos = pos
-                        traj.vel = vel
-                        traj.acc = nil
                     end
 
                     self.currentTrajectory = {
