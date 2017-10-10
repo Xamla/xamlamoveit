@@ -1,3 +1,4 @@
+#!/usr/bin/env th
 local ros = require "ros"
 local tf = ros.tf
 local moveit = require "moveit"
@@ -182,7 +183,7 @@ local function joggingJoystickServer(name)
     local success = true
     while ros.ok() do
         if run then
-            ros.INFO("RUNNING")
+            ros.DEBUG("RUNNING")
             success, last_status_message_tracking = cntr:update()
             if not success then
                 ros.WARN(last_status_message_tracking)

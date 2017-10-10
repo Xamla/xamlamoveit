@@ -1,11 +1,17 @@
 -- simple buffer
+local ros = require 'ros'
 local xutils = require 'xamlamoveit.xutils.env'
 local LeasedBaseLockClient = torch.class('xamlamoveit.xutils.LeasedBaseLockClient',xutils)
 
 function LeasedBaseLockClient:__init(node_handle)
   self.nh = node_handle
   self.query_resource_lock_service =
-  self.nh:serviceClient('xamlaservices/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+  self.nh:serviceClient('/xamlaservices/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+  local timeout = ros.Duration(5)
+  local ok = self.query_resource_lock_service:waitForExistence(timeout)
+  if not ok then
+    ros.ERROR('could not reach lock service!')
+end
 end
 
 local function query_lock(self, id_resources, id_lock, release_flag)
@@ -14,7 +20,10 @@ local function query_lock(self, id_resources, id_lock, release_flag)
   request.release = release_flag or false
   request.id_resources = id_resources
   request.id_lock = id_lock or ''
+  print(request)
+
   local responds = self.query_resource_lock_service:call(request)
+  print(responds)
   if responds.success then
       return responds.success, responds.id_lock, responds.creation_date, responds.expiration_date
   else
@@ -24,7 +33,7 @@ end
 
 function LeasedBaseLockClient:lock(id_resources, id_lock)
   local suc, id_lock, creation_date, expiration_date = query_lock(self, id_resources, id_lock, false)
-  local lock = {success = suc, id = id_lock, resource = id_resources, created = creation_date, expiration = expiration_date}
+  local lock = {success = suc, id = id_lock, resources = id_resources, created = creation_date, expiration = expiration_date}
   return lock
 end
 
