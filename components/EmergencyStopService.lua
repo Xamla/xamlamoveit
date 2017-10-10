@@ -10,10 +10,10 @@ local srv_spec = ros.SrvSpec('std_srvs/SetBool')
 local function queryEmergencyStopServiceHandler(self, request, response, header)
     local msg = 'EMERG_STOP ...'
     if request.data then
-        self.heartbeat:updateStatus(self.heartbeat.EMERG_STOP, msg)
+        self.heartbeat:updateStatus(self.heartbeat.EMERGENCY_STOP, msg)
     else
         msg = 'IDLE ...'
-        self.heartbeat:updateStatus(self.heartbeat.IDLE, msg)
+        self.heartbeat:updateStatus(self.heartbeat.GO, '')
     end
     response.success = true
     response.message = msg
@@ -32,7 +32,7 @@ end
 
 function EmergencyStopService:onInitialize()
     self.heartbeat:start(self.node_handle, 0.5) --[Hz]
-    self.heartbeat:updateStatus(self.heartbeat.IDLE, 'IDLE ...')
+    self.heartbeat:updateStatus(self.heartbeat.GO, '')
 end
 
 function EmergencyStopService:onStart()
