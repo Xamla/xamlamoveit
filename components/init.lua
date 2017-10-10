@@ -10,4 +10,5 @@ require 'xamlamoveit.components.JointTrajectoryPlanningService'
 require 'xamlamoveit.components.JointPositionCollisionCheckService'
 require 'xamlamoveit.components.JointPathPlanningService'
 require 'xamlamoveit.components.MoveGroupInfoNodeService'
+require 'xamlamoveit.components.ComputeIKService'
 return components

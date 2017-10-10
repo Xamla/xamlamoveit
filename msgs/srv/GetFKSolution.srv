@@ -1,0 +1,14 @@
+# Mandatory name of group to compute the path for
+string group_name
+string[] joint_names
+string end_effector_link
+
+JointPathPoint point
+
+---
+
+# The computed solution trajectory, for the desired group, in configuration space
+geometry_msgs/PoseStamped solution
+
+# The error code of the computation
+moveit_msgs/MoveItErrorCodes error_code

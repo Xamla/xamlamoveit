@@ -72,13 +72,16 @@ add_service_files(
    GetComponentState.srv
    QueryLock.srv
    QueryJointStateCollisions.srv
+   GetIKSolution.srv
+   GetFKSolution.srv
+   GetCartesianPath.srv
 )
 
 ## Generate actions in the 'action' folder
 add_action_files(
    DIRECTORY action
    FILES
-   moveJ.action moveP.action moveL.action
+   moveJ.action
 )
 
 ## Generate added messages and services with any dependencies listed here

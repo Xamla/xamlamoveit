@@ -1,8 +1,0 @@
-geometry_msgs/Pose[] waypoints
-float64[] velocities_constraints
-float64[] accelerations_constraints
-std_msgs/String group_name
----
-int32 result
----
-geometry_msgs/Pose feedback

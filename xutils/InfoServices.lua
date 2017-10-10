@@ -5,9 +5,7 @@ local moveit = require 'moveit'
 local xutils = require 'xamlamoveit.xutils.env'
 local InfoServices = torch.class('InfoServices', xutils)
 
-local service_queue, ik_service_queue, joint_position_queue
-
-local info_server, current_joint_position_info_server
+local service_queue, joint_position_queue
 
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/QueryMoveGroupInterfaces')
 local cj_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetCurrentJointState')

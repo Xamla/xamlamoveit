@@ -13,6 +13,13 @@ local function interpolateCubic(t, t0, t1, p0, p1, v0, v1)
   if dt < 1e-6 then
     return p1, p0:clone():zero()
   end
+  print("p0", p0)
+  print("p1", p1)
+  print("v0", v0)
+  print("v1", v1)
+  print("interpolateCubic", (p1-p0):norm())
+  print("dt", dt)
+  print("t", t)
   local pos = p0:clone()
   local vel = p0:clone()
   for i = 1,p0:size(1) do
@@ -83,6 +90,8 @@ function TrajectorySampler:generateNextPoints(maxCount)
 
     local delta = torch.norm(q - self.qlast)
     if delta > JUMP_ERROR_THRESHOLD then
+      print("self.tend",self.tend)
+      print("q",q)
       error(string.format('[TrajectorySampler] Error: Unexpected set point jump of %f rad at time %fs.', delta, self.t))
     end
     self.t = self.t + self.step

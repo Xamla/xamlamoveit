@@ -7,6 +7,7 @@ require 'xamlamoveit.xutils.InfoServices'
 require 'xamlamoveit.xutils.TrajectoryHandler'
 require 'xamlamoveit.xutils.TrajectorySampler'
 require 'xamlamoveit.xutils.Cuboid'
+require 'xamlamoveit.xutils.LeasedBaseLockClient'
 
 
 local tictocStack = {}

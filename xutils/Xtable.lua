@@ -94,3 +94,21 @@ function table.findIndicesTensor(t, condition)
     end
     return result
 end
+
+function table.isSubset(A, B)
+    for ia, a in ipairs(A) do
+        if table.indexof(B, a) == -1 then
+            return false
+        end
+    end
+    return true
+end
+
+function table.isSimilar(A, B)
+    if #A == #B then
+        return table.isSubset(A, B)
+    else
+        return false
+    end
+    return true
+end

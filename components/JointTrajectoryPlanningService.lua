@@ -11,16 +11,24 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
     local suc, split, scip = path[1]:analyse()
     waypoints = path[1].waypoints
     if not suc and #scip > 0 then
-        local indeces = torch.Storage(waypoints:size(1)):fill(1)
+        local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
         for i, v in ipairs(scip) do
             indeces[v] = 0
         end
-        waypoints = waypoints[{indeces, {}}]
+        local newIndeces = {}
+        for i = 1, indeces:size(1) do
+            if indeces[i ] == 1 then
+                newIndeces[#newIndeces+1] = i
+            end
+        end
+        waypoints = waypoints:index(1,torch.LongTensor(newIndeces))
+        print(waypoints:size())
+
         path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
         suc, split, scip = path[1]:analyse()
-        assert(#scip == 0)
+        print(waypoints:size())
+        assert(#scip == 0, "scip should be 0 but is = " .. #scip)
     end
-
     if not suc and #split > 0 then
         path = {}
         local startI = 1
@@ -66,10 +74,12 @@ end
 
 local function queryJointTrajectoryServiceHandler(self, request, response, header)
     if #request.waypoints < 2 then
+        ros.ERROR("Only one waypoint detected. Abort Trajectory generation.")
         response.error_code.val = -2
         return true
     end
     if request.waypoints[1].positions:nDimension() < 1 then
+        ros.ERROR("Waypoints have wrong Dimensions")
         response.error_code.val = -2
         return true
     end

@@ -1,7 +1,0 @@
-moveit_msgs/PositionIKRequest[] waypoints
----
-#result definition
-int32 result
----
-#feedback
-bool isconverged

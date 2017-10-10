@@ -34,7 +34,7 @@ function MoveJWorker:__init(nh)
     self.execution_velocity_scaling =
         self.nodehandle:getParamVariable('/move_group/trajectory_execution/execution_velocity_scaling')
     self.query_resource_lock_service =
-        self.nodehandle:serviceClient('/xamlaservices/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+        self.nodehandle:serviceClient('xamlaservices/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
     self.action_client =
         actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
 end
@@ -118,11 +118,12 @@ local function initializeMoveGroup(self, group_id, velocity_scaling)
         local velocity_scaling = velocity_scaling or 0.5
         ros.INFO('connection with movegroup: ' .. group_id)
         local manipulator = moveit.MoveGroupInterface(group_id)
-
+        ros.INFO('set parameters for movegroup: ' .. group_id)
         manipulator:setMaxVelocityScalingFactor(velocity_scaling)
         manipulator:setGoalTolerance(1E-5)
         manipulator:setPlanningTime(2.0)
 
+        ros.INFO('start state monitor for movegroup: ' .. group_id)
         -- ask move group for current state
         manipulator:startStateMonitor(0.008)
         local cs = manipulator:getCurrentState()
@@ -134,6 +135,7 @@ local function initializeMoveGroup(self, group_id, velocity_scaling)
 end
 
 local function query_lock(self, id_resources, id_lock, release_flag)
+    ros.WARN("query_lock")
     local request = self.query_resource_lock_service:createRequest()
     request.release = release_flag or false
     request.id_resources = id_resources
@@ -169,7 +171,7 @@ local function executeAsync(self, plan)
     end
 
     local function action_active()
-        ros.INFO('Action_active')
+        ros.INFO('executeAsync Action_active')
     end
 
     local function action_feedback(feedback)
@@ -183,9 +185,10 @@ local function executePlan(self, plan, manipulator, traj)
     if plan then
         local trajectory = plan:getTrajectoryMsg()
         local jointNames = trajectory.joint_trajectory.joint_names
-
+        ros.WARN("executePlan")
         local suc, id_lock, creation, expiration = lock_resource(self, jointNames, nil)
         if suc then
+            ros.WARN("executeAsync")
             if executeAsync(self, plan) then
                 local viaPoints = trajectory.joint_trajectory.points
                 traj.duration = viaPoints[#viaPoints].time_from_start
@@ -444,7 +447,7 @@ function MoveJWorker:reset()
     self.execution_velocity_scaling =
         self.nodehandle:getParamVariable('/move_group/trajectory_execution/execution_velocity_scaling')
     self.query_resource_lock_service =
-        self.nodehandle:serviceClient('/xamlaservices/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+        self.nodehandle:serviceClient('xamlaservices/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
     self.action_client =
         actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
 end
