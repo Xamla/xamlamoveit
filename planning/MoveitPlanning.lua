@@ -49,6 +49,31 @@ end
 local planning = require 'xamlamoveit.planning.env'
 local MoveitPlanning = torch.class('xamlamoveit.planning.MoveitPlanning', planning)
 
+local function query_joint_limits(joint_names, node_handle)
+    local max_vel = torch.zeros(#joint_names)
+    local max_acc = torch.zeros(#joint_names)
+    local nh = node_handle
+    local root_path = 'robot_description_planning/joint_limits'
+    for i, name in ipairs(joint_names) do
+        local has_vel_param = string.format('/%s/%s/has_velocity_limits', root_path, name)
+        local get_vel_param = string.format('/%s/%s/max_velocity', root_path, name)
+        local has_acc_param = string.format('/%s/%s/has_acceleration_limits', root_path, name)
+        local get_acc_param = string.format('/%s/%s/max_acceleration', root_path, name)
+        if nh:getParamVariable(has_vel_param) then
+            max_vel[i] = nh:getParamVariable(get_vel_param)
+        else
+            ros.WARN('Joint: %s has no velocity limit', name)
+        end
+        if nh:getParamVariable(has_acc_param) then
+            max_acc[i] = nh:getParamVariable(get_acc_param)
+        else
+            max_acc[i] = max_vel[i] * 0.5
+            ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
+        end
+    end
+    return max_vel, max_acc
+  end
+
 function MoveitPlanning:__init(nh, move_group, dt)
     print('[robotControlAndSetup] init')
     self.g = move_group or moveit.MoveGroupInterface('manipulator')
@@ -78,6 +103,7 @@ function MoveitPlanning:__init(nh, move_group, dt)
 
     self.robot_model = self.robot_model_loader:getModel()
     self.move_group_name = self.g:getName()
+    self.max_vel, self.max_acc = query_joint_limits(self.g:getActiveJoints():totable(), self.nodeHandle)
 end
 
 function MoveitPlanning:getRobotStart_stateMsg()
@@ -210,8 +236,8 @@ end
 function MoveitPlanning:optimizePath(path, dt)
     local waypoints = path:toTensor()
     local maxDeviation = 0.1
-    local maxVelocities = torch.Tensor({3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3, 3.3}) / 2
-    local maxAccelerations = torch.Tensor({3.8, 3.8, 3.8, 3.0, 3.0, 3.0, 3.0, 3.0}) -- Wrist 3 is limited
+    local maxVelocities = self.max_vel
+    local maxAccelerations = self.max_acc
 
     assert(waypoints:size(1) == maxVelocities:size(1))
     assert(waypoints:size(1) == maxAccelerations:size(1))
@@ -408,13 +434,13 @@ function MoveitPlanning:generateDirectPlan_qq(
     acceleration_base,
     check_path)
     velocity_scaling = velocity_scaling or 1.0
-    velocity_base = velocity_base or torch.ones(#self.JOINT_NAMES) * math.pi/4
+    velocity_base = velocity_base or self.max_vel
     if velocity_base:nDimension() < 1 then
-        velocity_base = torch.ones(#self.JOINT_NAMES) * math.pi
+        velocity_base = self.max_vel
     end
-    acceleration_base = acceleration_base or torch.ones(#self.JOINT_NAMES) * math.pi/10
+    acceleration_base = acceleration_base or self.max_acc
     if acceleration_base:nDimension() < 1 then
-        acceleration_base = torch.ones(#self.JOINT_NAMES) * math.pi/10
+        acceleration_base = self.max_acc
     end
     if check_path == nil then
         check_path = true
@@ -506,7 +532,10 @@ function MoveitPlanning:movep(pose, group_id, eeLinkName, velocity_scaling, velo
     --endState = self:findGoodEndState(endState,self.g:getCurrentPose(),pose)
 
     if not endState:setFromIK(groupName, pose, 10, 0.1) then
-        error('No IK solution found for goal pose. Group_id: ' .. groupName)
+        print(pose:toTensor())
+        local msg = 'No IK solution found for goal pose. Group_id: ' .. groupName
+        ros.ERROR(msg)
+        return false, nil, msg
     end
     local succ, traj = self:moveDMPPathPlanner(pose, groupName, eeLinkName)
 
@@ -526,7 +555,7 @@ function MoveitPlanning:movep(pose, group_id, eeLinkName, velocity_scaling, velo
     if plan then
         return true, plan, msg
     elseif status == -1 then
-        ros.INFO('Already at goal.')
+        ros.INFO('Already at goal. ' .. msg)
     else
         ros.WARN(msg)
     end

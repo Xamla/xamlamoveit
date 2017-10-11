@@ -59,6 +59,7 @@ end
 
 function TrajectoryExecutionRequest:__init(goal_handle)
     self.starttime = ros.Time.now()
+    self.starttime_debug = ros.Time.now()
     self.goal_handle = goal_handle
     self.manipulator = nil
     self.joint_monitor = nil
@@ -69,6 +70,7 @@ end
 function TrajectoryExecutionRequest:accept()
     if self.goal_handle:getGoalStatus().status == GoalStatus.PENDING then
         self.goal_handle:setAccepted('Starting trajectory execution')
+        self.starttime_debug = ros.Time.now()
         return true
     else
         ros.WARN('Status of queued trajectory is not pending but %d.', self.goal_handle:getGoalStatus().status)
@@ -135,7 +137,11 @@ function TrajectoryExecutionRequest:proceed()
             ros.INFO('time after index: %d, %f sec ',index, t:toSec() - t0)
             ros.INFO('position error: ' .. tostring(delta))
             ros.INFO('Latency: ' .. tostring(l))
-
+            if now:toSec() - self.starttime_debug:toSec() > ros.Duration(5):toSec() then
+                ros.ERROR('[TrajectoryExecutionRequest] Trajectory start is not working!!')
+                self.status = errorCodes.CONTROL_FAILED
+                return false
+            end
             if delta:gt(0.3):sum() > 0 then
                 ros.ERROR('[TrajectoryExecutionRequest] joint tracking error is too big!!')
                 self.status = errorCodes.CONTROL_FAILED

@@ -13,7 +13,8 @@ end
 local joyCtr, all_group_joint_names
 local limit_vel, limit_acc
 local run = true
-local srv_spec = ros.SrvSpec("roscpp/GetLoggers")
+local set_float_spec = ros.SrvSpec("xamlamoveit_msgs/SetFloat")
+local get_float_spec = ros.SrvSpec("xamlamoveit_msgs/GetFloat")
 local get_string_spec = ros.SrvSpec("xamlamoveit_msgs/GetSelected")
 local set_string_spec = ros.SrvSpec("xamlamoveit_msgs/SetString")
 local get_status_spec = ros.SrvSpec("xamlamoveit_msgs/StatusController")
@@ -125,11 +126,17 @@ function startStopHandler(request, response, header)
   return true
 end
 
-function getVelocityLimitsHandler(request, response, header)
+function setVelocityLimitsHandler(request, response, header)
+  local scaling = request.data
+  scaling = math.min(1.0,math.max(0,scaling))
+  joyCtr.velocity_scaling = scaling
+  response.success = true
+  response.message = "Scaling set to " .. scaling
   return true
 end
 
-function setVelocityLimitsHandler(request, response, header)
+function getVelocityLimitsHandler(request, response, header)
+  response.data = joyCtr.velocity_scaling
   return true
 end
 
@@ -193,8 +200,8 @@ function main(params)
     state = nil
     ---Services
     --set_limits
-    set_limits_server = nh:advertiseService("set_velocity_limits", srv_spec, myServiceHandler)
-    get_limits_server = nh:advertiseService("get_velocity_limits", srv_spec, myServiceHandler)
+    set_limits_server = nh:advertiseService("set_velocity_scaling", set_float_spec, setVelocityLimitsHandler)
+    get_limits_server = nh:advertiseService("get_velocity_scaling", get_float_spec, getVelocityLimitsHandler)
     --set_movegroup
     set_movegroup_server = nh:advertiseService("set_movegroup_name", set_string_spec, setMoveGroupHandler)
     get_movegroup_server = nh:advertiseService("get_movegroup_name", get_string_spec, getMoveGroupHandler)

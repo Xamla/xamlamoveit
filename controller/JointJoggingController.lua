@@ -122,6 +122,8 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
     self.robotControllerTopic = string.format('/%s/joint_command', self.controller_name)
     self.lock_client = xutils.LeasedBaseLockClient(node_handle)
     self.resource_lock = nil
+
+    self.velocity_scaling = 1.0
 end
 
 local function satisfiesBounds(self, positions)
@@ -283,34 +285,33 @@ function JointJoggingController:update()
 
     local succ, msg = true, 'IDLE'
     if self.new_message and ros.ok() then
-      ros.INFO("new messege lock resouce")
-      if self.resource_lock == nil then
-        self.resource_lock = self.lock_client:lock(self.state:getVariableNames())
-      end
+        ros.INFO('new messege lock resouce')
+        if self.resource_lock == nil then
+            self.resource_lock = self.lock_client:lock(self.state:getVariableNames())
+        else
+            local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
+            if dur > (self.resource_lock.expiration - ros.Time.now()) then
+                self.resource_lock = self.lock_client:lock(self.state:getVariableNames(), self.resource_lock.id)
+            end
+        end
 
-      local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
-      if dur > (self.resource_lock.expiration - ros.Time.now()) then
-        self.resource_lock = self.lock_client:lock(self.state:getVariableNames(), self.resource_lock.id)
-      end
-      if self.resource_lock.success then
-        ros.INFO("lock resouce successfull")
-        succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)
-      else
-        ros.WARN("lock resouce unsuccessfull")
-        self.resource_lock = nil
-      end
-        print(self.lastCommandJointVelocity)
+        if self.resource_lock.success then
+            ros.INFO('lock resouce successfull')
+            succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)
+        else
+            ros.WARN('lock resouce unsuccessfull')
+            self.resource_lock = nil
+        end
         self.lastCommandJointVelocity:zero()
         self.new_message = false
     else
-      if self.resource_lock ~= nil then
-
-        local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
-        if dur > (self.resource_lock.expiration - ros.Time.now()) then
-          self.lock_client:release(self.resource_lock)
-          self.resource_lock = nil
+        if self.resource_lock ~= nil then
+            local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
+            if dur > (self.resource_lock.expiration - ros.Time.now()) then
+                self.lock_client:release(self.resource_lock)
+                self.resource_lock = nil
+            end
         end
-      end
     end
 
     return succ, msg

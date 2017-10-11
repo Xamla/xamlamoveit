@@ -223,7 +223,7 @@ function MotionService:executeJointTrajectoryAsync(traj, cancelToken)
     local acc = acc or 0.5
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
-    g.trajectory.points = traj.points:clone()
+    g.trajectory.points = traj.points
     cancelToken.done = false
     local function action_done(state, result)
         ros.INFO('actionDone')

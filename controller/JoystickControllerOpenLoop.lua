@@ -8,10 +8,15 @@ local xutils = require 'xamlamoveit.xutils'
 local DEFAULT_HEIGHT = 0.1 -- m
 local CARRIER_WIDTH = 0.3 -- m
 local CARRIER_HEIGHT = 0.2 -- m
-local SPEED_LIMIT = {fast = 1, slow = 0.2}
+local SPEED_LIMIT = {fast = 1, slow = 0.5}
 local SENSITIVITY_THRESHOLD = 0.2
 local currentSpeedLimit = 'slow'
 local continuousMode = false
+
+function math.sign(x)
+    assert(type(x) == 'number')
+    return x > 0 and 1 or x < 0 and -1 or 0
+end
 
 local blockedAxis = {
     [1] = false, --
@@ -43,8 +48,10 @@ local axesMapping = {
 }
 
 local axesValues = {}
-local stepSizeZ = 1.
-local stepSizeR = 0.1
+local max_stepSizeZ = 1. / 1000 --1 cm
+local max_stepSizeR = 0.003 -- 0.03deg
+local stepSizeZ = max_stepSizeZ * SPEED_LIMIT[currentSpeedLimit]
+local stepSizeR = max_stepSizeR * SPEED_LIMIT[currentSpeedLimit]
 
 local buttonEvents = {}
 for k, v in pairs(buttonMapping) do
@@ -91,7 +98,7 @@ function JoystickControllerOpenLoop:__init(node_handle, move_group, ctr_name, dt
         ros.console.set_logger_level(nil, ros.console.Level.Debug)
     else
     end
-
+    self.velocity_scaling = 1
     self.FIRSTPOINT = true
     self.dt_monitor = xutils.MonitorBuffer(100, 1)
     self.nh = node_handle
@@ -304,11 +311,11 @@ function JoystickControllerOpenLoop:getTeleoperationForces()
     deltaforces[3] = -self.dpad[2] * stepSizeZ
 
     local deltatorques = self.right_joy:clone()
-    deltatorques[1] = self.right_joy[1] -- Pitch
-    deltatorques[2] = self.right_joy[2] -- Yaw
+    deltatorques[1] = math.abs(self.right_joy[1]) > 0.01 and math.sign(self.right_joy[1]) * stepSizeR or 0 -- Pitch
+    deltatorques[2] = math.abs(self.right_joy[2]) > 0.01 and math.sign(self.right_joy[2]) * stepSizeR or 0 -- Yaw
     deltatorques[3] = -self.dpad[1] * stepSizeR -- Roll
 
-    return deltaforces / 2, deltatorques / 2, buttonEvents, newMessage --TODO make this more suffisticated
+    return deltaforces, deltatorques, buttonEvents, newMessage --TODO make this more suffisticated
 end
 
 function JoystickControllerOpenLoop:updateDeltaT()
@@ -324,7 +331,7 @@ function JoystickControllerOpenLoop:updateDeltaT()
 end
 
 function JoystickControllerOpenLoop:tracking(q_dot, duration)
-    ros.INFO("tracking")
+    ros.INFO('tracking')
     if type(duration) == 'number' then
         duration = ros.Duration(duration)
     end
@@ -340,8 +347,7 @@ function JoystickControllerOpenLoop:tracking(q_dot, duration)
             if not publisherPointPositionCtrl then
                 local myTopic = string.format('/%s/joint_command', self.controller_name)
                 ros.WARN(myTopic)
-                publisherPointPositionCtrl =
-                    self.nh:advertise(myTopic, joint_pos_spec)
+                publisherPointPositionCtrl = self.nh:advertise(myTopic, joint_pos_spec)
             end
             if self.FIRSTPOINT then
                 sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
@@ -416,16 +422,14 @@ function JoystickControllerOpenLoop:getStep(D_force, D_torques, timespan)
     end
 
     offset, x_rot_des = targetTransformation(self.current_pose, offset, x_rot_des)
+    offset = clamp(offset, -stepSizeZ * SPEED_LIMIT[currentSpeedLimit], stepSizeZ * SPEED_LIMIT[currentSpeedLimit])
+    x_rot_des =
+        clamp(x_rot_des, -stepSizeR * SPEED_LIMIT[currentSpeedLimit], stepSizeR * SPEED_LIMIT[currentSpeedLimit])
 
-    if offset:norm() > 0.1 then
-        offset = offset * 0.1 / offset:norm()
-    end
-
-    --print(offset)
     local vel6D = torch.DoubleTensor(6)
-    vel6D[{{1, 3}}]:copy(offset)
-    vel6D[{{4, 6}}]:copy(x_rot_des)
-    local q_dot_des, jacobian = self:getQdot(vel6D)
+    vel6D[{{1, 3}}]:copy(offset * self.velocity_scaling)
+    vel6D[{{4, 6}}]:copy(x_rot_des * self.velocity_scaling)
+    local q_dot_des, jacobian = self:getQdot(vel6D / self.dt:toSec())
 
     ros.DEBUG(string.format('-------------> time: %d', s:toSec()))
     ros.DEBUG(string.format('-------------> D_force %s', tostring(D_force)))
@@ -533,11 +537,15 @@ function JoystickControllerOpenLoop:update()
             if self.resource_lock == nil then
                 ros.INFO('lock resources')
                 self.resource_lock = self.lock_client:lock(self.state:getVariableNames():totable())
+            else
+                local dur =
+                    ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
+                if dur > (self.resource_lock.expiration - ros.Time.now()) then
+                    self.resource_lock =
+                        self.lock_client:lock(self.state:getVariableNames():totable(), self.resource_lock.id)
+                end
             end
-            local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
-            if dur > (self.resource_lock.expiration - ros.Time.now()) then
-                self.resource_lock = self.lock_client:lock(self.state:getVariableNames():totable(), self.resource_lock.id)
-            end
+
             if self.resource_lock.success then
                 q_dot = self:getStep(deltaForces, detlaTorques, curr_time - self.start_time)
                 self:tracking(q_dot:clone(), self.dt)
@@ -547,7 +555,8 @@ function JoystickControllerOpenLoop:update()
             end
         else
             if self.resource_lock ~= nil then
-                local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
+                local dur =
+                    ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
                 if dur > (self.resource_lock.expiration - ros.Time.now()) then
                     print(self.resource_lock)
                     self.lock_client:release(self.resource_lock)
@@ -561,13 +570,8 @@ end
 function JoystickControllerOpenLoop:setSpeed(speed)
     ros.INFO(string.format('Set speed to %s', speed))
     currentSpeedLimit = speed
-    if speed == 'fast' then
-        stepSizeZ = 1
-        stepSizeR = 5.
-    else
-        stepSizeZ = 0.1
-        stepSizeR = 0.5
-    end
+    stepSizeZ = max_stepSizeZ * SPEED_LIMIT[currentSpeedLimit]
+    stepSizeR = max_stepSizeR * SPEED_LIMIT[currentSpeedLimit]
 end
 
 function JoystickControllerOpenLoop:blockAxis(axisIndex, value)
@@ -593,7 +597,7 @@ function JoystickControllerOpenLoop:moveToOrthogonalPose()
     end
 
     ros.INFO('Drive to orthogonal pose')
-    local zAxis = normalize(torch.Tensor({0, 0, -1}))
+    local zAxis = normalize(torch.Tensor({0, 0, 1}))
     local basePose = self.move_group:getCurrentPose():toTensor()
     local xAxis = basePose[{1, {1, 3}}]
     local yAxis = -normalize(torch.cross(xAxis, zAxis))
