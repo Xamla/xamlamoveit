@@ -186,7 +186,6 @@ local function query_joint_limits(joint_names)
             ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
         end
     end
-
     return max_vel, max_acc
 end
 

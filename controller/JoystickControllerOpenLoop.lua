@@ -64,7 +64,7 @@ local joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 ---
 --@param desired joint angle position
 local function sendPositionCommand(q_des, q_dot, group)
-    ros.INFO('sendPositionCommand')
+    ros.INFO('sendPositionCommand to: ' .. publisherPointPositionCtrl:getTopic())
     local m = ros.Message(joint_pos_spec)
     local mPoint = ros.Message(test_spec)
     local names = std.StringVector()
@@ -82,8 +82,6 @@ local function sendPositionCommand(q_des, q_dot, group)
 
     publisherPointPositionCtrl:publish(m)
 end
-local max_acc = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978})
-local max_vel = torch.DoubleTensor({3.557983, 3.557983, 3.557772, 3.557772, 4.186172, 4.186172, 8.372978})
 local controller = require 'xamlamoveit.controller.env'
 local JoystickControllerOpenLoop = torch.class('xamlamoveit.controller.JoystickControllerOpenLoop', controller)
 
@@ -138,8 +136,16 @@ function JoystickControllerOpenLoop:__init(node_handle, move_group, ctr_name, dt
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.kinematic_model = self.robot_model_loader:getModel()
     self.planning_scene = moveit.PlanningScene(self.kinematic_model)
-    self.lock_client = xutils.LockQueryClient(node_handle)
+    self.lock_client = xutils.LeasedBaseLockClient(node_handle)
     self.resource_lock = nil
+end
+
+function JoystickControllerOpenLoop:getInTopic()
+    return self.subscriber_joy:getTopic()
+end
+
+function JoystickControllerOpenLoop:getOutTopic()
+    return string.format('/%s/joint_command', self.controller_name)
 end
 
 local function clamp(t, min, max)
@@ -213,7 +219,7 @@ function JoystickControllerOpenLoop:connect(topic)
     local topic = topic or 'joy'
     local joy_spec = 'sensor_msgs/Joy'
     self.subscriber_joy = self.nh:subscribe(topic, joy_spec, 1)
-    print("Subscribed to 'joy' node. Please start using your joystick.")
+    ros.INFO("Subscribed to 'joy' node. Please start using your joystick.")
     self:getNewRobotState()
     return true
 end
@@ -318,6 +324,7 @@ function JoystickControllerOpenLoop:updateDeltaT()
 end
 
 function JoystickControllerOpenLoop:tracking(q_dot, duration)
+    ros.INFO("tracking")
     if type(duration) == 'number' then
         duration = ros.Duration(duration)
     end
@@ -331,17 +338,17 @@ function JoystickControllerOpenLoop:tracking(q_dot, duration)
     if not self.converged then
         if self:isValid(q_des, self.lastCommandJointPositons) then
             if not publisherPointPositionCtrl then
-                local myTopic = string.format('%s/joint_command', self.controller_name)
+                local myTopic = string.format('/%s/joint_command', self.controller_name)
                 ros.WARN(myTopic)
                 publisherPointPositionCtrl =
-                    self.nh:advertise(string.format(myTopic, self.controller_name), joint_pos_spec)
+                    self.nh:advertise(myTopic, joint_pos_spec)
             end
             if self.FIRSTPOINT then
                 sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
                 self.FIRSTPOINT = false
-                ros.INFO('FIRSTPOINT')
+                ros.DEBUG('FIRSTPOINT')
             else
-                ros.INFO('GoGoGo')
+                ros.DEBUG('GoGoGo')
                 sendPositionCommand(q_des, q_dot, group, duration)
             end
             self.lastCommandJointPositons:copy(q_des)
@@ -386,7 +393,7 @@ function targetTransformation(target_frame, offset, rotation_rpy)
     tmp_offset_tf:fromTensor(curr_pose:toTensor() * tmp_offset_tf:toTensor() * curr_pose_inv:toTensor())
 
     return tmp_offset_tf:getOrigin(), rotation_rpy
- --tmp_offset_tf:getRotation():getRPY()
+    --tmp_offset_tf:getRotation():getRPY()
 end
 
 function JoystickControllerOpenLoop:getStep(D_force, D_torques, timespan)
@@ -396,7 +403,7 @@ function JoystickControllerOpenLoop:getStep(D_force, D_torques, timespan)
     opt.damping = 0.2
 
     local K, D = opt.stiffness, opt.damping
-     --stiffness and damping
+    --stiffness and damping
     local s = timespan or 1.0
     local offset = -D_force / (K + D * s:toSec())
     local x_rot_des = (-D_torques / (K + D * s:toSec())) -- want this in EE KO
@@ -478,7 +485,6 @@ function JoystickControllerOpenLoop:getQdot(vel6D)
 end
 
 function JoystickControllerOpenLoop:getNewRobotState()
-    ros.spinOnce()
     local p, l = self.joint_monitor:getNextPositionsTensor()
     self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
     self.state:update()
@@ -491,10 +497,10 @@ function JoystickControllerOpenLoop:update()
     --xBox 360 Joystick
     --self.current_pose = self.move_group:getCurrentPose()
     local deltaForces, detlaTorques, buttonEvents, newMessage = self:getTeleoperationForces()
-    ros.INFO('deltaForces')
-    ros.INFO(tostring(deltaForces))
-    ros.INFO('detlaTorques')
-    ros.INFO(tostring(detlaTorques))
+    ros.DEBUG('deltaForces')
+    ros.DEBUG(tostring(deltaForces))
+    ros.DEBUG('detlaTorques')
+    ros.DEBUG(tostring(detlaTorques))
     if newMessage then
         self:handleButtonsEvents(buttonEvents)
     end
@@ -516,23 +522,38 @@ function JoystickControllerOpenLoop:update()
     local curr_time = ros.Time.now()
     local q_dot = self:getStep(deltaForces, detlaTorques, curr_time - self.start_time)
     if self.dt:toSec() > 0.15 then
-        ros.ERROR('dt is to large !!' .. self.dt:toSec())
+        ros.WARN('dt is to large !!' .. self.dt:toSec())
+        newMessege = false
         q_dot:zero()
     end
 
-    if buttonEvents.empty and newMessege then
-        if self.resource_lock == nil then
-            self.resource_lock = self.lock_client:lock(self.state:getVariableNames())
-        end
-        local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.creation:toSec()) / 2)
-        if dur > (self.resource_lock.expiration - ros.Time.now()) then
-            self.resource_lock = self.lock_client:lock(self.state:getVariableNames(), self.resource_lock.id)
-        end
-        if self.resource_lock.success then
-            q_dot = self:getStep(deltaForces, detlaTorques, curr_time - self.start_time)
-            self:tracking(q_dot:clone(), self.dt)
+    if buttonEvents.empty then
+        if newMessage == true then
+            ros.INFO('new Messege')
+            if self.resource_lock == nil then
+                ros.INFO('lock resources')
+                self.resource_lock = self.lock_client:lock(self.state:getVariableNames():totable())
+            end
+            local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
+            if dur > (self.resource_lock.expiration - ros.Time.now()) then
+                self.resource_lock = self.lock_client:lock(self.state:getVariableNames():totable(), self.resource_lock.id)
+            end
+            if self.resource_lock.success then
+                q_dot = self:getStep(deltaForces, detlaTorques, curr_time - self.start_time)
+                self:tracking(q_dot:clone(), self.dt)
+            else
+                ros.WARN('could not lock resources')
+                self.resource_lock = nil
+            end
         else
-            self.resource_lock = nil
+            if self.resource_lock ~= nil then
+                local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
+                if dur > (self.resource_lock.expiration - ros.Time.now()) then
+                    print(self.resource_lock)
+                    self.lock_client:release(self.resource_lock)
+                    self.resource_lock = nil
+                end
+            end
         end
     end
 end
@@ -572,7 +593,7 @@ function JoystickControllerOpenLoop:moveToOrthogonalPose()
     end
 
     ros.INFO('Drive to orthogonal pose')
-    local zAxis = normalize(torch.Tensor({0, 0, 1}))
+    local zAxis = normalize(torch.Tensor({0, 0, -1}))
     local basePose = self.move_group:getCurrentPose():toTensor()
     local xAxis = basePose[{1, {1, 3}}]
     local yAxis = -normalize(torch.cross(xAxis, zAxis))
@@ -585,9 +606,33 @@ function JoystickControllerOpenLoop:moveToOrthogonalPose()
     p[{{1, 3}, 4}] = basePose[{{1, 3}, 4}] -- keep position
 
     --self.ctrl:movep(p, nil, nil, SPEED_LIMIT[currentSpeedLimit])
-    local succ, plan = self.ctrl:movep(p, nil, nil, SPEED_LIMIT[currentSpeedLimit])
+    local succ, plan = self.ctrl:movep(p, self.move_group:getName(), nil, SPEED_LIMIT[currentSpeedLimit])
     if succ then
         self.move_group:execute(plan)
+    end
+end
+
+function JoystickControllerOpenLoop:reset(timeout)
+    self.state = self.move_group:getCurrentState()
+    self.joint_monitor:shutdown()
+    self.joint_monitor = xutils.JointMonitor(self.move_group:getActiveJoints():totable())
+    self.time_last = ros.Time.now()
+    return self.joint_monitor:waitReady(timeout or ros.Duration(0.1))
+end
+
+function JoystickControllerOpenLoop:setMoveGroupInterface(name)
+    self.move_group = moveit.MoveGroupInterface(name)
+    local ready = self:reset(ros.Duration(0.01))
+    local move_group_name = self.move_group:getName()
+    if ready and (move_group_name == name) then
+        return true, 'Successfully changed movegroup.'
+    else
+        if move_group_name ~= name then
+            return false, string.Format('Could not set moveGroup with name: %s. ', name)
+        end
+        if not ready then
+            return false, 'joint state is not available in time.'
+        end
     end
 end
 

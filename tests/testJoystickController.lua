@@ -29,7 +29,7 @@ local function initializeMoveIt(groupName, velocityScaling)
 end
 
 function main(params)
-    ros.init(params["__name"] or "JoystickTest")
+    ros.init(params["__name"] or "xamlajoystickservice")
     local nodehandle = ros.NodeHandle("~")
     local sp = ros.AsyncSpinner() -- background job
     sp:start()

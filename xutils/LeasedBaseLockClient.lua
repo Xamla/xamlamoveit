@@ -15,7 +15,7 @@ end
 end
 
 local function query_lock(self, id_resources, id_lock, release_flag)
-  ros.WARN("query_lock")
+  ros.WARN(string.format("query_lock: id = %s, release = %s", id_lock, release_flag))
   local request = self.query_resource_lock_service:createRequest()
   request.release = release_flag or false
   request.id_resources = id_resources
@@ -38,7 +38,8 @@ function LeasedBaseLockClient:lock(id_resources, id_lock)
 end
 
 function LeasedBaseLockClient:release(lock)
-  assert(torch.type(lock) == 'table')
+  assert(torch.type(lock) == 'table', "type should be 'table' but is: " .. torch.type(lock))
+  assert(lock.id, "Lock should habe an id but is nil")
   return query_lock(self, lock.resources, lock.id, true)
 end
 
