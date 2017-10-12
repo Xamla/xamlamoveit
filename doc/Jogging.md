@@ -1,17 +1,23 @@
-### Task Space Jogging
+### Jogging Nodes
 
+#### Task Space
 Node: [rosJoystickServiceNode](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/rosJoystickServiceNode.lua)
 
-### Konfiguraiton/Joint Space Jogging
-
- Node: [rosJointJoggingServiceNode](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/rosJointJoggingServiceNode.lua)
-
-#### Topics
+##### Topics
 
 - ```jogging_command```
   - Message: trajectory_msgs/JointTrajectory
 
-#### Services
+#### Konfiguraiton/Joint Space Jogging
+
+ Node: [rosJointJoggingServiceNode](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/rosJointJoggingServiceNode.lua)
+
+##### Topics
+
+- ```jogging_command```
+  - Message: trajectory_msgs/JointTrajectory
+
+### Services
 
 - ```get_controller_name```
   - Message: xamlamoveit_msgs/GetSelected
