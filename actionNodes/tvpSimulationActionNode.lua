@@ -192,31 +192,38 @@ local function updateSystemState(msg, header)
     end
 end
 
-
-local function initActions()
-
-    config = node_handle:getParamVariable('/move_group/controller_list')
+local function queryControllerList(node_handle)
+    print()
+    local config = node_handle:getParamVariable(string.format('%s/controller_list', node_handle:getNamespace()))
     local start_time = ros.Time.now()
     local current_time = ros.Time.now()
     local attemts = 0
     while config == nil do
         attemts = attemts + 1
-        ros.WARN('no controller specified in "/move_group/controller_list". Retry in 5sec')
+        ros.WARN('no controller specified in "%s/controller_list". Retry in 5sec',node_handle:getNamespace())
         while current_time:toSec() - start_time:toSec() < 5 do
             current_time = ros.Time.now()
             sys.sleep(0.01)
         end
         start_time = ros.Time.now()
         current_time = ros.Time.now()
-        config = node_handle:getParamVariable('/move_group/controller_list')
+        config = node_handle:getParamVariable(string.format('%s/controller_list', node_handle:getNamespace()))
 
         if not ros.ok() then
-            return -1, 'Ros is not ok'
+            return -1, config, 'Ros is not ok'
         end
 
         if attemts > 5 then
-            return -2, 'Reached max attempts'
+            return -2, config, 'Reached max attempts'
         end
+    end
+    return 1, config, 'Success'
+end
+
+local function initActions()
+    local suc, config, msg = queryControllerList(node_handle)
+    if suc < 0 then
+        ros.Error('[queryControllerList] ' .. msg)
     end
     local ns
     for i, v in ipairs(config) do
@@ -239,11 +246,10 @@ local function initActions()
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
-    print(joint_name_collection)
     local joint_monitor = xutils.JointMonitor(joint_name_collection)
     local timeout = ros.Duration(2.01)
     if not joint_monitor:waitReady(timeout) then
-        error("FAILED init")
+        error('FAILED init')
     end
 
     --[[local start = ros.Time.now()
@@ -261,7 +267,7 @@ local function initActions()
     end
     --]]
     if not ready then
-        ros.ERROR("joint_monitor has difficulties finding joints")
+        ros.ERROR('joint_monitor has difficulties finding joints')
     end
     for i, v in ipairs(config) do
         action_server[v.name]:registerGoalCallback(
@@ -273,7 +279,6 @@ local function initActions()
         action_server[v.name]:start()
         print(v.name)
     end
-
 
     worker = GenerativeSimulationWorker.new(ros.NodeHandle(string.format('/%s', ns[1])))
     return 0, 'Success'
@@ -290,7 +295,6 @@ local cmd = torch.CmdLine()
 local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
 initSetup(parameter['__name']) -- TODO
 
-
 local function init()
     local err, msg = initActions()
 
@@ -299,7 +303,7 @@ local function init()
         return
     end
 
-    return ros.Rate(1/worker.servoTime)
+    return ros.Rate(1 / worker.servoTime)
 end
 
 local function reset()
@@ -340,7 +344,6 @@ local function simulation()
                 shutdownAction_server()
                 initialized = false
             end
-
         end
 
         ros.spinOnce()

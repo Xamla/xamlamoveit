@@ -31,7 +31,6 @@ local function CancelCallBack(goal_handle)
 end
 
 function MoveJActionServer:onInitialize()
-    print('call MoveJActionServer onInitialize')
     self.worker = MoveJWorker(self.node_handle)
     self.action_server = actionlib.ActionServer(self.node_handle, 'moveJ_action', 'xamlamoveit_msgs/moveJ')
     self.action_server:registerGoalCallback(

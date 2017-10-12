@@ -192,20 +192,20 @@ end
 local function initControllers(delay, dt)
     local offset = math.ceil(delay / dt:toSec())
 
-    config = node_handle:getParamVariable('/move_group/controller_list')
+    config = node_handle:getParamVariable(string.format('%s/controller_list', node_handle:getNamespace()))
     local start_time = ros.Time.now()
     local current_time = ros.Time.now()
     local attemts = 0
     while config == nil do
         attemts = attemts + 1
-        ros.WARN('no controller specified in "/move_group/controller_list". Retry in 5sec')
+        ros.WARN('no controller specified in "%s/controller_list". Retry in 5sec', node_handle:getNamespace())
         while current_time:toSec() - start_time:toSec() < 5 do
             current_time = ros.Time.now()
             sys.sleep(0.01)
         end
         start_time = ros.Time.now()
         current_time = ros.Time.now()
-        config = node_handle:getParamVariable('/move_group/controller_list')
+        config = node_handle:getParamVariable(string.format('%s/controller_list', node_handle:getNamespace()))
 
         if not ros.ok() then
             return -1, 'Ros is not ok'

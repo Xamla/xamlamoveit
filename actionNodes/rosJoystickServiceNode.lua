@@ -5,6 +5,7 @@ tf = ros.tf
 local moveit = require "moveit"
 local xutils = require "xamlamoveit.xutils"
 local printf = xutils.printf
+local config
 
 local function shutdownSetup()
   sp:stop()
@@ -150,6 +151,34 @@ function getStatusHandler(request, response, header)
   return true
 end
 
+local function queryControllerList(node_handle)
+    local config = node_handle:getParamVariable('/move_group/controller_list')
+    local start_time = ros.Time.now()
+    local current_time = ros.Time.now()
+    local attemts = 0
+    while config == nil do
+        attemts = attemts + 1
+        ros.WARN('no controller specified in "/move_group/controller_list". Retry in 5sec')
+        while current_time:toSec() - start_time:toSec() < 5 do
+            current_time = ros.Time.now()
+            sys.sleep(0.01)
+        end
+        start_time = ros.Time.now()
+        current_time = ros.Time.now()
+        config = node_handle:getParamVariable('/move_group/controller_list')
+
+        if not ros.ok() then
+            return -1, config, 'Ros is not ok'
+        end
+
+        if attemts > 5 then
+            return -2, config, 'Reached max attempts'
+        end
+    end
+    return 1, config, 'Success'
+end
+
+
 local function initializeMoveIt(groupName, velocityScaling)
     local velocityScaling = velocityScaling or 0.5
 
@@ -214,10 +243,11 @@ function main(params)
     status_server = nh:advertiseService("status", get_status_spec, getStatusHandler)
 
     local moveGroup, psi = initializeMoveIt(planningGroup)
+    config = queryControllerList(nh)
     joyCtr = Controller.JoystickControllerOpenLoop(nh, moveGroup, controller_name, params.frequency, false)
 
     local dt = ros.Rate(1/ params.frequency)
-    if joyCtr:connect(params.topic) then
+    if joyCtr:connect("jogging_command") then
       dt:reset()
         while ros.ok() do
           if run then
@@ -235,7 +265,7 @@ function main(params)
 end
 
 local cmd = torch.CmdLine()
-cmd:option("-topic", "/joy", "Topic to expect joystick messages.")
+--cmd:option("-topic", "/joy", "Topic to expect joystick messages.")
 cmd:option("-groupName", "arm_left", "Move Group Id prepared by moveit")
 cmd:option("-controller_name", "", "The namespace where we find the joint_command topic. (controller_list param)")
 cmd:option("-frequency", 1 / 124, "Controller update frequence.")
