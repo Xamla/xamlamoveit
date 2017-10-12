@@ -27,7 +27,7 @@ local system_state_subscriber =
 )
 local heartbeat = xamla_sysmon.Heartbeat.new()
 heartbeat:start(nh, 0.5) --[Hz]
-heartbeat:updateStatus(heartbeat.UNCONFIGURED, 'Init ...')
+heartbeat:updateStatus(heartbeat.STARTING, 'Init ...')
 heartbeat:publish()
 
 local mg_service = mg(nh)
@@ -47,7 +47,7 @@ for i, v in pairs(services) do
     v:start()
 end
 
-heartbeat:updateStatus(heartbeat.BUSY, 'Working ...')
+heartbeat:updateStatus(heartbeat.GO, 'Working ...')
 heartbeat:publish()
 
 local emerg_stop_flag = false

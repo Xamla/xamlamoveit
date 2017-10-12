@@ -290,7 +290,7 @@ local function simulation(delay, dt)
     sim_seq = 1
     local heartbeat = xamla_sysmon.Heartbeat.new()
     heartbeat:start(node_handle, 0.5) --[Hz]
-    heartbeat:updateStatus(heartbeat.BUSY, 'WORKING ...')
+    heartbeat:updateStatus(heartbeat.GO, '')
     heartbeat:publish()
     local system_state_subscriber =
         node_handle:subscribe(
@@ -318,14 +318,14 @@ local function simulation(delay, dt)
                 dt:expectedCycleTime():toSec() * 2 - dt:cycleTime():toSec()
             )
             if timeout_recovery_counter >= 200 then
-                heartbeat:updateStatus(heartbeat.COMM_ERROR, err)
+                heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, err)
             end
             timeout_recovery_counter = 0
             timeout_error = true
         end
         if timeout_error == true and timeout_recovery_counter >= 200 then
             timeout_error = false
-            heartbeat:updateStatus(heartbeat.BUSY, 'recovered')
+            heartbeat:updateStatus(heartbeat.GO, '')
         end
         if error_state == false then
             if initialized == false then
@@ -333,7 +333,7 @@ local function simulation(delay, dt)
                 xutils.tic('Initialize')
                 ros.INFO('Reinizialise')
                 dt = init()
-                heartbeat:updateStatus(heartbeat.BUSY, 'WORKING ...')
+                heartbeat:updateStatus(heartbeat.GO, '')
                 controller.state.pos:copy(last_command_joint_position)
                 initialized = true
                 xutils.toc('Initialize')

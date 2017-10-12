@@ -314,7 +314,7 @@ end
 local function simulation()
     local heartbeat = xamla_sysmon.Heartbeat.new()
     heartbeat:start(node_handle, 0.5) --[Hz]
-    heartbeat:updateStatus(heartbeat.BUSY, 'WORKING ...')
+    heartbeat:updateStatus(heartbeat.GO, '')
     heartbeat:publish()
     local system_state_subscriber =
         node_handle:subscribe(
@@ -334,7 +334,7 @@ local function simulation()
                 xutils.tic('Initialize')
                 ros.INFO('Reinizialise')
                 dt = init()
-                heartbeat:updateStatus(heartbeat.BUSY, 'WORKING ...')
+                heartbeat:updateStatus(heartbeat.GO, '')
                 initialized = true
                 xutils.toc('Initialize')
             end
