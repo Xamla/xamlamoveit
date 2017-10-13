@@ -124,10 +124,7 @@ function MotionService:query_current_pose(move_group_name, jointvalues, link_nam
     assert(torch.isTypeOf(jointvalues, datatypes.JointValues))
     local joint_names = jointvalues:getNames()
     local move_group_pose_interface =
-        self.node_handle:serviceClient(
-        'xamlaMoveGroupServices/query_fk',
-        'xamlamoveit_msgs/GetFKSolution'
-    )
+        self.node_handle:serviceClient('xamlaMoveGroupServices/query_fk', 'xamlamoveit_msgs/GetFKSolution')
     local request = move_group_pose_interface:createRequest()
     request.group_name = move_group_name
     request.end_effector_link = link_name or ''
@@ -177,8 +174,14 @@ local function query_joint_path(self, move_group_name, joint_names, waypoints, n
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
         request.waypoints[i].positions = waypoints[{{}, i}]
     end
-    --print(request)
-    local response = generate_path_interface:call(request)
+
+    local response
+    if generate_path_interface:exists() then
+        response = generate_path_interface:call(request)
+        print('found service: ..' .. generate_path_interface:getService())
+    else
+        print('could not find service: ..' .. generate_path_interface:getService())
+    end
 
     --check order of joint names
     if response.error_code.val > 0 then
@@ -211,8 +214,13 @@ local function query_joint_trajectory(self, move_group_name, joint_names, waypoi
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
         request.waypoints[i].positions = waypoints[{{}, i}]
     end
-
-    local response = generate_trajectory_interface:call(request)
+    local response = nil
+    if generate_trajectory_interface:exists() then
+        response = generate_trajectory_interface:call(request)
+        print('found service: ..' .. generate_trajectory_interface:getService())
+    else
+        print('could not find service: ..' .. generate_trajectory_interface:getService())
+    end
 
     return response
 end
@@ -279,16 +287,16 @@ function MotionService:planCollisionFreeCartesianPath(start, goal, parameters)
     local seed = self:query_joint_state(parameters.joint_names)
     local suc, start = query_ik_call(self, start, parameters, seed)
     if suc ~= 1 then
-        print("start suc ",suc)
+        print('start suc ', suc)
         return false
     end
-    suc, goal = query_ik_call(self, goal, parameters,seed)
+    suc, goal = query_ik_call(self, goal, parameters, seed)
     if suc ~= 1 then
-        print("goal suc ",suc)
+        print('goal suc ', suc)
         return false
     end
-    print("start",start[1].positions)
-    print("goal",goal[1].positions)
+    print('start', start[1].positions)
+    print('goal', goal[1].positions)
     return self:planCollisionFreeJointPath(start[1].positions, goal[1].positions, parameters)
 end
 

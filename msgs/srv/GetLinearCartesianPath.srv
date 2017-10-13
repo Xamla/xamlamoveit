@@ -1,0 +1,14 @@
+# A sequence of waypoints to be followed by the specified link,
+# while moving the specified group, such that the group moves only
+# in a straight line between waypoints
+geometry_msgs/PoseStamped[] waypoints
+
+uint32 num_steps
+
+---
+
+# The computed solution trajectory, for the desired group, in configuration space
+geometry_msgs/PoseStamped[] path
+
+# The error code of the computation
+moveit_msgs/MoveItErrorCodes error_code
