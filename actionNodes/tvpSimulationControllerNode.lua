@@ -164,11 +164,12 @@ local function updateSystemState(msg, header)
     end
 end
 
-local function query_joint_limits(joint_names)
+local function query_joint_limits(joint_names, namespace)
+    namespace = namespace or node_handle:getNamespace()
     local max_vel = torch.zeros(#joint_names)
     local max_acc = torch.zeros(#joint_names)
     local nh = node_handle
-    local root_path = 'robot_description_planning/joint_limits'
+    local root_path = string.format('%s/joint_limits', namespace) -- robot_description_planning
     for i, name in ipairs(joint_names) do
         local has_vel_param = string.format('/%s/%s/has_velocity_limits', root_path, name)
         local get_vel_param = string.format('/%s/%s/max_velocity', root_path, name)
@@ -234,7 +235,7 @@ local function initControllers(delay, dt)
     for i = 1, offset + 1 do
         feedback_buffer_pos:add(last_command_joint_position)
     end
-    controller.max_vel, controller.max_acc = query_joint_limits(joint_name_collection)
+    controller.max_vel, controller.max_acc = query_joint_limits(joint_name_collection, node_handle:getNamespace())
     controller.state.pos:copy(last_command_joint_position)
     subscriber = node_handle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
     subscriber:registerCallback(jointCommandCb)
@@ -341,7 +342,7 @@ local function simulation(delay, dt)
             end
             controller:update(last_command_joint_position, dt:expectedCycleTime():toSec())
             --controller:update(last_command_joint_position, ros.Time.now():toSec() - last_command_time:toSec())
-            ros.DEBUG("latency: %f",ros.Time.now():toSec() - last_command_time:toSec())
+            ros.DEBUG('latency: %f', ros.Time.now():toSec() - last_command_time:toSec())
         else
             if initialized then
                 ros.ERROR('error state')
