@@ -2,14 +2,12 @@
 local ros = require 'ros'
 
 local xamlamoveit = require 'xamlamoveit'
-local mg = xamlamoveit.components.MoveGroupInfoNodeService
-local psis = xamlamoveit.components.PositionStateInfoService
-local jpccs = xamlamoveit.components.JointPositionCollisionCheckService
+local lbls = xamlamoveit.components.LeaseBasedLockService
 local xamla_sysmon = require 'xamla_sysmon'
 
 local cmd = torch.CmdLine()
 local parameter = xamlamoveit.xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
-ros.init(parameter['__name'] or 'xamlaservices')
+ros.init(parameter['__name'] or 'xamlaResourceLockServices')
 
 local nh = ros.NodeHandle('~')
 local sp = ros.AsyncSpinner() -- background job
@@ -27,10 +25,8 @@ heartbeat:start(nh, 0.5) --[Hz]
 heartbeat:updateStatus(heartbeat.STARTING, 'Init ...')
 heartbeat:publish()
 
-local mg_service = mg(nh)
-local psis_service = psis(nh)
-local jpccs_service = jpccs(nh)
-local services = {mg_service, psis_service, jpccs_service}
+local lbls_service = lbls(nh)
+local services = { lbls_service}
 
 for i, v in pairs(services) do
     system_state_subscriber:registerCallback(
@@ -48,12 +44,18 @@ local emerg_stop_flag = false
 
 while ros.ok() and not emerg_stop_flag do
     for i, v in pairs(services) do
-        local status, err = pcall(function() v:spin() end )
+        local status,
+            err =
+            pcall(
+            function()
+                v:spin()
+            end
+        )
         if v.current_state == 5 then
             emerg_stop_flag = true
         end
         if status == false then
-            heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. " " .. tostring(err))
+            heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
         end
     end
 

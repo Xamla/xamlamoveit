@@ -34,7 +34,7 @@ function MoveJWorker:__init(nh)
     self.execution_velocity_scaling =
         self.nodehandle:getParamVariable('/move_group/trajectory_execution/execution_velocity_scaling')
     self.query_resource_lock_service =
-        self.nodehandle:serviceClient('xamlaservices/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+        self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
     self.action_client =
         actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
 end
@@ -447,7 +447,7 @@ function MoveJWorker:reset()
     self.execution_velocity_scaling =
         self.nodehandle:getParamVariable('/move_group/trajectory_execution/execution_velocity_scaling')
     self.query_resource_lock_service =
-        self.nodehandle:serviceClient('xamlaservices/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+        self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
     self.action_client =
         actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
 end

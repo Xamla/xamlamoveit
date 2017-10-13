@@ -6,7 +6,7 @@ local xutils = require 'xamlamoveit.xutils'
 
 local cmd = torch.CmdLine()
 local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
-ros.init(parameter['__name'] or 'XamlaMoveActions')
+ros.init(parameter['__name'] or 'xamlaMoveJAction')
 
 local sp = ros.AsyncSpinner() -- background job
 sp:start()

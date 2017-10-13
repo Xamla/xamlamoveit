@@ -24,14 +24,14 @@ function MotionService:query_cartesian_path(
     max_deviation,
     check_collision)
     local compute_ik_interface =
-        self.node_handle:serviceClient('xamlaservices/query_ik', 'xamlamoveit_msgs/GetIKSolution')
+        self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', 'xamlamoveit_msgs/GetIKSolution')
     return false
 end
 
 local function query_ik_call(self, pose, parameters, seed_joint_values, end_effector_link)
     local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
     local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
-    local compute_ik_interface = self.node_handle:serviceClient('xamlaservices/query_ik', srv_spec)
+    local compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
     local request = compute_ik_interface:createRequest()
     request.group_name = parameters.move_group_name
     request.joint_names = parameters.joint_names
@@ -75,7 +75,7 @@ end
 function MotionService:query_available_movegroups()
     local move_group_interface =
         self.node_handle:serviceClient(
-        'xamlaservices/query_move_group_interface',
+        'xamlaMoveGroupServices/query_move_group_interface',
         'xamlamoveit_msgs/QueryMoveGroupInterfaces'
     )
     local response = move_group_interface:call()
@@ -125,7 +125,7 @@ function MotionService:query_current_pose(move_group_name, jointvalues, link_nam
     local joint_names = jointvalues:getNames()
     local move_group_pose_interface =
         self.node_handle:serviceClient(
-        'xamlaservices/query_fk',
+        'xamlaMoveGroupServices/query_fk',
         'xamlamoveit_msgs/GetFKSolution'
     )
     local request = move_group_pose_interface:createRequest()
@@ -146,7 +146,7 @@ end
 function MotionService:query_joint_state(joint_names)
     local move_group_position_interface =
         self.node_handle:serviceClient(
-        'xamlaservices/query_move_group_current_position',
+        'xamlaMoveGroupServices/query_move_group_current_position',
         'xamlamoveit_msgs/GetCurrentJointState'
     )
     local request = move_group_position_interface:createRequest()
@@ -161,7 +161,7 @@ end
 -- get Path from service
 local function query_joint_path(self, move_group_name, joint_names, waypoints, num_steps, max_deviation, with_moveit)
     local generate_path_interface =
-        self.node_handle:serviceClient('xamlaservices/query_joint_path', 'xamlamoveit_msgs/GetOptimJointPath')
+        self.node_handle:serviceClient('xamlaPlanningServices/query_joint_path', 'xamlamoveit_msgs/GetOptimJointPath')
     local with_moveit = with_moveit or false
     local request = generate_path_interface:createRequest()
     request.max_deviation = max_deviation
@@ -196,7 +196,7 @@ end
 local function query_joint_trajectory(self, move_group_name, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
     local generate_trajectory_interface =
         self.node_handle:serviceClient(
-        'xamlaservices/query_joint_trajectory',
+        'xamlaPlanningServices/query_joint_trajectory',
         'xamlamoveit_msgs/GetOptimJointTrajectory'
     )
     local request = generate_trajectory_interface:createRequest()

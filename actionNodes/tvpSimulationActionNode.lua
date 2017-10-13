@@ -193,7 +193,6 @@ local function updateSystemState(msg, header)
 end
 
 local function queryControllerList(node_handle)
-    print()
     local config = node_handle:getParamVariable(string.format('%s/controller_list', node_handle:getNamespace()))
     local start_time = ros.Time.now()
     local current_time = ros.Time.now()
