@@ -4,7 +4,7 @@ local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
 
 local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MAX_DEVIATION, dt)
-    local MAX_DEVIATION = MAX_DEVIATION < 1e-6 and 1e-6 or MAX_DEVIATION
+    local MAX_DEVIATION = MAX_DEVIATION < 1e-8 and 1e-8 or MAX_DEVIATION
     local TIME_STEP = dt
     local path = {}
     path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
@@ -22,12 +22,12 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
             end
         end
         waypoints = waypoints:index(1,torch.LongTensor(newIndeces))
-        print(waypoints:size())
 
         path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
         suc, split, scip = path[1]:analyse()
-        print(waypoints:size())
-        assert(#scip == 0, "scip should be 0 but is = " .. #scip)
+        if(#scip > 0) then
+            ros.WARN("check max deviation parameter... can propably be reduced")
+        end
     end
     if not suc and #split > 0 then
         path = {}

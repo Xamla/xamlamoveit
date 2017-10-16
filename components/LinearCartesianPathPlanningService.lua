@@ -6,7 +6,7 @@ local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetLinearCartesianPath')
 local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
 
-function table.concat(dst, src)
+local function table_concat(dst, src)
     for i, v in ipairs(src) do
         table.insert(dst, v)
     end
@@ -42,7 +42,7 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         local w = request.waypoints[k]
         local path = getLinearPath(v, w)
         if #path > 0 then
-            table.concat(g_path, path)
+            table_concat(g_path, path)
         end
     end
     return true

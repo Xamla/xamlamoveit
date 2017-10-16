@@ -77,6 +77,7 @@ add_service_files(
    GetIKSolution.srv
    GetFKSolution.srv
    GetCartesianPath.srv
+   GetLinearCartesianPath.srv
 )
 
 ## Generate actions in the 'action' folder
