@@ -6,11 +6,56 @@ local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetLinearCartesianPath')
 local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
 
+
 local function table_concat(dst, src)
     for i, v in ipairs(src) do
         table.insert(dst, v)
     end
     return dst
+end
+
+local function poses2MsgArray(points)
+    local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
+    local result = {}
+    if torch.type(points) == 'table' then
+        for i, v in ipairs(points) do
+            assert(
+                torch.isTypeOf(v, tf.StampedTransform),
+                'points need to be type of datatypes.Pose, but is type: ',
+                torch.type(v)
+            )
+            local msg = ros.Message(pose_msg_spec)
+            local translation = v:getOrigin()
+            local rotation = v:getRotation():toTensor()
+            local frame = v:get_frame_id()
+            msg.pose.position.x = translation[1]
+            msg.pose.position.y = translation[2]
+            msg.pose.position.z = translation[3]
+            msg.pose.orientation.x = rotation[1]
+            msg.pose.orientation.y = rotation[2]
+            msg.pose.orientation.z = rotation[3]
+            msg.pose.orientation.w = rotation[4]
+            msg.header.frame_id = frame
+            table.insert(result, msg)
+        end
+    elseif torch.isTypeOf(points, tf.StampedTransform) then
+        local msg = ros.Message(pose_msg_spec)
+        local translation = points:getOrigin()
+        local rotation = points:getRotation():toTensor()
+        local frame = points:get_frame_id()
+        msg.pose.position.x = translation[1]
+        msg.pose.position.y = translation[2]
+        msg.pose.position.z = translation[3]
+        msg.pose.orientation.x = rotation[1]
+        msg.pose.orientation.y = rotation[2]
+        msg.pose.orientation.z = rotation[3]
+        msg.pose.orientation.w = rotation[4]
+        msg.header.frame_id = frame
+        table.insert(result, msg)
+    else
+        error('[poses2MsgArray] unknown type of points parameter: ' .. torch.type(points))
+    end
+    return result
 end
 
 local function poseStampedMsg2StampedTransform(msg)
@@ -19,16 +64,19 @@ local function poseStampedMsg2StampedTransform(msg)
     result:setRotation(
         tf.Quaternion(msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w)
     )
+    return result
 end
-local function getLinearPath(start, goal)
-    local pose = ros.Messege(pose_msg_spec)
+local function getLinearPath(start, goal, num_samples)
     local start = poseStampedMsg2StampedTransform(start)
     local goal = poseStampedMsg2StampedTransform(goal)
-    for i = 1, trajectory:size(1) do
+    local pose = start:clone()
+    local result = {}
+    for i = 1, num_samples do
         pose:setOrigin(start:getOrigin():clone())
-        pose:setRotation(start:getRotation():slerp(goal:getRotation(), (i - 1) / trajectory:size(1)))
+        pose:setRotation(start:getRotation():slerp(goal:getRotation(), (i - 1) / num_samples))
+        result[i] = pose:clone()
     end
-    return true
+    return result
 end
 
 local function queryCartesianPathServiceHandler(self, request, response, header)
@@ -40,11 +88,12 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
     for i, v in ipairs(request.waypoints) do
         local k = math.min(#request.waypoints, i + 1)
         local w = request.waypoints[k]
-        local path = getLinearPath(v, w)
+        local path = getLinearPath(v, w, request.num_steps)
         if #path > 0 then
-            table_concat(g_path, path)
+            table_concat(g_path, poses2MsgArray(path))
         end
     end
+    response.error_code.val = 1
     return true
 end
 

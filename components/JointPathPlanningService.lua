@@ -63,7 +63,7 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
             plannedwaypoints[i] = positions
         end
     end
-    result = {}
+    local result = {}
     for i, v in ipairs(plannedwaypoints) do
         result[i] = torch.cat(v, 2)
     end
@@ -115,28 +115,30 @@ local function queryJointPathServiceHandler(self, request, response, header)
         waypoints[i]:copy(v.positions)
     end
 
-    local moveit_plan_success = true
+    local moveit_plan_success
 
     if request.moveit_adaptive_plan then
+        ros.INFO('using moveit')
         moveit_plan_success, waypoints = getMoveitPath(self, request.group_name, request.joint_names, waypoints)
+        if moveit_plan_success then
+            ros.INFO("moveit plan succeeded")
+            response.error_code.val = 1
+        else
+            response.error_code.val = -2
+        end
+    else
+        response.error_code.val = 1
+    end
+    local path = generatePath(waypoints, response.max_deviation)
+    local dist = path:getLength()
+    local num_steps = request.num_steps
+    local vel = dist / (num_steps - 1)
+    for i = 0, num_steps - 1 do
+        response.path[i + 1] = ros.Message('xamlamoveit_msgs/JointPathPoint')
+        response.path[i + 1].positions = path:getConfig(vel * i)
     end
 
-    if moveit_plan_success then
-        local path = generatePath(waypoints, response.max_deviation)
-        local dist = path:getLength()
-        local num_steps = request.num_steps
-        local vel = dist / (num_steps - 1)
-        --print(request)
-        ros.WARN('NumSteps = %f', num_steps)
-        for i = 0, num_steps - 1 do
-            response.path[i + 1] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-            response.path[i + 1].positions = path:getConfig(vel * i)
-        end
-        ros.WARN('NumSteps = %d', #response.path)
-        response.error_code.val = 1
-    else
-        response.error_code.val = -2
-    end
+
     return true
 end
 

@@ -4,7 +4,9 @@ local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
 
 local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MAX_DEVIATION, dt)
-    local MAX_DEVIATION = MAX_DEVIATION < 1e-8 and 1e-8 or MAX_DEVIATION
+
+    local MAX_DEVIATION = MAX_DEVIATION < 1e-6 and 1e-6 or MAX_DEVIATION
+    ros.INFO("generateTrajectory from waypoints with max dev: %f", MAX_DEVIATION)
     local TIME_STEP = dt
     local path = {}
     path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
@@ -30,6 +32,7 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
         end
     end
     if not suc and #split > 0 then
+        ros.INFO("splitting plan")
         path = {}
         local startI = 1
         for i, v in ipairs(split) do
@@ -40,7 +43,12 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
     end
     local trajectory = {}
     local valid = true
+    if #path>40 then
+    print(#path)
+        return trajectory, false
+    end
     for i = 1, #path do
+        ros.INFO("Generation of Trajectories: %f", i/#path*100)
         trajectory[i] = optimplan.Trajectory(path[i], maxVelocities, maxAccelerations, TIME_STEP)
         trajectory[i]:outputPhasePlaneTrajectory()
         if not trajectory[i]:isValid() then
