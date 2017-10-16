@@ -4,6 +4,7 @@ local ros = require 'ros'
 local xamlamoveit = require 'xamlamoveit'
 local jtps = xamlamoveit.components.JointTrajectoryPlanningService
 local jpps = xamlamoveit.components.JointPathPlanningService
+local cpps = xamlamoveit.components.LinearCartesianPathPlanningService
 local xamla_sysmon = require 'xamla_sysmon'
 
 local cmd = torch.CmdLine()
@@ -22,13 +23,14 @@ local system_state_subscriber =
     {tcp_nodelay = true}
 )
 local heartbeat = xamla_sysmon.Heartbeat.new()
-heartbeat:start(nh, 0.5) --[Hz]
+heartbeat:start(nh, 0.1) --[Hz]
 heartbeat:updateStatus(heartbeat.STARTING, 'Init ...')
 heartbeat:publish()
 
 local jtps_service = jtps(nh)
 local jpps_service = jpps(nh)
-local services = {jtps_service, jpps_service}
+local cpps_service = cpps(nh)
+local services = {jtps_service, jpps_service, cpps_service}
 
 for i, v in pairs(services) do
     system_state_subscriber:registerCallback(

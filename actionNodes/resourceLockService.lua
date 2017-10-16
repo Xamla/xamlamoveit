@@ -21,7 +21,7 @@ local system_state_subscriber =
     {tcp_nodelay = true}
 )
 local heartbeat = xamla_sysmon.Heartbeat.new()
-heartbeat:start(nh, 0.5) --[Hz]
+heartbeat:start(nh, 0.1) --[Hz]
 heartbeat:updateStatus(heartbeat.STARTING, 'Init ...')
 heartbeat:publish()
 
