@@ -23,7 +23,7 @@ local TrajectoryResultStatus = {
 
 local config = {}
 local node_handle, sp, worker
-
+local joint_monitor_collection = {}
 local function initSetup(ns)
     ros.init(ns)
     node_handle = ros.NodeHandle('~')
@@ -213,6 +213,7 @@ local function queryControllerList(node_handle)
 end
 
 local function initActions()
+    ros.INFO("queryControllerList")
     local suc, config, msg = queryControllerList(node_handle)
     if suc < 0 then
         ros.Error('[queryControllerList] ' .. msg)
@@ -238,10 +239,14 @@ local function initActions()
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
+    ros.INFO("Init JointMonitor")
     local joint_monitor = xutils.JointMonitor(joint_name_collection)
-    local timeout = ros.Duration(2.01)
+    ros.INFO("Wait for JointMonitor")
+    local timeout = ros.Duration(5.0)
     if not joint_monitor:waitReady(timeout) then
         error('FAILED init')
+    else
+        ready = true
     end
 
     --[[local start = ros.Time.now()
@@ -260,6 +265,8 @@ local function initActions()
     --]]
     if not ready then
         ros.ERROR('joint_monitor has difficulties finding joints')
+    else
+        ros.INFO("JointMonitor is ready")
     end
     for i, v in ipairs(config) do
         action_server[v.name]:registerGoalCallback(
@@ -267,11 +274,18 @@ local function initActions()
                 moveJAction_serverGoal(gh, joint_monitor, v.joints)
             end
         )
+        joint_monitor_collection[#joint_monitor_collection + 1 ] = joint_monitor
         action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
         action_server[v.name]:start()
         print(v.name)
     end
 
+    if worker ~= nil then
+        ros.INFO("Shutdown GenerativeSimulationWorker")
+        worker:shutdown()
+        worker.nodehandle:shutdown()
+    end
+    ros.INFO("Init GenerativeSimulationWorker")
     worker = GenerativeSimulationWorker.new(ros.NodeHandle(string.format('/%s', ns[1])))
     return 0, 'Success'
 end
@@ -279,7 +293,12 @@ end
 local function shutdownAction_server()
     for i, v in pairs(action_server) do
         v:shutdown()
+        v = nil
     end
+    for i,v in ipairs(joint_monitor_collection) do
+        v:shutdown()
+    end
+    worker:shutdown()
 end
 
 local cmd = torch.CmdLine()
@@ -288,6 +307,7 @@ local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
 initSetup(parameter['__name']) -- TODO
 
 local function init()
+    ros.INFO("initActions")
     local err, msg = initActions()
 
     if err < 0 then
@@ -299,6 +319,7 @@ local function init()
 end
 
 local function reset()
+    ros.WARN("caling reset")
     shutdownAction_server()
     return init()
 end

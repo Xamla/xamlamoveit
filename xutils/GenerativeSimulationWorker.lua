@@ -238,6 +238,9 @@ function GenerativeSimulationWorker:spin()
 end
 
 function GenerativeSimulationWorker:shutdown()
+    if self.publisher_point_position_ctrl then
+        self.publisher_point_position_ctrl:shutdown()
+    end
 end
 
 return GenerativeSimulationWorker

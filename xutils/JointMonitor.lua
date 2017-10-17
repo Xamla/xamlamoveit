@@ -92,7 +92,9 @@ end
 
 -- wait to receive initial state
 function JointMonitor:waitReady(timeout)
-    timeout = toDuration(timeout)
+    if not torch.isTypeOf(timeout, ros.Duration) then
+        timeout = toDuration(timeout)
+    end
 
     local wait_duration = ros.Duration(0.01)
     local start = ros.Time.now()
