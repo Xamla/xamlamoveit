@@ -14,6 +14,8 @@ function MotionService:__init(node_handle)
     self.node_handle = node_handle
     self.global_veloctiy_scaling = 1.0
     self.global_acceleration_scaling = 1.0
+    local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
+    self.compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
 end
 
 local function poses2MsgArray(points)
@@ -77,9 +79,9 @@ function MotionService:query_cartesian_path(
 end
 
 local function query_ik_call(self, pose, parameters, seed_joint_values, end_effector_link)
-    local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
-    local compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
-    local request = compute_ik_interface:createRequest()
+    --local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
+    --local compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
+    local request = self.compute_ik_interface:createRequest()
     request.group_name = parameters.move_group_name
     request.joint_names = parameters.joint_names
     request.end_effector_link = end_effector_link or ''
@@ -89,7 +91,7 @@ local function query_ik_call(self, pose, parameters, seed_joint_values, end_effe
     end
     request.check_collision = true
     print(request)
-    local response = compute_ik_interface:call(request)
+    local response = self.compute_ik_interface:call(request)
     return response.error_code.val, response.solution
 end
 
@@ -232,9 +234,10 @@ local function query_joint_trajectory(self, move_group_name, joint_names, waypoi
     request.max_velocity = max_vel
     request.max_acceleration = max_acc
 
-    for i = 1, waypoints:size(2) do
+    for i = 1, waypoints:size(1) do
+        print("query_joint_trajectory waypoint index: ", i)
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-        request.waypoints[i].positions = waypoints[{{}, i}]
+        request.waypoints[i].positions = waypoints[{i, {}}]
     end
     local response = nil
     if generate_trajectory_interface:exists() then
@@ -300,7 +303,7 @@ end
 
 --IJointTrajectory PlanCollisionFree(Pose start, Pose goal, PlanParameters parameters);
 
-local function planCollisionFreeCartesianPath_1(start, goal, parameters)
+local function planCollisionFreeCartesianPath_1(self, start, goal, parameters)
     assert(torch.isTypeOf(start, datatypes.Pose))
     assert(torch.isTypeOf(goal, datatypes.Pose))
     assert(
@@ -313,7 +316,7 @@ local function planCollisionFreeCartesianPath_1(start, goal, parameters)
         print('start suc ', suc)
         return false
     end
-    suc, goal = query_ik_call(self, goal, parameters, seed)
+    suc, goal = query_ik_call(self, goal, parameters, start[1].positions)
     if suc ~= 1 then
         print('goal suc ', suc)
         return false
@@ -330,20 +333,21 @@ local function planCollisionFreeCartesianPath_2(self, waypoints, parameters)
         'Wrong data type should be PlanParameters but is: ' .. torch.type(parameters)
     )
     local result = {}
+    local seed = self:query_joint_state(parameters.joint_names)
     for i, v in ipairs(waypoints) do
-        local seed = self:query_joint_state(parameters.joint_names)
         local suc, start = query_ik_call(self, v, parameters, seed)
         if suc ~= 1 then
             print('start suc ', suc)
             return false
         end
         table.insert(result, start[1].positions)
+        seed = start[1].positions
     end
     return self:planCollisionFreeJointPath(result, parameters)
 end
 
 function MotionService:planCollisionFreeCartesianPath(_1, _2, _3)
-    if torch.isTypeOf(_1, torch.DoubleTensor) then
+    if torch.isTypeOf(_1,  datatypes.Pose) then
         return planCollisionFreeCartesianPath_1(self, _1, _2, _3)
     elseif torch.type(_1) == 'table' then
         return planCollisionFreeCartesianPath_2(self, _1, _2)
@@ -427,7 +431,7 @@ end
 function MotionService:planMoveJoint(path, parameters)
     assert(torch.isTypeOf(path, torch.DoubleTensor))
     assert(torch.type(parameters) == 'PlanParameters')
-    assert(path:size(1) == #parameters.joint_names)
+    assert(path:size(2) == #parameters.joint_names)
     local trajectory
     local res =
         query_joint_trajectory(

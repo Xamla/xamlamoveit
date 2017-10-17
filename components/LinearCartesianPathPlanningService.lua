@@ -60,19 +60,21 @@ end
 
 local function poseStampedMsg2StampedTransform(msg)
     local result = tf.StampedTransform()
-    result:setOrigin(torch.Tensor {msg.pose.position.x, msg.pose.position.x, msg.pose.position.z})
+    result:setOrigin(torch.Tensor {msg.pose.position.x, msg.pose.position.y, msg.pose.position.z})
     result:setRotation(
         tf.Quaternion(msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w)
     )
     return result
 end
+
 local function getLinearPath(start, goal, num_samples)
     local start = poseStampedMsg2StampedTransform(start)
     local goal = poseStampedMsg2StampedTransform(goal)
     local pose = start:clone()
     local result = {}
+    local direction = goal:getOrigin() - start:getOrigin()
     for i = 1, num_samples do
-        pose:setOrigin(start:getOrigin():clone())
+        pose:setOrigin(start:getOrigin() + direction*(i - 1) / num_samples)
         pose:setRotation(start:getRotation():slerp(goal:getRotation(), (i - 1) / num_samples))
         result[i] = pose:clone()
     end

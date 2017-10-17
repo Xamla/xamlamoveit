@@ -4,9 +4,9 @@ local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
 
 local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MAX_DEVIATION, dt)
-
-    local MAX_DEVIATION = MAX_DEVIATION < 1e-6 and 1e-6 or MAX_DEVIATION
-    ros.INFO("generateTrajectory from waypoints with max dev: %f", MAX_DEVIATION)
+    MAX_DEVIATION = MAX_DEVIATION or 1e-4
+    MAX_DEVIATION = MAX_DEVIATION < 1e-4 and 1e-4 or MAX_DEVIATION
+    ros.INFO("generateTrajectory from waypoints with max dev: %08f", MAX_DEVIATION)
     local TIME_STEP = dt
     local path = {}
     path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
@@ -48,11 +48,12 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
         return trajectory, false
     end
     for i = 1, #path do
-        ros.INFO("Generation of Trajectories: %f", i/#path*100)
         trajectory[i] = optimplan.Trajectory(path[i], maxVelocities, maxAccelerations, TIME_STEP)
         trajectory[i]:outputPhasePlaneTrajectory()
         if not trajectory[i]:isValid() then
             valid = false
+        else
+            ros.INFO("Generation of Trajectories: %d%s", i/#path*100, '%')
         end
     end
     return trajectory, valid
