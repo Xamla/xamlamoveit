@@ -41,11 +41,8 @@ end
 local function queryIKServiceHandler(self, request, response, header)
     local r_state = self.robot_state:clone()
     if request.seed then
-        ros.INFO('set Seed')
-        print(request.seed, request.joint_names)
         r_state:setVariablePositions(request.seed.positions, request.joint_names)
         r_state:update()
-        print(r_state:getVariablePositions())
     end
 
     ros.DEBUG('query Group Joint Names for: ' .. request.group_name)
@@ -70,7 +67,6 @@ local function queryIKServiceHandler(self, request, response, header)
     local res = torch.DoubleTensor(#request.joint_names)
     for i, v in ipairs(request.joint_names) do
         local index = table.indexof(names, v)
-        print(index)
         res[i] = state[index]
     end
     point_msg.positions = res

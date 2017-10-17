@@ -14,30 +14,20 @@ function MotionService:__init(node_handle)
     self.node_handle = node_handle
     self.global_veloctiy_scaling = 1.0
     self.global_acceleration_scaling = 1.0
-end
-
-function MotionService:query_cartesian_path(
-    move_group_name,
-    joint_names,
-    waypoints,
-    sampleResolution,
-    max_deviation,
-    check_collision)
-    local compute_ik_interface =
-        self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', 'xamlamoveit_msgs/GetIKSolution')
-    return false
-end
-
-local function query_ik_call(self, pose, parameters, seed_joint_values, end_effector_link)
     local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
+    self.compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
+end
+
+local function poses2MsgArray(points)
     local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
-    local compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
-    local request = compute_ik_interface:createRequest()
-    request.group_name = parameters.move_group_name
-    request.joint_names = parameters.joint_names
-    request.end_effector_link = end_effector_link or ''
-    if torch.type(pose) == 'table' then
-        for i, v in ipairs(pose) do
+    local result = {}
+    if torch.type(points) == 'table' then
+        for i, v in ipairs(points) do
+            assert(
+                torch.isTypeOf(v, datatypes.Pose),
+                'points need to be type of datatypes.Pose, but is type: ',
+                torch.type(v)
+            )
             local msg = ros.Message(pose_msg_spec)
             msg.pose.position.x = v.translation[1]
             msg.pose.position.y = v.translation[2]
@@ -47,27 +37,61 @@ local function query_ik_call(self, pose, parameters, seed_joint_values, end_effe
             msg.pose.orientation.z = v.rotation[3]
             msg.pose.orientation.w = v.rotation[4]
             msg.header.frame_id = v.frame
-            table.insert(request.points, msg)
+            table.insert(result, msg)
         end
-    elseif torch.isTypeOf(pose, datatypes.Pose) then
+    elseif torch.isTypeOf(points, datatypes.Pose) then
+        print("else")
         local msg = ros.Message(pose_msg_spec)
-        msg.pose.position.x = pose.translation[1]
-        msg.pose.position.y = pose.translation[2]
-        msg.pose.position.z = pose.translation[3]
-        msg.pose.orientation.x = pose.rotation[1]
-        msg.pose.orientation.y = pose.rotation[2]
-        msg.pose.orientation.z = pose.rotation[3]
-        msg.pose.orientation.w = pose.rotation[4]
-        msg.header.frame_id = pose.frame
-        table.insert(request.points, msg)
+        msg.pose.position.x = points.translation[1]
+        msg.pose.position.y = points.translation[2]
+        msg.pose.position.z = points.translation[3]
+        msg.pose.orientation.x = points.rotation[1]
+        msg.pose.orientation.y = points.rotation[2]
+        msg.pose.orientation.z = points.rotation[3]
+        msg.pose.orientation.w = points.rotation[4]
+        msg.header.frame_id = points.frame or ''
+        table.insert(result, msg)
     else
-        error('[query_ik_call] unknown type of pose parameter: ' .. torch.type(pose))
+        error('[poses2MsgArray] unknown type of points parameter: ' .. torch.type(points))
     end
+    return result
+end
+
+function MotionService:query_cartesian_path(
+    move_group_name,
+    joint_names,
+    end_effector_link,
+    waypoints,
+    sampleResolution,
+    max_deviation,
+    check_collision)
+    local compute_cartesian_path_interface =
+        self.node_handle:serviceClient(
+        '/xamlaPlanningServices/query_cartesian_path',
+        'xamlamoveit_msgs/GetLinearCartesianPath'
+    )
+    local request = compute_cartesian_path_interface:createRequest()
+    request.waypoints = poses2MsgArray(waypoints)
+    --print(request.points)
+    request.num_steps = sampleResolution
+    local response = compute_cartesian_path_interface:call(request)
+    return response
+end
+
+local function query_ik_call(self, pose, parameters, seed_joint_values, end_effector_link)
+    --local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
+    --local compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
+    local request = self.compute_ik_interface:createRequest()
+    request.group_name = parameters.move_group_name
+    request.joint_names = parameters.joint_names
+    request.end_effector_link = end_effector_link or ''
+    request.points = poses2MsgArray(pose)
     if seed_joint_values then
         request.seed.positions = seed_joint_values
     end
     request.check_collision = true
-    local response = compute_ik_interface:call(request)
+    print(request)
+    local response = self.compute_ik_interface:call(request)
     return response.error_code.val, response.solution
 end
 
@@ -124,10 +148,7 @@ function MotionService:query_current_pose(move_group_name, jointvalues, link_nam
     assert(torch.isTypeOf(jointvalues, datatypes.JointValues))
     local joint_names = jointvalues:getNames()
     local move_group_pose_interface =
-        self.node_handle:serviceClient(
-        'xamlaMoveGroupServices/query_fk',
-        'xamlamoveit_msgs/GetFKSolution'
-    )
+        self.node_handle:serviceClient('xamlaMoveGroupServices/query_fk', 'xamlamoveit_msgs/GetFKSolution')
     local request = move_group_pose_interface:createRequest()
     request.group_name = move_group_name
     request.end_effector_link = link_name or ''
@@ -177,8 +198,14 @@ local function query_joint_path(self, move_group_name, joint_names, waypoints, n
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
         request.waypoints[i].positions = waypoints[{{}, i}]
     end
-    --print(request)
-    local response = generate_path_interface:call(request)
+
+    local response
+    if generate_path_interface:exists() then
+        response = generate_path_interface:call(request)
+        ros.INFO('found service: .. ' .. generate_path_interface:getService())
+    else
+        ros.INFO('could not find service: .. ' .. generate_path_interface:getService())
+    end
 
     --check order of joint names
     if response.error_code.val > 0 then
@@ -207,12 +234,18 @@ local function query_joint_trajectory(self, move_group_name, joint_names, waypoi
     request.max_velocity = max_vel
     request.max_acceleration = max_acc
 
-    for i = 1, waypoints:size(2) do
+    for i = 1, waypoints:size(1) do
+        print("query_joint_trajectory waypoint index: ", i)
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-        request.waypoints[i].positions = waypoints[{{}, i}]
+        request.waypoints[i].positions = waypoints[{i, {}}]
     end
-
-    local response = generate_trajectory_interface:call(request)
+    local response = nil
+    if generate_trajectory_interface:exists() then
+        response = generate_trajectory_interface:call(request)
+        ros.INFO('found service: ..' .. generate_trajectory_interface:getService())
+    else
+        ros.INFO('could not find service: ..' .. generate_trajectory_interface:getService())
+    end
 
     return response
 end
@@ -269,7 +302,8 @@ function MotionService:executeJointTrajectory(traj)
 end
 
 --IJointTrajectory PlanCollisionFree(Pose start, Pose goal, PlanParameters parameters);
-function MotionService:planCollisionFreeCartesianPath(start, goal, parameters)
+
+local function planCollisionFreeCartesianPath_1(self, start, goal, parameters)
     assert(torch.isTypeOf(start, datatypes.Pose))
     assert(torch.isTypeOf(goal, datatypes.Pose))
     assert(
@@ -279,17 +313,45 @@ function MotionService:planCollisionFreeCartesianPath(start, goal, parameters)
     local seed = self:query_joint_state(parameters.joint_names)
     local suc, start = query_ik_call(self, start, parameters, seed)
     if suc ~= 1 then
-        print("start suc ",suc)
+        print('start suc ', suc)
         return false
     end
-    suc, goal = query_ik_call(self, goal, parameters,seed)
+    suc, goal = query_ik_call(self, goal, parameters, start[1].positions)
     if suc ~= 1 then
-        print("goal suc ",suc)
+        print('goal suc ', suc)
         return false
     end
-    print("start",start[1].positions)
-    print("goal",goal[1].positions)
+    print('start', start[1].positions)
+    print('goal', goal[1].positions)
     return self:planCollisionFreeJointPath(start[1].positions, goal[1].positions, parameters)
+end
+
+local function planCollisionFreeCartesianPath_2(self, waypoints, parameters)
+    assert(torch.type(waypoints) == 'table')
+    assert(
+        torch.type(parameters) == 'PlanParameters',
+        'Wrong data type should be PlanParameters but is: ' .. torch.type(parameters)
+    )
+    local result = {}
+    local seed = self:query_joint_state(parameters.joint_names)
+    for i, v in ipairs(waypoints) do
+        local suc, start = query_ik_call(self, v, parameters, seed)
+        if suc ~= 1 then
+            print('start suc ', suc)
+            return false
+        end
+        table.insert(result, start[1].positions)
+        seed = start[1].positions
+    end
+    return self:planCollisionFreeJointPath(result, parameters)
+end
+
+function MotionService:planCollisionFreeCartesianPath(_1, _2, _3)
+    if torch.isTypeOf(_1,  datatypes.Pose) then
+        return planCollisionFreeCartesianPath_1(self, _1, _2, _3)
+    elseif torch.type(_1) == 'table' then
+        return planCollisionFreeCartesianPath_2(self, _1, _2)
+    end
 end
 
 --IJointPath PlanCollisionFree(JointValues start, JointValues goal, PlanParameters parameters);
@@ -331,12 +393,45 @@ function MotionService:planCollisionFreeJointPath_2(waypoints, parameters)
     )
 end
 
+local function stampedMessages2PoseArray(msgs)
+    local result = {}
+    for i, v in ipairs(msgs) do
+        local point = datatypes.Pose()
+        local position = v.pose.position
+        local ori = v.pose.orientation
+        point:setTranslation(torch.Tensor {position.x, position.y, position.z})
+        point:setRotation(torch.Tensor {ori.x, ori.y, ori.z, ori.w})
+        point.frame = v.frame_id
+        table.insert(result, point)
+    end
+    return result
+end
 --IJointTrajectory PlanMoveCartesian(ICartesianPath path, PlanParameters parameters);
+function MotionService:planMoveCartesian(waypoints, parameters)
+    assert(torch.type(waypoints) == 'table')
+    assert(torch.type(parameters) == 'PlanParameters')
+    local pathCartesian
+    local res =
+        self:query_cartesian_path(
+        parameters.move_group_name,
+        parameters.joint_names,
+        nil,
+        waypoints,
+        parameters.sampleResolution,
+        0.0,
+        parameters.collisionCheck
+    )
+    if res.error_code.val == 1 then
+        pathCartesian = res.path
+    end
+    return res.error_code.val, stampedMessages2PoseArray(pathCartesian)
+end
+
 --IJointTrajectory PlanMoveJoint(IJointPath path, PlanParameters parameters);
 function MotionService:planMoveJoint(path, parameters)
     assert(torch.isTypeOf(path, torch.DoubleTensor))
     assert(torch.type(parameters) == 'PlanParameters')
-    assert(path:size(1) == #parameters.joint_names)
+    assert(path:size(2) == #parameters.joint_names)
     local trajectory
     local res =
         query_joint_trajectory(
