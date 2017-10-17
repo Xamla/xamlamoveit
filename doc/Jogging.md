@@ -6,7 +6,9 @@ Node: [rosJoystickServiceNode](https://github.com/Xamla/Rosvita.Control/blob/mas
 ##### Topics
 
 - ```jogging_command```
-  - Message: trajectory_msgs/JointTrajectory
+  - Message: sensor_msgs/Joy
+
+Use XBOX360 Joystick.
 
 #### Konfiguraiton/Joint Space Jogging
 
@@ -16,6 +18,12 @@ Node: [rosJoystickServiceNode](https://github.com/Xamla/Rosvita.Control/blob/mas
 
 - ```jogging_command```
   - Message: trajectory_msgs/JointTrajectory
+
+Simple test script: [testJoggingController](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/tests/testJoggingController.lua)
+
+- press m to start. Dann 1 - 7 oder (-1) - (-7)
+- press s to stop.
+- press q to quit-
 
 ### Services
 
@@ -62,9 +70,3 @@ Node: [rosJoystickServiceNode](https://github.com/Xamla/Rosvita.Control/blob/mas
 
 - ```get_velocity_scaling```
   - Message: xamlamoveit_msgs/GetFloat
-
-Simple test script: [testJoggingController](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/tests/testJoggingController.lua)
-
-- press m to start. Dann 1 - 7 oder (-1) - (-7)
-- press s to stop.
-- press q to quit-
