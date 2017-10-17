@@ -31,7 +31,7 @@ function EmergencyStopService:__init(node_handle)
 end
 
 function EmergencyStopService:onInitialize()
-    self.heartbeat:start(self.node_handle, 0.5) --[Hz]
+    self.heartbeat:start(self.node_handle, 10) --[Hz]
     self.heartbeat:updateStatus(self.heartbeat.GO, '')
 end
 

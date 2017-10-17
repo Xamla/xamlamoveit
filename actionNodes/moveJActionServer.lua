@@ -22,7 +22,7 @@ local system_state_subscriber =
     {tcp_nodelay = true}
 )
 local heartbeat = xamla_sysmon.Heartbeat.new()
-heartbeat:start(ros.NodeHandle('~'), 0.5) --[Hz]
+heartbeat:start(ros.NodeHandle('~'), 10) --[Hz]
 heartbeat:updateStatus(heartbeat.STARTING, 'Init ...')
 heartbeat:publish()
 local mj_action_server = MoveJActionServer(nh)

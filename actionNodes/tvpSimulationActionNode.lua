@@ -312,7 +312,7 @@ end
 
 local function simulation()
     local heartbeat = xamla_sysmon.Heartbeat.new()
-    heartbeat:start(node_handle, 0.5) --[Hz]
+    heartbeat:start(node_handle, 10) --[Hz]
     heartbeat:updateStatus(heartbeat.GO, '')
     heartbeat:publish()
     local system_state_subscriber =
