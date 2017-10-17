@@ -184,13 +184,6 @@ local function FollowJointTrajectory_Cancel(goalHandle)
 end
 
 local error_state = false
-local function updateSystemState(msg, header)
-    if msg.system_status ~= 0 and error_state == false then
-        error_state = true
-    elseif msg.system_status == 0 and error_state == true then
-        error_state = false
-    end
-end
 
 local function queryControllerList(node_handle)
     local config = node_handle:getParamVariable(string.format('%s/controller_list', node_handle:getNamespace()))
@@ -315,19 +308,14 @@ local function simulation()
     heartbeat:start(node_handle, 10) --[Hz]
     heartbeat:updateStatus(heartbeat.GO, '')
     heartbeat:publish()
-    local system_state_subscriber =
-        node_handle:subscribe(
-        '/xamla_sysmon/system_status',
-        'xamla_sysmon_msgs/SystemStatus',
-        1,
-        {'udp', 'tcp'},
-        {tcp_nodelay = true}
-    )
+    local sysmon_watch = xamla_sysmon.Watch.new(node_handle, 3.0)
     local dt = init()
     local initialized = true
-    system_state_subscriber:registerCallback(updateSystemState)
 
+    local global_state_summary = sysmon_watch:getGlobalStateSummary()
     while ros.ok() do
+        global_state_summary = sysmon_watch:getGlobalStateSummary()
+        error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
         if error_state == false then
             if initialized == false then
                 xutils.tic('Initialize')
@@ -340,6 +328,7 @@ local function simulation()
         else
             if initialized then
                 ros.ERROR('error state')
+                heartbeat:updateStatus(heartbeat.SECONDARY_ERROR, 'Global State is NOGO, shutting down until it is GO again.')
                 shutdownAction_server()
                 initialized = false
             end

@@ -156,13 +156,6 @@ local function jointCommandCb(msg, header)
 end
 
 local error_state = false
-local function updateSystemState(msg, header)
-    if msg.system_status ~= 0 and error_state == false then
-        error_state = true
-    elseif msg.system_status == 0 and error_state == true then
-        error_state = false
-    end
-end
 
 local function query_joint_limits(joint_names, namespace)
     namespace = namespace or node_handle:getNamespace()
@@ -293,22 +286,16 @@ local function simulation(delay, dt)
     heartbeat:start(node_handle, 10) --[Hz]
     heartbeat:updateStatus(heartbeat.GO, '')
     heartbeat:publish()
-    local system_state_subscriber =
-        node_handle:subscribe(
-        '/xamla_sysmon/system_status',
-        'xamla_sysmon_msgs/SystemStatus',
-        1,
-        {'udp', 'tcp'},
-        {tcp_nodelay = true}
-    )
+    local sysmon_watch = xamla_sysmon.Watch.new(node_handle, 3.0)
     dt = init(delay, dt)
     local initialized = true
-    system_state_subscriber:registerCallback(updateSystemState)
 
     local timeout_recovery_counter = 0
     local timeout_error = false
     local pos, vel
     dt:reset()
+    local global_state_summary = sysmon_watch:getGlobalStateSummary()
+    local dependencies_are_no_go = global_state_summary.no_go and not global_state_summary.only_secondary_error
     while ros.ok() do
         if not timeout_error and dt:expectedCycleTime():toSec() * 2 <= dt:cycleTime():toSec() then
             local err =
@@ -328,6 +315,11 @@ local function simulation(delay, dt)
             timeout_error = false
             heartbeat:updateStatus(heartbeat.GO, '')
         end
+
+        global_state_summary = sysmon_watch:getGlobalStateSummary()
+        dependencies_are_no_go = global_state_summary.no_go and not global_state_summary.only_secondary_error
+        error_state = dependencies_are_no_go and
+            (heartbeat:getStatus() == heartbeat.GO or heartbeat:getStatus() == heartbeat.SECONDARY_ERROR)
         if error_state == false then
             if initialized == false then
                 sim_seq = 1
@@ -347,6 +339,9 @@ local function simulation(delay, dt)
             if initialized then
                 ros.ERROR('error state')
                 initialized = false
+            end
+            if heartbeat:getStatus() == heartbeat.GO then
+                heartbeat:updateStatus(heartbeat.SECONDARY_ERROR, '')
             end
             controller:update(controller.state.pos, dt:expectedCycleTime():toSec())
         end
