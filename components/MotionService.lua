@@ -40,7 +40,7 @@ local function poses2MsgArray(points)
             table.insert(result, msg)
         end
     elseif torch.isTypeOf(points, datatypes.Pose) then
-        print("else")
+        print('else')
         local msg = ros.Message(pose_msg_spec)
         msg.pose.position.x = points.translation[1]
         msg.pose.position.y = points.translation[2]
@@ -189,9 +189,11 @@ local function query_joint_path(self, move_group_name, joint_names, waypoints, n
     request.group_name = move_group_name
     request.joint_names = joint_names
     if num_steps > 1.0 then
+        ros.INFO("Absolute amount of points specified: " .. num_steps)
         request.num_steps = num_steps
     else
         request.num_steps = math.ceil(waypoints:size(2) * num_steps)
+        ros.INFO("Relative amount of points specified: " .. request.num_steps)
     end
     request.moveit_adaptive_plan = with_moveit
     for i = 1, waypoints:size(2) do
@@ -230,12 +232,11 @@ local function query_joint_trajectory(self, move_group_name, joint_names, waypoi
     request.max_deviation = max_deviation
     request.group_name = move_group_name
     request.joint_names = joint_names
-    request.dt = dt
+    request.dt = dt > 1.0 and 1/dt or dt
     request.max_velocity = max_vel
     request.max_acceleration = max_acc
-
+    ros.WARN("using Sampling dt: " .. request.dt)
     for i = 1, waypoints:size(1) do
-        print("query_joint_trajectory waypoint index: ", i)
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
         request.waypoints[i].positions = waypoints[{i, {}}]
     end
@@ -347,7 +348,7 @@ local function planCollisionFreeCartesianPath_2(self, waypoints, parameters)
 end
 
 function MotionService:planCollisionFreeCartesianPath(_1, _2, _3)
-    if torch.isTypeOf(_1,  datatypes.Pose) then
+    if torch.isTypeOf(_1, datatypes.Pose) then
         return planCollisionFreeCartesianPath_1(self, _1, _2, _3)
     elseif torch.type(_1) == 'table' then
         return planCollisionFreeCartesianPath_2(self, _1, _2)
@@ -355,15 +356,8 @@ function MotionService:planCollisionFreeCartesianPath(_1, _2, _3)
 end
 
 --IJointPath PlanCollisionFree(JointValues start, JointValues goal, PlanParameters parameters);
-function MotionService:planCollisionFreeJointPath(_1, _2, _3)
-    if torch.isTypeOf(_1, torch.DoubleTensor) then
-        return self:planCollisionFreeJointPath_1(_1, _2, _3)
-    elseif torch.type(_1) == 'table' then
-        return self:planCollisionFreeJointPath_2(_1, _2)
-    end
-end
 
-function MotionService:planCollisionFreeJointPath_1(start, goal, parameters)
+local function planCollisionFreeJointPath_1(self, start, goal, parameters)
     assert(torch.isTypeOf(start, torch.DoubleTensor))
     assert(torch.isTypeOf(goal, torch.DoubleTensor))
     assert(torch.type(parameters) == 'PlanParameters')
@@ -379,7 +373,7 @@ function MotionService:planCollisionFreeJointPath_1(start, goal, parameters)
     )
 end
 
-function MotionService:planCollisionFreeJointPath_2(waypoints, parameters)
+local function planCollisionFreeJointPath_2(self, waypoints, parameters)
     assert(torch.type(waypoints) == 'table')
     assert(torch.type(parameters) == 'PlanParameters')
     return query_joint_path(
@@ -391,6 +385,14 @@ function MotionService:planCollisionFreeJointPath_2(waypoints, parameters)
         0.0,
         false
     )
+end
+
+function MotionService:planCollisionFreeJointPath(_1, _2, _3)
+    if torch.isTypeOf(_1, torch.DoubleTensor) then
+        return planCollisionFreeJointPath_1(self, _1, _2, _3)
+    elseif torch.type(_1) == 'table' then
+        return planCollisionFreeJointPath_2(self, _1, _2)
+    end
 end
 
 local function stampedMessages2PoseArray(msgs)
@@ -431,7 +433,14 @@ end
 function MotionService:planMoveJoint(path, parameters)
     assert(torch.isTypeOf(path, torch.DoubleTensor))
     assert(torch.type(parameters) == 'PlanParameters')
-    assert(path:size(2) == #parameters.joint_names)
+    assert(
+        path:size(2) == #parameters.joint_names,
+        string.format(
+            'path dim and number of provided joint names do not match: %d vs %d',
+            path:size(2),
+            #parameters.joint_names
+        )
+    )
     local trajectory
     local res =
         query_joint_trajectory(

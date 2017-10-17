@@ -6,8 +6,9 @@ local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
 local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MAX_DEVIATION, dt)
     MAX_DEVIATION = MAX_DEVIATION or 1e-4
     MAX_DEVIATION = MAX_DEVIATION < 1e-4 and 1e-4 or MAX_DEVIATION
-    ros.INFO("generateTrajectory from waypoints with max dev: %08f", MAX_DEVIATION)
+
     local TIME_STEP = dt
+    ros.INFO("generateTrajectory from waypoints with max dev: %08f, dt %08f", MAX_DEVIATION, TIME_STEP)
     local path = {}
     path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
     local suc, split, scip = path[1]:analyse()
@@ -43,10 +44,7 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
     end
     local trajectory = {}
     local valid = true
-    if #path>40 then
-    print(#path)
-        return trajectory, false
-    end
+
     for i = 1, #path do
         trajectory[i] = optimplan.Trajectory(path[i], maxVelocities, maxAccelerations, TIME_STEP)
         trajectory[i]:outputPhasePlaneTrajectory()
@@ -60,6 +58,7 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
 end
 
 local function sample(traj, dt)
+    ros.INFO("Resample Trajectory with dt = %f",dt)
     local time, pos, vel, acc
     if type(traj) == 'table' then
         time, pos, vel, acc = {}, {}, {}, {}
@@ -78,6 +77,7 @@ local function sample(traj, dt)
     else
         time, pos, vel, acc = traj:sample(dt or 0.01)
     end
+    ros.INFO("Trajectory num points = %d, duration %s",time:size(1),tostring(time[time:size(1)]))
     return time, pos, vel, acc
 end
 
@@ -106,12 +106,14 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
         generateTrajectory(waypoints, request.max_velocity, request.max_acceleration, request.max_deviation, request.dt)
 
     if not valid then
+        ros.ERROR("Generated Trajectory is not valid!")
         response.error_code.val = -2
         return true
+    else
+        ros.INFO("Generated Trajectory is valid!")
     end
 
-    local time, pos, vel, acc = sample(traj, request.dt)
-    --print(acc)
+    local time, pos, vel, acc = sample(traj, request.dt)print(time:size(1))
     response.solution.joint_names = request.joint_names
     for i = 1, time:size(1) do
         response.solution.points[i] = ros.Message('trajectory_msgs/JointTrajectoryPoint')
