@@ -4,28 +4,29 @@ local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
 
 local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MAX_DEVIATION, dt)
-    MAX_DEVIATION = MAX_DEVIATION or 1e-4
-    MAX_DEVIATION = MAX_DEVIATION < 1e-4 and 1e-4 or MAX_DEVIATION
+    MAX_DEVIATION = MAX_DEVIATION or 1e-5
+    MAX_DEVIATION = MAX_DEVIATION < 1e-5 and 1e-5 or MAX_DEVIATION
 
-    local TIME_STEP = dt
+    local TIME_STEP = dt or 0.008
+    TIME_STEP = math.max(TIME_STEP,0.001)
     ros.INFO("generateTrajectory from waypoints with max dev: %08f, dt %08f", MAX_DEVIATION, TIME_STEP)
     local path = {}
     path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
     local suc, split, scip = path[1]:analyse()
     waypoints = path[1].waypoints
     if not suc and #scip > 0 then
+        ros.INFO("scipping %d points", #scip)
         local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
         for i, v in ipairs(scip) do
             indeces[v] = 0
         end
         local newIndeces = {}
         for i = 1, indeces:size(1) do
-            if indeces[i ] == 1 then
-                newIndeces[#newIndeces+1] = i
+            if indeces[i] == 1 then
+                newIndeces[#newIndeces + 1] = i
             end
         end
-        waypoints = waypoints:index(1,torch.LongTensor(newIndeces))
-
+        waypoints = waypoints:index(1, torch.LongTensor(newIndeces))
         path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
         suc, split, scip = path[1]:analyse()
         if(#scip > 0) then
