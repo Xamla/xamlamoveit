@@ -113,7 +113,7 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
         ros.INFO("Generated Trajectory is valid!")
     end
 
-    local time, pos, vel, acc = sample(traj, request.dt)print(time:size(1))
+    local time, pos, vel, acc = sample(traj, request.dt)
     response.solution.joint_names = request.joint_names
     for i = 1, time:size(1) do
         response.solution.points[i] = ros.Message('trajectory_msgs/JointTrajectoryPoint')

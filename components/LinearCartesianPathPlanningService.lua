@@ -14,6 +14,22 @@ local function table_concat(dst, src)
     return dst
 end
 
+local function createPoseMsg(frame, translation, rotation)
+    assert(torch.type(frame) == 'string')
+    assert(torch.isTypeOf(translation, torch.DoubleTensor))
+    assert(torch.isTypeOf(rotation, torch.DoubleTensor))
+    local msg = ros.Message(pose_msg_spec)
+    msg.pose.position.x = translation[1]
+    msg.pose.position.y = translation[2]
+    msg.pose.position.z = translation[3]
+    msg.pose.orientation.x = rotation[1]
+    msg.pose.orientation.y = rotation[2]
+    msg.pose.orientation.z = rotation[3]
+    msg.pose.orientation.w = rotation[4]
+    msg.header.frame_id = frame
+    return msg
+end
+
 local function poses2MsgArray(points)
     local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
     local result = {}
@@ -24,34 +40,19 @@ local function poses2MsgArray(points)
                 'points need to be type of datatypes.Pose, but is type: ',
                 torch.type(v)
             )
-            local msg = ros.Message(pose_msg_spec)
+
             local translation = v:getOrigin()
             local rotation = v:getRotation():toTensor()
             local frame = v:get_frame_id()
-            msg.pose.position.x = translation[1]
-            msg.pose.position.y = translation[2]
-            msg.pose.position.z = translation[3]
-            msg.pose.orientation.x = rotation[1]
-            msg.pose.orientation.y = rotation[2]
-            msg.pose.orientation.z = rotation[3]
-            msg.pose.orientation.w = rotation[4]
-            msg.header.frame_id = frame
-            table.insert(result, msg)
+
+            table.insert(result, createPoseMsg(frame, translation, rotation))
         end
     elseif torch.isTypeOf(points, tf.StampedTransform) then
-        local msg = ros.Message(pose_msg_spec)
         local translation = points:getOrigin()
         local rotation = points:getRotation():toTensor()
         local frame = points:get_frame_id()
-        msg.pose.position.x = translation[1]
-        msg.pose.position.y = translation[2]
-        msg.pose.position.z = translation[3]
-        msg.pose.orientation.x = rotation[1]
-        msg.pose.orientation.y = rotation[2]
-        msg.pose.orientation.z = rotation[3]
-        msg.pose.orientation.w = rotation[4]
-        msg.header.frame_id = frame
-        table.insert(result, msg)
+
+        table.insert(result, createPoseMsg(frame, translation, rotation))
     else
         error('[poses2MsgArray] unknown type of points parameter: ' .. torch.type(points))
     end
