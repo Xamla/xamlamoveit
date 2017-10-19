@@ -27,6 +27,8 @@ if not succ then
 end
 
 local monitor = jsa.new(nh)
+monitor.timeout = ros.Duration(1/frequency*4)
+
 local system_state_subscriber =
     nh:subscribe(
     '/xamla_sysmon/system_status',
@@ -53,7 +55,7 @@ end
 
 local dt = ros.Rate(frequency)
 heartbeat:updateStatus(heartbeat.GO, 'Running ...')
-while ros.ok() and not emerg_stop_flag do
+while ros.ok() do
   local status, err = pcall(spin)
   if status == false then
       heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(monitor) .. ' ' .. tostring(err))

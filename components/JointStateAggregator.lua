@@ -20,7 +20,21 @@ local function sendJointState(self, position, names)
     self.seq = self.seq + 1
 end
 
-function JointStateAggregator:__init(node_handle)
+local function toDuration(value, default_value)
+    if not value then
+        return default_value
+    elseif type(value) == 'number' then
+        if value < 0 then
+            return nil
+        else
+            return ros.Duration(value)
+        end
+    elseif not torch.isTypeOf(value, ros.Duration) then
+        error('Invalid argument: Instance of ros.Duration expected')
+    end
+end
+
+function JointStateAggregator:__init(node_handle, timeout)
     self.node_handle = node_handle
     self.callback_queue = ros.CallbackQueue()
     self.robot_model = nil
@@ -30,7 +44,7 @@ function JointStateAggregator:__init(node_handle)
     self.joint_monitor = nil
     self.last_joint_state = nil
     self.joint_names = nil
-    self.timeout = ros.Duration(1)
+    self.timeout = toDuration(timeout, ros.Duration(0.1))
     self.feedback_topic = 'aggregated_joint_state'
     self.seq = 1
     parent.__init(self, node_handle)
@@ -39,12 +53,11 @@ end
 function JointStateAggregator:onInitialize()
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.robot_model = self.robot_model_loader:getModel()
-    self.joint_monitor = JointMonitor.new(self.robot_model:getVariableNames():totable())
+    self.joint_monitor = JointMonitor.new(self.robot_model:getVariableNames():totable(), self.timeout:toSec())
     local ready = self.joint_monitor:waitReady(2.1)
     if ready then
-        self.last_joint_state = self.joint_monitor:getNextPositionsTensor()
+        self.last_joint_state = self.joint_monitor:getPositionsTensor()
         self.joint_names = self.joint_monitor:getJointNames()
-        print(self.joint_names)
     else
         ros.ERROR('joint states not ready')
     end
@@ -55,7 +68,7 @@ function JointStateAggregator:onStart()
 end
 
 function JointStateAggregator:onProcess()
-    self.last_joint_state:copy(self.joint_monitor:getNextPositionsTensor(self.timeout))
+    self.last_joint_state:copy(self.joint_monitor:getPositionsTensor())
     sendJointState(self, self.last_joint_state, self.joint_names)
 end
 
