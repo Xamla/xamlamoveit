@@ -1,0 +1,4 @@
+JointPathPoint[] path
+---
+bool success
+string error
