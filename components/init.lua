@@ -12,4 +12,5 @@ require 'xamlamoveit.components.JointPathPlanningService'
 require 'xamlamoveit.components.MoveGroupInfoNodeService'
 require 'xamlamoveit.components.ComputeIKService'
 require 'xamlamoveit.components.LinearCartesianPathPlanningService'
+require 'xamlamoveit.components.JointStateAggregator'
 return components

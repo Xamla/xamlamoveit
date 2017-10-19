@@ -154,13 +154,15 @@ function PositionStateInfoService:onInitialize()
     local ready = false
 
     ready = self.joint_monitor:waitReady(2.1)
-    ros.ERROR('joint states not ready')
+
     if ready then
         self.robot_state:setVariablePositions(
             self.joint_monitor:getNextPositionsTensor(),
             self.joint_monitor:getJointNames()
         )
         self.robot_state:update()
+    else
+        ros.ERROR('joint states not ready')
     end
     self.ik_service_client = self.node_handle:serviceClient('/compute_ik', 'moveit_msgs/GetPositionIK')
 end
