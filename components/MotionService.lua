@@ -119,13 +119,23 @@ end
 function MotionService:query_joint_limits(joint_names)
     local max_vel = torch.zeros(#joint_names)
     local max_acc = torch.zeros(#joint_names)
+    local max_min_pos = torch.zeros(#joint_names,2)
     local nh = self.node_handle
     local root_path = 'robot_description_planning/joint_limits'
     for i, name in ipairs(joint_names) do
+        local has_pos_param = string.format('/%s/%s/has_position_limits', root_path, name)
+        local get_max_pos_param = string.format('/%s/%s/max_position', root_path, name)
+        local get_min_pos_param = string.format('/%s/%s/min_position', root_path, name)
         local has_vel_param = string.format('/%s/%s/has_velocity_limits', root_path, name)
         local get_vel_param = string.format('/%s/%s/max_velocity', root_path, name)
         local has_acc_param = string.format('/%s/%s/has_acceleration_limits', root_path, name)
         local get_acc_param = string.format('/%s/%s/max_acceleration', root_path, name)
+        if nh:getParamVariable(has_pos_param) then
+            max_min_pos[i][1] = nh:getParamVariable(get_max_pos_param)
+            max_min_pos[i][2] = nh:getParamVariable(get_min_pos_param)
+        else
+            ros.WARN('Joint: %s has no velocity limit', name)
+        end
         if nh:getParamVariable(has_vel_param) then
             max_vel[i] = nh:getParamVariable(get_vel_param)
         else
@@ -139,7 +149,7 @@ function MotionService:query_joint_limits(joint_names)
         end
     end
 
-    return max_vel, max_acc
+    return max_min_pos, max_vel, max_acc
 end
 
 -- get current Position of movegroup
