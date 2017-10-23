@@ -1,8 +1,23 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
 local xutils = require 'xamlamoveit.xutils'
+local xtable = xutils.Xtable
 local LeasedBaseLockClient = xutils.LeasedBaseLockClient
 local ms = require 'xamlamoveit.components.MotionService'
+
+--get limits during init
+--determin current robot_state
+--set goal robot state
+--plan trajectory/path
+--step through
+
+local function findBestSuitedMoveGroup(self, joint_names)
+    for i,v in ipairs( self.detailed_moveit_setup) do
+        if table.isSimilar(v.joint_names, joint_names) then
+            return v.name
+        end
+    end
+end
 
 local function queryMoveJSafeSteppingServiceHandler(self, request, response, header)
     if not self.current_path then
@@ -10,6 +25,16 @@ local function queryMoveJSafeSteppingServiceHandler(self, request, response, hea
         self.current_goal = request.point
         self.current_path = nil
         response.success = true
+        local joint_names = request.joint_names
+        local planningGroup = findBestSuitedMoveGroup(self, joint_names)
+        local controller_name
+        self.cntr =
+            controller.JointJoggingController(
+            self.node_handle,
+            moveit.MoveGroupInterface(planningGroup),
+            controller_name,
+            0.008
+        )
     else
         response.success = false
         response.error = 'Joint Path is already set'
@@ -30,9 +55,9 @@ local function queryNextPathPointHandler(self, request, response, header)
 end
 
 local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
-local srv_spec = ros.SrvSpec('xamlamoveit_msgs/SetJointPath')
+local srv_spec = ros.SrvSpec('xamlamoveit_msgs/SetJointPosture')
 local trigger_srv_spec = ros.SrvSpec('std_srvs/Trigger')
-local joint_point_spec = ros.MsgSpec("trajectory_msgs/JointTrajectoryPoint")
+local joint_point_spec = ros.MsgSpec('trajectory_msgs/JointTrajectoryPoint')
 
 local components = require 'xamlamoveit.components.env'
 local MoveJSafeSteppingService,
@@ -45,7 +70,7 @@ function MoveJSafeSteppingService:__init(nh)
     self.trigger_callback_queue = ros.CallbackQueue()
     self.robot_model_loader = nil
     self.robot_model = nil
-    self.resource_names = nil
+    self.joint_names = nil
     self.info_server = nil
     self.trigger_server = nil
     self.current_path = nil
@@ -53,17 +78,39 @@ function MoveJSafeSteppingService:__init(nh)
     self.lock_client = nil
     self.lock = nil
     self.motion_service = nil
+    self.move_group_names = nil
+    self.detailed_moveit_setup = nil
+    self.robot_state = nil
+    self.cntr = nil
     parent.__init(self, nh)
 end
 
 function MoveJSafeSteppingService:onInitialize()
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.robot_model = self.robot_model_loader:getModel()
-    local robot_state = moveit.RobotState.createFromModel(self.robot_model)
-    self.resource_names = robot_state:getVariableNames():totable()
+    self.move_group_names = self.robot_model:getJointModelGroupNames()
+    self.detailed_moveit_setup = {}
+    for k, v in pairs(self.move_group_names) do
+        local l = {}
+        l.name = v
+        l.sub_move_group_ids = self.robot_model:getJointModelSubGroupNames(v)
+        l.joint_names = self.robot_model:getGroupJointNames(v)
+        l.end_effector_names = self.robot_model:getGroupEndEffectorNames(v)
+        table.insert(self.detailed_moveit_setup, l)
+    end
+    self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
+    self.joint_names = self.robot_state:getVariableNames():totable()
     self.lock_client = LeasedBaseLockClient(self.node_handle)
     self.motion_service = ms.new(self.node_handle)
+    local pos_lim, vel_lim, acc_lim = self.robot_model:getVariableBounds()
     --TODO feedback
+    self.cntr =
+        controller.JointJoggingController(
+        self.node_handle,
+        moveit.MoveGroupInterface(planningGroup),
+        controller_name,
+        dt
+    )
 end
 
 function MoveJSafeSteppingService:onStart()
@@ -101,7 +148,7 @@ function MoveJSafeSteppingService:onProcess()
         if self.lock then
             self.lock = self.lock_client:lock(self.lock.resources, self.lock.id)
         else
-            self.lock = self.lock_client:lock(self.resource_names)
+            self.lock = self.lock_client:lock(self.joint_names)
         end
         --lock all resources
         if self.path_index == 1 then
