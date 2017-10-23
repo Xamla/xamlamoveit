@@ -85,7 +85,7 @@ local function queryFKServiceHandler(self, request, response, header)
     if ee_names ~= '' then
         local ee_link_name = self.robot_model:getEndEffectorLinkName(ee_names)
         print("getEndEffectorLinkName", ee_link_name)
-        pose = self.robot_state:getGlobalLinkTransform(ee_link_name)
+        pose = r_state:getGlobalLinkTransform(ee_link_name)
         print(pose)
     else
         response.error_code.val = -2

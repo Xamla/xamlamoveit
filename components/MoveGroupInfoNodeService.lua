@@ -45,7 +45,7 @@ local function setLimits2ParmeterServer(self, pos_lim, vel_lim, acc_lim)
         local get_vel_param = string.format('/%s/%s/max_velocity', root_path, name)
         local has_acc_param = string.format('/%s/%s/has_acceleration_limits', root_path, name)
         local get_acc_param = string.format('/%s/%s/max_acceleration', root_path, name)
-        local i = self.robot_model:getVariableIndex(name) + 1
+        local i = self.robot_model:getVariableIndex(name) --+ 1
         local param_has_pos = nh:getParamVariable(has_pos_param)
         if param_has_pos == nil or param_has_pos == false then
             nh:setParamBool(has_pos_param,true)
@@ -93,6 +93,7 @@ function MoveGroupInfoNodeService:onInitialize()
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.robot_model = self.robot_model_loader:getModel()
     self.all_EE_parent_group_names, self.all_EE_parent_link_names = self.robot_model:getEndEffectorParentGroups()
+    self.all_group_joint_names = self.robot_model:getJointModelGroupNames()
     local pos_lim, vel_lim, acc_lim = self.robot_model:getVariableBounds()
     self.variable_names = self.robot_model:getVariableNames()
     setLimits2ParmeterServer(self,pos_lim, vel_lim, acc_lim)
