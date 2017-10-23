@@ -14,6 +14,24 @@ errorCodes.INVALID_LINK_NAME = -4
 
 local MoveJWorker = torch.class('MoveJWorker')
 
+local function checkParameterForAvailability(self, topic, wait_duration, max_counter)
+    wait_duration = wait_duration or ros.Duration(1.0)
+    max_counter = max_counter or 10
+    local counter = 0
+    local value
+    while value == nil and counter < max_counter do
+        ros.WARN('/move_group/trajectory_execution not available trying again in 1 sec')
+        wait_duration:sleep()
+        value = self.nodehandle:getParamVariable(topic)
+        counter = counter + 1
+        ros.spinOnce()
+    end
+    if counter >= max_counter then
+        error("could not initialize!! " .. topic)
+    end
+    return value
+end
+
 function MoveJWorker:__init(nh)
     self.trajectoryQueue = {} -- list of pending trajectories
     self.syncCallbacks = {}
@@ -23,16 +41,18 @@ function MoveJWorker:__init(nh)
     self.robot_model = self.robot_model_loader:getModel()
     self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
     self.plan_scene:syncPlanningScene()
+
     self.allowed_execution_duration_scaling =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/allowed_execution_duration_scaling')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_execution_duration_scaling')
     self.allowed_goal_duration_margin =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/allowed_goal_duration_margin')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_goal_duration_margin')
     self.allowed_start_tolerance =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/allowed_start_tolerance')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_start_tolerance')
     self.execution_duration_monitoring =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/execution_duration_monitoring')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_duration_monitoring')
     self.execution_velocity_scaling =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/execution_velocity_scaling')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_velocity_scaling')
+
     self.query_resource_lock_service =
         self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
     self.action_client =
@@ -135,7 +155,7 @@ local function initializeMoveGroup(self, group_id, velocity_scaling)
 end
 
 local function query_lock(self, id_resources, id_lock, release_flag)
-    ros.WARN("query_lock")
+    ros.WARN('query_lock')
     local request = self.query_resource_lock_service:createRequest()
     request.release = release_flag or false
     request.id_resources = id_resources
@@ -185,10 +205,10 @@ local function executePlan(self, plan, manipulator, traj)
     if plan then
         local trajectory = plan:getTrajectoryMsg()
         local jointNames = trajectory.joint_trajectory.joint_names
-        ros.WARN("executePlan")
+        ros.WARN('executePlan')
         local suc, id_lock, creation, expiration = lock_resource(self, jointNames, nil)
         if suc then
-            ros.WARN("executeAsync")
+            ros.WARN('executeAsync')
             if executeAsync(self, plan) then
                 local viaPoints = trajectory.joint_trajectory.points
                 traj.duration = viaPoints[#viaPoints].time_from_start
