@@ -44,6 +44,7 @@ error_state = global_state_summary.no_go and not global_state_summary.only_secon
 local reinitialize = false
 while ros.ok() and mj_action_server.current_state ~= mj_action_server.all_states.FINISHED do
     if reinitialize then
+        mj_action_server = nil
         mj_action_server = MoveJActionServer(nh)
         system_state_subscriber:registerCallback(
             function(msg, header)
@@ -61,9 +62,9 @@ while ros.ok() and mj_action_server.current_state ~= mj_action_server.all_states
         end
     )
     if status == false then
+        ros.ERROR(tostring(err))
         heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
         mj_action_server:shutdown()
-        mj_action_server = nil
         reinitialize = true
     end
     heartbeat:publish()

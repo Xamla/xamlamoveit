@@ -115,15 +115,16 @@ local function checkMoveGroupName(self, name)
 end
 
 local function checkConvergence(cq, target, jointNames)
-    local fullJointStateNames = cq:getVariableNames()
+    local fullJointStateNames = cq:getVariableNames():totable()
     local currentPosition = cq:getVariablePositions()
     local sum = 0
     for i, v in ipairs(jointNames) do
         if v == fullJointStateNames[i] then
+            ros.DEBUG("jointName: %s, target = %f, current %f", v, target[i], currentPosition[i])
             sum = sum + math.abs(target[i] - currentPosition[i])
         end
     end
-    if sum / #jointNames < 1e-4 then
+    if sum / #jointNames < 1e-3 then
         ros.INFO('Converged')
         return true
     else
@@ -388,7 +389,7 @@ local function dispatchTrajectory(self)
                 traj.id_lock = id_lock
             end
         end
-        if self.execution_duration_monitoring and traj.duration then
+        if self.execution_duration_monitoring ~= nil and traj.duration ~= nil then
             if d > traj.duration * self.allowed_execution_duration_scaling then
                 if checkConvergence(traj.manipulator:getCurrentState(), traj.target, traj.jointNames) then
                     status = self.errorCodes.SUCCESSFUL
@@ -402,6 +403,8 @@ local function dispatchTrajectory(self)
                 ros.ERROR('Stop plan execution. Lock failed.')
                 self:cancelCurrentPlan('Stop plan execution. Lock failed.')
             end
+        else
+            error("important parameter were not set" )
         end
         -- check if trajectory execution is still desired (e.g. not canceled)
         if traj:proceed() == false then

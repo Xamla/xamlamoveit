@@ -132,11 +132,13 @@ function TrajectoryExecutionRequest:proceed()
             local p1, v1 = traj.points[k].positions, traj.points[k].velocities
             local q, qd = interpolateCubic(t:toSec() - t0, t0, t1, p0, p1, v0, v1)
             local delta = torch.abs(q - p)
-            ros.INFO('time planned after start: ' .. t0)
-            ros.INFO('time after start: ' .. t:toSec())
-            ros.INFO('time after index: %d, %f sec ',index, t:toSec() - t0)
-            ros.INFO('position error: ' .. tostring(delta))
-            ros.INFO('Latency: ' .. tostring(l))
+            ros.DEBUG('time planned after start: ' .. t0)
+            ros.DEBUG('time after start: ' .. t:toSec())
+            ros.DEBUG('time after index: %d, %f sec ',index, t:toSec() - t0)
+            ros.DEBUG('position error: ' .. tostring(delta))
+            ros.DEBUG('current position: ' .. tostring(p))
+            ros.DEBUG('goal position: ' .. tostring(q))
+            ros.DEBUG('Latency: ' .. tostring(l))
             if now:toSec() - self.starttime_debug:toSec() > ros.Duration(5):toSec() then
                 ros.ERROR('[TrajectoryExecutionRequest] Trajectory start is not working!!')
                 self.status = errorCodes.CONTROL_FAILED

@@ -44,18 +44,25 @@ end
 
 local function reachedGoal(self)
     local state_pos = self.traj.joint_monitor:getNextPositionsTensor()
-    local feedback_idx =
-        table.findIndicesTensor(
-        self.traj.state_joint_names,
-        function(x)
-            return table.indexof(self.traj.joint_names, x) > -1
+    local feedback_idx = {}
+    for i, v in ipairs(self.traj.state_joint_names) do
+        local index = table.indexof(self.traj.joint_names, v)
+        if index > -1 then
+            feedback_idx[i] = index
         end
-    )
+    end
 
-    local q_goal = self.sampler:getGoalPosition()
-    local q_actual = state_pos[feedback_idx]
+    local q_goal, qd_goal = self.sampler:getGoalPosition()
+    local q_actual = state_pos:index(1, torch.LongTensor(feedback_idx)):clone()
     --self.realtimeState.q_actual
     --local qd_actual = state_vel[feedback_idx]
+
+    --torch.save("feedback_idx.t7", feedback_idx)
+    --torch.save("joint_names.t7", self.traj.joint_names)
+    --torch.save("state_joint_names.t7", self.traj.state_joint_names)
+    --torch.save("state_pos.t7", state_pos)
+    --torch.save("q_goal.t7", q_goal)
+    --torch.save("q_actual.t7", q_actual)
 
     local goal_distance = torch.norm(q_goal - q_actual)
 
@@ -83,8 +90,8 @@ function TrajectoryHandler:update()
 
     if not self.sampler:atEnd() then -- if trajectory is not at end
         self.status = TrajectoryHandlerStatus.Streaming
-
-        local pts = self.sampler:generateNextPoints(1) -- send new trajectory points via reverse conncection
+        local pts = self.sampler:generateNextPoints(1)
+         -- send new trajectory points via reverse conncection
         self.reverseConnection:sendPoints(pts, self.traj.joint_names)
     else -- all servo points have been sent, wait for robot to empty its queue
         self.reverseConnection:sendPoints({}, self.traj.joint_names) -- send zero count
