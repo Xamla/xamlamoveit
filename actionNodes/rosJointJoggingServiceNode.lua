@@ -14,7 +14,7 @@ local xtable = xutils.Xtable
 local node_handle, sp
 
 local cntr
-local run = false
+local run = true
 
 local all_EE_parent_group_names, all_EE_parent_link_names = {}, {}
 local all_group_joint_names = {}

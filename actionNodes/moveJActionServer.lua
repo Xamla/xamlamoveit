@@ -25,6 +25,7 @@ local heartbeat = xamla_sysmon.Heartbeat.new()
 heartbeat:start(ros.NodeHandle('~'), 10) --[Hz]
 heartbeat:updateStatus(heartbeat.STARTING, 'Init ...')
 heartbeat:publish()
+local sysmon_watch = xamla_sysmon.Watch.new(nh, 3.0)
 local mj_action_server = MoveJActionServer(nh)
 system_state_subscriber:registerCallback(
     function(msg, header)
@@ -38,10 +39,32 @@ dt:reset()
 
 heartbeat:updateStatus(heartbeat.GO, 'Working ...')
 heartbeat:publish()
+local global_state_summary = sysmon_watch:getGlobalStateSummary()
+error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
+local reinitialize = false
 while ros.ok() and mj_action_server.current_state ~= mj_action_server.all_states.FINISHED do
-    local status, err = pcall(function() mj_action_server:spin() end )
+    if reinitialize then
+        mj_action_server = MoveJActionServer(nh)
+        system_state_subscriber:registerCallback(
+            function(msg, header)
+                return mj_action_server:updateSystemState(msg, header)
+            end
+        )
+        print(mj_action_server)
+        mj_action_server:start()
+        reinitialize = false
+    end
+    local status, err =
+        pcall(
+        function()
+            mj_action_server:spin()
+        end
+    )
     if status == false then
-        heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. " " .. tostring(err))
+        heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
+        mj_action_server:shutdown()
+        mj_action_server = nil
+        reinitialize = true
     end
     heartbeat:publish()
     ros.spinOnce()

@@ -325,7 +325,6 @@ local function simulation(delay, dt)
                 sim_seq = 1
                 xutils.tic('Initialize')
                 ros.INFO('Reinizialise')
-                dt = init()
                 heartbeat:updateStatus(heartbeat.GO, '')
                 controller.state.pos:copy(last_command_joint_position)
                 initialized = true

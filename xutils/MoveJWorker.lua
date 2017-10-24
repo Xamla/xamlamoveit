@@ -27,7 +27,7 @@ local function checkParameterForAvailability(self, topic, wait_duration, max_cou
         ros.spinOnce()
     end
     if counter >= max_counter then
-        error("could not initialize!! " .. topic)
+        error('could not initialize!! ' .. topic)
     end
     return value
 end
@@ -37,11 +37,6 @@ function MoveJWorker:__init(nh)
     self.syncCallbacks = {}
     self.nodehandle = nh
     self.errorCodes = errorCodes
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = self.robot_model_loader:getModel()
-    self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
-    self.plan_scene:syncPlanningScene()
-
     self.allowed_execution_duration_scaling =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_execution_duration_scaling')
     self.allowed_goal_duration_margin =
@@ -52,6 +47,11 @@ function MoveJWorker:__init(nh)
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_duration_monitoring')
     self.execution_velocity_scaling =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_velocity_scaling')
+
+    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+    self.robot_model = self.robot_model_loader:getModel()
+    self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
+    self.plan_scene:syncPlanningScene()
 
     self.query_resource_lock_service =
         self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
@@ -457,15 +457,15 @@ function MoveJWorker:reset()
     end
     self:shutdown()
     self.allowed_execution_duration_scaling =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/allowed_execution_duration_scaling')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_execution_duration_scaling')
     self.allowed_goal_duration_margin =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/allowed_goal_duration_margin')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_goal_duration_margin')
     self.allowed_start_tolerance =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/allowed_start_tolerance')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_start_tolerance')
     self.execution_duration_monitoring =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/execution_duration_monitoring')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_duration_monitoring')
     self.execution_velocity_scaling =
-        self.nodehandle:getParamVariable('/move_group/trajectory_execution/execution_velocity_scaling')
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_velocity_scaling')
     self.query_resource_lock_service =
         self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
     self.action_client =

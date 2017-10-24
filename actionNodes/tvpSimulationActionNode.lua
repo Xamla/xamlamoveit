@@ -10,7 +10,7 @@ local GoalStatus = actionlib.GoalStatus
 local GenerativeSimulationWorker = require 'xamlamoveit.xutils.GenerativeSimulationWorker'
 
 local xamla_sysmon = require 'xamla_sysmon'
-
+local global_state_summary
 -- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryResult.html
 local TrajectoryResultStatus = {
     SUCCESSFUL = 0,
@@ -104,12 +104,22 @@ local function decodeJointTrajectoryMsg(trajectory)
     return time, pos, vel, acc
 end
 
-local function moveJAction_serverGoal(goal_handle, joint_monitor, target_joint_names)
+local function moveJAction_serverGoal(global_state_summary, goal_handle, joint_monitor, target_joint_names)
     ros.INFO('moveJAction_serverGoal')
     local g = goal_handle:getGoal()
     if not isSubset(g.goal.trajectory.joint_names, target_joint_names) then
         ros.ERROR('not correct set of joints for this group')
-        return
+        goal_handle:setRejected(nil, 'not correct set of joints for this group')
+        return false
+    end
+    if global_state_summary then
+        error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
+        if error_state then
+            ros.ERROR('Global state is NO GO ')
+            print(global_state_summary)
+            goal_handle:setRejected(nil, 'Global state is NO GO')
+            return false
+        end
     end
     -- decode trajectory
     local time, pos, vel, acc = decodeJointTrajectoryMsg(g.goal.trajectory)
@@ -192,7 +202,7 @@ local function queryControllerList(node_handle)
     local attemts = 0
     while config == nil do
         attemts = attemts + 1
-        ros.WARN('no controller specified in "%s/controller_list". Retry in 5sec',node_handle:getNamespace())
+        ros.WARN('no controller specified in "%s/controller_list". Retry in 5sec', node_handle:getNamespace())
         while current_time:toSec() - start_time:toSec() < 5 do
             current_time = ros.Time.now()
             sys.sleep(0.01)
@@ -213,7 +223,7 @@ local function queryControllerList(node_handle)
 end
 
 local function initActions()
-    ros.INFO("queryControllerList")
+    ros.INFO('queryControllerList')
     local suc, config, msg = queryControllerList(node_handle)
     if suc < 0 then
         ros.Error('[queryControllerList] ' .. msg)
@@ -239,9 +249,9 @@ local function initActions()
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
-    ros.INFO("Init JointMonitor")
+    ros.INFO('Init JointMonitor')
     local joint_monitor = xutils.JointMonitor(joint_name_collection)
-    ros.INFO("Wait for JointMonitor")
+    ros.INFO('Wait for JointMonitor')
     local timeout = ros.Duration(5.0)
     if not joint_monitor:waitReady(timeout) then
         error('FAILED init')
@@ -266,26 +276,26 @@ local function initActions()
     if not ready then
         ros.ERROR('joint_monitor has difficulties finding joints')
     else
-        ros.INFO("JointMonitor is ready")
+        ros.INFO('JointMonitor is ready')
     end
     for i, v in ipairs(config) do
         action_server[v.name]:registerGoalCallback(
             function(gh)
-                moveJAction_serverGoal(gh, joint_monitor, v.joints)
+                moveJAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints)
             end
         )
-        joint_monitor_collection[#joint_monitor_collection + 1 ] = joint_monitor
+        joint_monitor_collection[#joint_monitor_collection + 1] = joint_monitor
         action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
         action_server[v.name]:start()
         print(v.name)
     end
 
     if worker ~= nil then
-        ros.INFO("Shutdown GenerativeSimulationWorker")
+        ros.INFO('Shutdown GenerativeSimulationWorker')
         worker:shutdown()
         worker.nodehandle:shutdown()
     end
-    ros.INFO("Init GenerativeSimulationWorker")
+    ros.INFO('Init GenerativeSimulationWorker')
     worker = GenerativeSimulationWorker.new(ros.NodeHandle(string.format('/%s', ns[1])))
     return 0, 'Success'
 end
@@ -295,7 +305,7 @@ local function shutdownAction_server()
         v:shutdown()
         v = nil
     end
-    for i,v in ipairs(joint_monitor_collection) do
+    for i, v in ipairs(joint_monitor_collection) do
         v:shutdown()
     end
     worker:shutdown()
@@ -307,7 +317,7 @@ local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
 initSetup(parameter['__name']) -- TODO
 
 local function init()
-    ros.INFO("initActions")
+    ros.INFO('initActions')
     local err, msg = initActions()
 
     if err < 0 then
@@ -319,7 +329,7 @@ local function init()
 end
 
 local function reset()
-    ros.WARN("caling reset")
+    ros.WARN('caling reset')
     shutdownAction_server()
     return init()
 end
@@ -333,7 +343,7 @@ local function simulation()
     local dt = init()
     local initialized = true
 
-    local global_state_summary = sysmon_watch:getGlobalStateSummary()
+    global_state_summary = sysmon_watch:getGlobalStateSummary()
     while ros.ok() do
         global_state_summary = sysmon_watch:getGlobalStateSummary()
         error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
@@ -348,10 +358,10 @@ local function simulation()
             end
         else
             if initialized then
-                ros.ERROR('error state')
-                heartbeat:updateStatus(heartbeat.SECONDARY_ERROR, 'Global State is NOGO, shutting down until it is GO again.')
-                shutdownAction_server()
-                initialized = false
+            --ros.ERROR('error state')
+            --heartbeat:updateStatus(heartbeat.SECONDARY_ERROR, 'Global State is NOGO, shutting down until it is GO again.')
+            --shutdownAction_server()
+            --initialized = false
             end
         end
 
