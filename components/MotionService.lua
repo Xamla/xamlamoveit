@@ -153,7 +153,7 @@ function MotionService:query_joint_limits(joint_names)
 end
 
 -- get current Position of movegroup
-function MotionService:query_current_pose(move_group_name, jointvalues, link_name)
+function MotionService:query_pose(move_group_name, jointvalues, link_name)
     assert(move_group_name)
     assert(torch.isTypeOf(jointvalues, datatypes.JointValues))
     local joint_names = jointvalues:getNames()
@@ -263,8 +263,6 @@ end
 
 function MotionService:executeJointTrajectoryAsync(traj, cancelToken)
     local action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
-    local velocity = velocity or 0.5
-    local acc = acc or 0.5
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
