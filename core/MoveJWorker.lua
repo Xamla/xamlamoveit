@@ -1,6 +1,6 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
-local xutils = require 'xamlamoveit.xutils'
+local core = require 'xamlamoveit.core'
 
 local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
@@ -319,7 +319,7 @@ local function handleMoveJTrajectory(self, traj)
     if not manipulator then
         status = self.errorCodes.INVALID_GOAL
     else
-        traj.joint_monitor = xutils.JointMonitor(manipulator:getActiveJoints():totable())
+        traj.joint_monitor = core.JointMonitor(manipulator:getActiveJoints():totable())
         traj.joint_monitor:waitReady(ros.Duration(0.1))
         rest, start_state, suc = generateRobotTrajectory(self, manipulator, traj.goal.goal.trajectory)
         if not suc then

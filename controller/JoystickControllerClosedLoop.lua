@@ -111,7 +111,7 @@ function JoystickControllerClosedLoop:__init(node_handle, move_group, ctr_name, 
     end
 
     self.FIRSTPOINT = true
-    self.dt_monitor = xutils.MonitorBuffer(100, 1)
+    self.dt_monitor = core.MonitorBuffer(100, 1)
     self.nh = node_handle
     self.x_des = nil
     self.q_des = nil
@@ -121,7 +121,7 @@ function JoystickControllerClosedLoop:__init(node_handle, move_group, ctr_name, 
     self.state = move_group:getCurrentState()
     self.lastCommandJointPositons = self.state:copyJointGroupPositions(move_group:getName()):clone()
     --self.lastCommandJointVelocity = torch.zeros(self.lastCommandJointPositons:size())
-    self.joint_monitor = xutils.JointMonitor(move_group:getActiveJoints():totable())
+    self.joint_monitor = core.JointMonitor(move_group:getActiveJoints():totable())
     self.positionNameMap = createVariableNameMap(self)
     self.current_pose = self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
     self.time_last = ros.Time.now()

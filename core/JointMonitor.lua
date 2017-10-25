@@ -1,8 +1,8 @@
 local torch = require 'torch'
 local ros = require 'ros'
 
-local xutils = require 'xamlamoveit.xutils.env'
-local JointMonitor = torch.class('JointMonitor', xutils)
+local core = require 'xamlamoveit.core.env'
+local JointMonitor = torch.class('JointMonitor', core)
 
 local function jointStatesCb(self, msg, header)
     for i, name in ipairs(msg.name) do

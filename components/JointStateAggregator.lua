@@ -1,6 +1,6 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
-local JointMonitor = require 'xamlamoveit.xutils'.JointMonitor
+local JointMonitor = require 'xamlamoveit.core'.JointMonitor
 local components = require 'xamlamoveit.components.env'
 local JointStateAggregator,
     parent =

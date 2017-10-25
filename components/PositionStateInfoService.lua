@@ -1,6 +1,6 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
-local xutils = require 'xamlamoveit.xutils'
+local core = require 'xamlamoveit.core'
 
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetCurrentJointState')
 local ik_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
@@ -148,7 +148,7 @@ function PositionStateInfoService:onInitialize()
     self.planning_scene = moveit.PlanningScene(self.robot_model)
     self.planning_scene:syncPlanningScene()
 
-    self.joint_monitor = xutils.JointMonitor(self.robot_model:getVariableNames():totable())
+    self.joint_monitor = core.JointMonitor(self.robot_model:getVariableNames():totable())
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
 
     local ready = false

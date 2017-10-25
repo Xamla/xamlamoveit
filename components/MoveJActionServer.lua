@@ -1,7 +1,6 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
-local xutils = require'xamlamoveit.xutils'
-require 'xamlamoveit.xutils.MoveJWorker'
+require 'xamlamoveit.core.MoveJWorker'
 local TrajectoryExecutionRequest = require 'xamlamoveit.components.TrajectoryExecutionRequest'
 
 require 'ros.actionlib.ActionServer'

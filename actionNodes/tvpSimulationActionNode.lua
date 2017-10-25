@@ -3,11 +3,12 @@ local torch = require 'torch'
 local ros = require 'ros'
 local xamlamoveit = require 'xamlamoveit'
 local xutils = xamlamoveit.xutils
+local core = xamlamoveit.core
 local actionlib = ros.actionlib
 local ActionServer = actionlib.ActionServer
 local GoalStatus = actionlib.GoalStatus
 
-local GenerativeSimulationWorker = require 'xamlamoveit.xutils.GenerativeSimulationWorker'
+local GenerativeSimulationWorker = require 'xamlamoveit.core.GenerativeSimulationWorker'
 
 local xamla_sysmon = require 'xamla_sysmon'
 local global_state_summary
@@ -250,7 +251,7 @@ local function initActions()
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
     ros.INFO('Init JointMonitor')
-    local joint_monitor = xutils.JointMonitor(joint_name_collection)
+    local joint_monitor = core.JointMonitor(joint_name_collection)
     ros.INFO('Wait for JointMonitor')
     local timeout = ros.Duration(5.0)
     if not joint_monitor:waitReady(timeout) then

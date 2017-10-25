@@ -1,6 +1,6 @@
 local torch = require 'torch'
-local xutils = require 'xamlamoveit.xutils.env'
-require 'xamlamoveit.xutils.TrajectorySampler'
+local core = require 'xamlamoveit.core.env'
+require 'xamlamoveit.core.TrajectorySampler'
 
 local GOAL_CONVERGENCE_POSITION_THRESHOLD = 0.00051 -- in rad
 local GOAL_CONVERGENCE_VELOCITY_THRESHOLD = 0.001 -- in rad/s
@@ -16,7 +16,7 @@ local TrajectoryHandlerStatus = {
     Completed = 1000
 }
 
-local TrajectoryHandler = torch.class('xamlamoveit.xutils.TrajectoryHandler', xutils)
+local TrajectoryHandler = torch.class('xamlamoveit.core.TrajectoryHandler', core)
 
 function TrajectoryHandler:__init(ringSize, servoTime, reverseConnection, traj, flush, waitCovergence, maxBuffering, logger)
     self.ringSize = ringSize

@@ -3,7 +3,7 @@ local moveit = require 'moveit'
 local tf = ros.tf
 local timer = torch.Timer()
 local planning = require 'xamlamoveit.planning'
-local xutils = require 'xamlamoveit.xutils'
+local core = require 'xamlamoveit.core'
 
 local DEFAULT_HEIGHT = 0.1 -- m
 local CARRIER_WIDTH = 0.3 -- m
@@ -100,7 +100,7 @@ function JoystickControllerOpenLoop:__init(node_handle, move_group, ctr_name, dt
     end
     self.velocity_scaling = 1
     self.FIRSTPOINT = true
-    self.dt_monitor = xutils.MonitorBuffer(100, 1)
+    self.dt_monitor = core.MonitorBuffer(100, 1)
     self.nh = node_handle
     self.x_des = nil
     self.q_des = nil
@@ -109,7 +109,7 @@ function JoystickControllerOpenLoop:__init(node_handle, move_group, ctr_name, dt
     self.lastCommandJointPositons = self.state:copyJointGroupPositions(move_group:getName()):clone()
     self.current_pose = self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
     self.converged = false
-    self.joint_monitor = xutils.JointMonitor(move_group:getActiveJoints():totable())
+    self.joint_monitor = core.JointMonitor(move_group:getActiveJoints():totable())
     self.time_last = ros.Time.now()
 
     local ready = false
@@ -143,7 +143,7 @@ function JoystickControllerOpenLoop:__init(node_handle, move_group, ctr_name, dt
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.kinematic_model = self.robot_model_loader:getModel()
     self.planning_scene = moveit.PlanningScene(self.kinematic_model)
-    self.lock_client = xutils.LeasedBaseLockClient(node_handle)
+    self.lock_client = core.LeasedBaseLockClient(node_handle)
     self.resource_lock = nil
 end
 
@@ -619,7 +619,7 @@ end
 function JoystickControllerOpenLoop:reset(timeout)
     self.state = self.move_group:getCurrentState()
     self.joint_monitor:shutdown()
-    self.joint_monitor = xutils.JointMonitor(self.move_group:getActiveJoints():totable())
+    self.joint_monitor = core.JointMonitor(self.move_group:getActiveJoints():totable())
     self.time_last = ros.Time.now()
     return self.joint_monitor:waitReady(timeout or ros.Duration(0.1))
 end

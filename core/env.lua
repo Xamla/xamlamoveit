@@ -1,0 +1,2 @@
+local core = {}
+return core

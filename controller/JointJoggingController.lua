@@ -4,6 +4,7 @@ local tf = ros.tf
 local timer = torch.Timer()
 local planning = require 'xamlamoveit.planning'
 local xutils = require 'xamlamoveit.xutils'
+local core = require 'xamlamoveit.core'
 local clamp = xutils.clamp
 
 local SPEED_LIMIT = {fast = 1, slow = 0.2}
@@ -91,7 +92,7 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
     self.state = move_group:getCurrentState()
     self.lastCommandJointPositons = self.state:copyJointGroupPositions(move_group:getName()):clone()
     self.lastCommandJointVelocity = torch.zeros(self.lastCommandJointPositons:size())
-    self.joint_monitor = xutils.JointMonitor(move_group:getActiveJoints():totable())
+    self.joint_monitor = core.JointMonitor(move_group:getActiveJoints():totable())
     self.positionNameMap = createVariableNameMap(self)
     self.time_last = ros.Time.now()
 
@@ -120,7 +121,7 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
     self.planning_scene:syncPlanningScene()
 
     self.robotControllerTopic = string.format('/%s/joint_command', self.controller_name)
-    self.lock_client = xutils.LeasedBaseLockClient(node_handle)
+    self.lock_client = core.LeasedBaseLockClient(node_handle)
     self.resource_lock = nil
 
     self.velocity_scaling = 1.0
@@ -338,7 +339,7 @@ function JointJoggingController:reset(timeout)
     self.lastCommandJointPositons = self.state:copyJointGroupPositions(self.move_group:getName()):clone()
     self.lastCommandJointVelocity = self.lastCommandJointPositons:clone():zeros()
     self.joint_monitor:shutdown()
-    self.joint_monitor = xutils.JointMonitor(self.move_group:getActiveJoints():totable())
+    self.joint_monitor = core.JointMonitor(self.move_group:getActiveJoints():totable())
     self.positionNameMap = createVariableNameMap(self)
     self.time_last = ros.Time.now()
     return self.joint_monitor:waitReady(timeout or ros.Duration(0.1))

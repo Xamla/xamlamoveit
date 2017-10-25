@@ -1,7 +1,7 @@
 -- simple buffer
 local ros = require 'ros'
-local xutils = require 'xamlamoveit.xutils.env'
-local LeasedBaseLockClient = torch.class('xamlamoveit.xutils.LeasedBaseLockClient',xutils)
+local core = require 'xamlamoveit.core.env'
+local LeasedBaseLockClient = torch.class('xamlamoveit.core.LeasedBaseLockClient', core)
 
 function LeasedBaseLockClient:__init(node_handle)
   self.nh = node_handle

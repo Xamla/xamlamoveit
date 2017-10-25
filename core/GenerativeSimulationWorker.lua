@@ -1,5 +1,5 @@
 local ros = require 'ros'
-local TrajectoryHandler = require 'xamlamoveit.xutils.TrajectoryHandler'
+local TrajectoryHandler = require 'xamlamoveit.core.TrajectoryHandler'
 
 local TrajectoryHandlerStatus = {
     ProtocolError = -3,

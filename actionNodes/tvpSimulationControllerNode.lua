@@ -2,6 +2,7 @@
 local torch = require 'torch'
 local ros = require 'ros'
 local xamlamoveit = require 'xamlamoveit'
+local core = xamlamoveit.core
 local xutils = xamlamoveit.xutils
 local printf = xutils.printf
 local xtable = xutils.Xtable
@@ -219,9 +220,9 @@ local function initControllers(delay, dt)
         ns = string.split(v.name, '/')
     end
     controller = Controller(#joint_name_collection)
-    feedback_buffer_pos = xutils.MonitorBuffer(offset + 1, #joint_name_collection)
+    feedback_buffer_pos = core.MonitorBuffer(offset + 1, #joint_name_collection)
     feedback_buffer_pos.offset = offset
-    feedback_buffer_vel = xutils.MonitorBuffer(offset + 1, #joint_name_collection)
+    feedback_buffer_vel = core.MonitorBuffer(offset + 1, #joint_name_collection)
     feedback_buffer_vel.offset = offset
     last_command_joint_position = torch.ones(#joint_name_collection) * 1.3
     last_command_joint_velocity = last_command_joint_position:clone():zero()
