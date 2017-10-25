@@ -103,10 +103,11 @@ function ComputeIKService:onInitialize()
 end
 
 function ComputeIKService:onStart()
-    local timeout = ros.Duration(5)
+    local timeout = ros.Duration(10)
     local ok = self.service_client:waitForExistence(timeout)
     if not ok then
         ros.ERROR('could not reach ik service!')
+        error('could not reach ik service!')
     end
     self.info_server =
         self.node_handle:advertiseService(
@@ -132,10 +133,12 @@ end
 
 function ComputeIKService:onReset()
     self.info_server:shutdown()
+    self.service_client:shutdown()
 end
 
 function ComputeIKService:onShutdown()
     self.info_server:shutdown()
+    self.service_client:shutdown()
 end
 
 return ComputeIKService
