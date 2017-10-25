@@ -1,5 +1,5 @@
 trajectory_msgs/JointTrajectory trajectory
-std_msgs/String group_name
+
 ---
 #result definition
 int32 result

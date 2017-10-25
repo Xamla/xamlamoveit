@@ -312,10 +312,7 @@ local function handleMoveJTrajectory(self, traj)
     local suc, msg, plan, status, rest, start_state
     status = 0
     ros.INFO('xamlamoveit_msgs/moveJActionGoal')
-    group_name = traj.goal.goal.group_name.data
-    if group_name == '' then
-        group_name = findGroupNameFromJointNames(self, traj.goal.goal.trajectory.joint_names)
-    end
+    group_name = findGroupNameFromJointNames(self, traj.goal.goal.trajectory.joint_names)
     ros.INFO('Specified groupName: ' .. group_name)
 
     manipulator = initializeMoveGroup(self, group_name)
