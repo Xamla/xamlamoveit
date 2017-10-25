@@ -3,19 +3,20 @@ local moveit = require 'moveit'
 local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
 
-local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MAX_DEVIATION, dt)
-    MAX_DEVIATION = MAX_DEVIATION or 1e-5
-    MAX_DEVIATION = MAX_DEVIATION < 1e-5 and 1e-5 or MAX_DEVIATION
+local function generateTrajectory(waypoints, max_velocities, max_accelerations, max_deviation, dt)
+    max_deviation = max_deviation or 1e-5
+    max_deviation = max_deviation < 1e-5 and 1e-5 or max_deviation
 
-    local TIME_STEP = dt or 0.008
-    TIME_STEP = math.max(TIME_STEP,0.001)
-    ros.INFO("generateTrajectory from waypoints with max dev: %08f, dt %08f", MAX_DEVIATION, TIME_STEP)
+    local time_step = dt or 0.008
+    time_step = math.max(time_step,0.001)
+    ros.INFO("generateTrajectory from waypoints with max dev: %08f, dt %08f", max_deviation, time_step)
     local path = {}
-    path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
+    path[1] = optimplan.Path(waypoints, max_deviation)
     local suc, split, scip = path[1]:analyse()
-    waypoints = path[1].waypoints
+    waypoints = path[1].waypoints:clone()
+
     if not suc and #scip > 0 then
-        ros.INFO("scipping %d points", #scip)
+        ros.INFO("scipping %d points split %d ", #scip, #split)
         local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
         for i, v in ipairs(scip) do
             indeces[v] = 0
@@ -26,8 +27,10 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
                 newIndeces[#newIndeces + 1] = i
             end
         end
-        waypoints = waypoints:index(1, torch.LongTensor(newIndeces))
-        path[1] = optimplan.Path(waypoints, MAX_DEVIATION)
+        ros.INFO("newIndeces %d points", #newIndeces)
+        waypoints = waypoints:index(1, torch.LongTensor(newIndeces)):clone()
+        path[1] = optimplan.Path(waypoints, max_deviation)
+        waypoints = path[1].waypoints:clone()
         suc, split, scip = path[1]:analyse()
         if(#scip > 0) then
             ros.WARN("check max deviation parameter... can propably be reduced")
@@ -36,18 +39,24 @@ local function generateTrajectory(waypoints, maxVelocities, maxAccelerations, MA
     if not suc and #split > 0 then
         ros.INFO("splitting plan")
         path = {}
-        local startI = 1
+        local start_index = 1
         for i, v in ipairs(split) do
-            path[#path + 1] = optimplan.Path(waypoints[{{startI, v}, {}}], MAX_DEVIATION)
-            startI = v
+            if start_index < v then
+                path[#path + 1] = optimplan.Path(waypoints[{{start_index, v}, {}}], max_deviation)
+            end
+            start_index = v
         end
-        path[#path + 1] = optimplan.Path(waypoints[{{startI, waypoints:size(1)}, {}}], MAX_DEVIATION)
+        print(start_index,waypoints:size(1))
+        path[#path + 1] = optimplan.Path(waypoints[{{start_index, waypoints:size(1)}, {}}], max_deviation)
     end
     local trajectory = {}
     local valid = true
 
+    ros.INFO("generating trajectory form %d path segments, with dt = %f", #path, time_step)
+    local str = {[1] = "st", [2] ="nd", [3] ="th"}
     for i = 1, #path do
-        trajectory[i] = optimplan.Trajectory(path[i], maxVelocities, maxAccelerations, TIME_STEP)
+        ros.INFO("generating trajectory form %d%s path segments", i, str[math.min(i,3)])
+        trajectory[i] = optimplan.Trajectory(path[i], max_velocities, max_accelerations, time_step)
         trajectory[i]:outputPhasePlaneTrajectory()
         if not trajectory[i]:isValid() then
             valid = false
