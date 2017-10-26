@@ -6,16 +6,22 @@ local PlanParameters = torch.class('PlanParameters', components)
 function PlanParameters:__init(
     move_group_name,
     joint_names,
-    collisionCheck,
-    maxVelocity,
-    maxAcceleration,
-    sampleResolution)
+    max_positions,
+    min_positions,
+    max_velocity,
+    max_acceleration,
+    collision_check,
+    max_deviation,
+    dt)
     self.move_group_name = move_group_name
     self.joint_names = joint_names
-    self.collisionCheck = collisionCheck or true
-    self.maxVelocity = maxVelocity
-    self.maxAcceleration = maxAcceleration
-    self.sampleResolution = sampleResolution or 1.0
+    self.max_positions = max_positions
+    self.min_positions = min_positions
+    self.max_velocity = max_velocity
+    self.max_acceleration = max_acceleration
+    self.collision_check = collision_check or true
+    self.max_deviation = max_deviation or 0.0
+    self.dt = dt or 0.008
 end
 
 function PlanParameters:setFromTable(t)
@@ -32,10 +38,11 @@ function PlanParameters:toTable()
     return {
         move_group_name = self.move_group_name,
         joint_names = self.joint_names,
-        collisionCheck = self.collisionCheck,
-        maxVelocity = self.maxVelocity,
-        maxAcceleration = self.maxAcceleration,
-        sampleResolution = self.sampleResolution
+        collision_check = self.collision_check,
+        max_deviation = self.max_deviation,
+        max_velocity = self.max_velocity,
+        max_acceleration = self.max_acceleration,
+        dt = self.dt
     }
 end
 

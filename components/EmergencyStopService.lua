@@ -38,7 +38,7 @@ end
 function EmergencyStopService:onStart()
     self.info_server =
         self.node_handle:advertiseService(
-        'query_emergency_stop',
+        'set_emergency_stop',
         srv_spec,
         function(request, response, header)
             return queryEmergencyStopServiceHandler(self, request, response, header)

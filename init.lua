@@ -8,5 +8,6 @@ xamlaMoveit.planning = require 'xamlamoveit.planning'
 xamlaMoveit.grippers = require 'xamlamoveit.grippers'
 xamlaMoveit.controller = require 'xamlamoveit.controller'
 xamlaMoveit.components = require 'xamlamoveit.components'
+xamlaMoveit.motionLibrary = require 'xamlamoveit.motionLibrary'
 
 return xamlaMoveit

@@ -70,11 +70,11 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
     return true, torch.cat(result, 2):t()
 end
 
-local function generatePath(waypoints, MAX_DEVIATION)
-    local MAX_DEVIATION = MAX_DEVIATION or 1e-6
-    MAX_DEVIATION = MAX_DEVIATION < 1e-6 and 1e-6 or MAX_DEVIATION
+local function generatePath(waypoints, max_deviation)
+    local max_deviation = max_deviation or 1e-6
+    max_deviation = max_deviation < 1e-6 and 1e-6 or max_deviation
 
-    local path = optimplan.Path(waypoints, MAX_DEVIATION)
+    local path = optimplan.Path(waypoints, max_deviation)
     local suc, split, scip = path:analyse()
     waypoints = path.waypoints
     if not suc and #scip > 0 then
@@ -83,7 +83,7 @@ local function generatePath(waypoints, MAX_DEVIATION)
             indeces[v] = 0
         end
         waypoints = waypoints[{indeces, {}}]
-        path = optimplan.Path(waypoints, MAX_DEVIATION)
+        path = optimplan.Path(waypoints, max_deviation)
         suc, split, scip = path:analyse()
         assert(#scip == 0)
     end
