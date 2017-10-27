@@ -8,9 +8,9 @@ JointPathPoint[] point
 ---
 
 # The computed solution trajectory, for the desired group, in configuration space
-geometry_msgs/PoseStamped[] solution
+geometry_msgs/PoseStamped[] solutions
 
 # The error code of the computation
-moveit_msgs/MoveItErrorCodes[] error_code
+moveit_msgs/MoveItErrorCodes[] error_codes
 
-string[] error_msg
+string[] error_msgs
