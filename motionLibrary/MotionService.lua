@@ -155,15 +155,40 @@ function MotionService:queryPose(move_group_name, jointvalues, link_name)
     local request = move_group_pose_interface:createRequest()
     request.group_name = move_group_name
     request.end_effector_link = link_name or ''
-    request.point.positions = jointvalues.values
+    request.point[1] = ros.Message('xamlamoveit_msgs/JointPathPoint')
+    request.point[1].positions = jointvalues.values
     for i, v in ipairs(joint_names) do
         request.joint_names[i] = v
     end
     local response = move_group_pose_interface:call(request)
     --check order of joint names
-    if response.error_code.val == 1 then
-        return response.solution
+    if response.error_code[1].val == 1 then
+        return response.error_code[1], response.solution[1], response.error_msg[1]
     end
+end
+
+-- get current Position of movegroup
+function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
+    assert(move_group_name)
+    local move_group_pose_interface =
+    self.node_handle:serviceClient('xamlaMoveGroupServices/query_fk', 'xamlamoveit_msgs/GetFKSolution')
+    local request = move_group_pose_interface:createRequest()
+    request.group_name = move_group_name
+    request.end_effector_link = link_name or ''
+    for j = 1, #jointvalues_array do
+        assert(torch.isTypeOf(jointvalues_array[j], datatypes.JointValues))
+        local joint_names = jointvalues_array[j]:getNames()
+        request.point[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
+        request.point[i].positions = jointvalues_array[i].values
+        for i, v in ipairs(joint_names) do
+            request.joint_names[i] = v
+        end
+    end
+    local response = move_group_pose_interface:call(request)
+    --check order of joint names
+
+        return response.error_codes, response.solution, response.error_msg
+
 end
 
 -- get current Position of movegroup
@@ -459,8 +484,8 @@ function MotionService:getDefaultPlanParameters(
     local max_min_pos
     if not max_velocity and not max_acceleration then
         max_min_pos, max_velocity, max_acceleration = self:queryJointLimits(joint_names)
-        max_positions = max_min_pos[{1,{}}]:clone()
-        min_positions = max_min_pos[{2,{}}]:clone()
+        max_positions = max_min_pos[{1, {}}]:clone()
+        min_positions = max_min_pos[{2, {}}]:clone()
     end
     return PlanParameters.new(
         move_group_name,

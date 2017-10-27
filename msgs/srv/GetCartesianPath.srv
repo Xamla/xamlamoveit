@@ -1,9 +1,9 @@
 # Mandatory name of group to compute the path for
 string group_name
-string[] joint_names
 string end_effector_link
 
 # seed for the start point
+string[] joint_names
 JointPathPoint seed
 
 # A sequence of waypoints to be followed by the specified link,

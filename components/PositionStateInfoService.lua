@@ -6,7 +6,7 @@ local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetCurrentJointState')
 local ik_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
 local fk_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetFKSolution')
 
-local function create_ik_request(group_name, robot_state, avoid_collisions, poses_stamped, ik_link_names)
+local function createIKRequest(group_name, robot_state, avoid_collisions, poses_stamped, ik_link_names)
     local ik_link_names = ik_link_names or {}
     local robot_state_msg
     if robot_state then
@@ -40,24 +40,26 @@ end
 
 local function queryIKServiceHandler(self, request, response, header)
     local r_state = self.robot_state:clone()
+    ros.INFO(tostring(request))
     if request.seed then
         r_state:setVariablePositions(request.seed.positions, request.joint_names)
         r_state:update()
     end
 
-    ros.DEBUG('query Group Joint Names for: ' .. request.group_name)
     local known_joint_names = self.robot_model:getGroupJointNames(request.group_name)
     ros.DEBUG('query Group EndEffector Names for: ' .. request.group_name)
 
     local target_link = request.end_effector_link
     local ik_req =
-        create_ik_request(request.group_name, r_state, request.collision_check, {request.points[1]}, {target_link})
+        createIKRequest(request.group_name, r_state, request.collision_check, {request.points[1]}, {target_link})
     local ik_res = self.ik_service_client:call(ik_req)
-
+    response.error_code = ik_res.error_code
+    --[[
     if ik_res.error_code.val ~= 1 then
         response.error_code = ik_res.error_code
         return true
     end
+    --]]
     if not r_state:fromRobotStateMsg(ik_res.solution) then
         response.error_code.val = -17 -- INVALID_ROBOT_STATE
     end
@@ -71,40 +73,68 @@ local function queryIKServiceHandler(self, request, response, header)
     end
     point_msg.positions = res
     response.solution[1] = point_msg
-
-    response.error_code = ik_res.error_code
     return true
+end
+
+local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
+local function createPoseMsg(frame, translation, rotation)
+    assert(torch.type(frame) == 'string')
+    assert(torch.isTypeOf(translation, torch.DoubleTensor))
+    assert(torch.isTypeOf(rotation, torch.DoubleTensor))
+    local msg = ros.Message(pose_msg_spec)
+    msg.pose.position.x = translation[1]
+    msg.pose.position.y = translation[2]
+    msg.pose.position.z = translation[3]
+    msg.pose.orientation.x = rotation[1]
+    msg.pose.orientation.y = rotation[2]
+    msg.pose.orientation.z = rotation[3]
+    msg.pose.orientation.w = rotation[4]
+    msg.header.frame_id = frame
+    return msg
 end
 
 local function queryFKServiceHandler(self, request, response, header)
     local r_state = self.robot_state:clone()
-    r_state:setVariablePositions(request.point.positions, request.joint_names)
-    r_state:update()
     local ee_names = self.robot_model:getGroupEndEffectorName(request.group_name)
-    local pose
-    if ee_names ~= '' then
-        local ee_link_name = self.robot_model:getEndEffectorLinkName(ee_names)
-        print("getEndEffectorLinkName", ee_link_name)
-        pose = r_state:getGlobalLinkTransform(ee_link_name)
-        print(pose)
-    else
-        response.error_code.val = -2
+    if ee_names == '' then
+        response.error_code[1] = ros.Message('moveit_msgs/MoveItErrorCodes')
+        response.error_msg[1] = ""
+        response.error_code[1].val = -15
+        response.error_msg[1] = 'MoveGroup name is empty!'
         return true
     end
-    if pose then
-        local position = pose:getOrigin()
-        local quaternion = pose:getRotation():toTensor()
-        response.solution.pose.position.x = position[1]
-        response.solution.pose.position.y = position[2]
-        response.solution.pose.position.z = position[3]
-        response.solution.pose.orientation.x = quaternion[1]
-        response.solution.pose.orientation.y = quaternion[2]
-        response.solution.pose.orientation.z = quaternion[3]
-        response.solution.pose.orientation.w = quaternion[4]
-        response.error_code.val = 1
-        print("ik query successfull")
-    else
-        response.error_code.val = -3
+    local ee_link_name = self.robot_model:getEndEffectorLinkName(ee_names)
+
+    for i = 1, #request.point do
+        response.error_code[i] = ros.Message('moveit_msgs/MoveItErrorCodes')
+        response.solution[i] = ros.Message('geometry_msgs/PoseStamped')
+        response.error_code[i].val = 1
+        if #request.joint_names == request.point[i].positions:size(1) then
+            r_state:setVariablePositions(request.point[i].positions, request.joint_names)
+            r_state:update()
+            local pose = r_state:getGlobalLinkTransform(ee_link_name)
+            if pose then
+                local position = pose:getOrigin()
+                local quaternion = pose:getRotation():toTensor()
+                response.solution[i] = createPoseMsg('', position, quaternion)
+                response.error_code[i].val = math.min(1, response.error_code[i].val)
+                response.error_msg[i] = string.format('Found solution for ee_link_name: %s', ee_link_name)
+                print('ik query successfull', response.error_msg[1], response.error_code[i])
+            else
+                print('error state')
+                response.error_code[i].val = -18 --INVALID_LINK_NAME
+                response.error_msg[i].data = string.format('INVALID_LINK_NAME: %s', ee_link_name)
+            end
+        else
+            response.error_code[i].val = -17 --INVALID_JOINTS
+            response.error_msg[i] =
+                string.format(
+                'Number of joint names and vector size do not match: %d vs. %d',
+                #request.joint_names,
+                request.point[i].positions:size(1)
+            )
+        end
+
     end
     return true
 end
@@ -151,9 +181,7 @@ function PositionStateInfoService:onInitialize()
     self.joint_monitor = core.JointMonitor(self.robot_model:getVariableNames():totable())
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
 
-    local ready = false
-
-    ready = self.joint_monitor:waitReady(2.1)
+    local ready = self.joint_monitor:waitReady(2.1)
 
     if ready then
         self.robot_state:setVariablePositions(
