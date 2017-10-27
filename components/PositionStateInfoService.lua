@@ -97,18 +97,18 @@ local function queryFKServiceHandler(self, request, response, header)
     local r_state = self.robot_state:clone()
     local ee_names = self.robot_model:getGroupEndEffectorName(request.group_name)
     if ee_names == '' then
-        response.error_code[1] = ros.Message('moveit_msgs/MoveItErrorCodes')
-        response.error_msg[1] = ""
-        response.error_code[1].val = -15
-        response.error_msg[1] = 'MoveGroup name is empty!'
+        response.error_codes[1] = ros.Message('moveit_msgs/MoveItErrorCodes')
+        response.error_msgs[1] = ""
+        response.error_codes[1].val = -15
+        response.error_msgs[1] = 'MoveGroup name is empty!'
         return true
     end
     local ee_link_name = self.robot_model:getEndEffectorLinkName(ee_names)
 
     for i = 1, #request.point do
-        response.error_code[i] = ros.Message('moveit_msgs/MoveItErrorCodes')
-        response.solution[i] = ros.Message('geometry_msgs/PoseStamped')
-        response.error_code[i].val = 1
+        response.error_codes[i] = ros.Message('moveit_msgs/MoveItErrorCodes')
+        response.solutions[i] = ros.Message('geometry_msgs/PoseStamped')
+        response.error_codes[i].val = 1
         if #request.joint_names == request.point[i].positions:size(1) then
             r_state:setVariablePositions(request.point[i].positions, request.joint_names)
             r_state:update()
@@ -116,18 +116,16 @@ local function queryFKServiceHandler(self, request, response, header)
             if pose then
                 local position = pose:getOrigin()
                 local quaternion = pose:getRotation():toTensor()
-                response.solution[i] = createPoseMsg('', position, quaternion)
-                response.error_code[i].val = math.min(1, response.error_code[i].val)
-                response.error_msg[i] = string.format('Found solution for ee_link_name: %s', ee_link_name)
-                print('ik query successfull', response.error_msg[1], response.error_code[i])
+                response.solutions[i] = createPoseMsg('', position, quaternion)
+                response.error_codes[i].val = math.min(1, response.error_codes[i].val)
+                response.error_msgs[i] = string.format('Found solution for ee_link_name: %s', ee_link_name)
             else
-                print('error state')
-                response.error_code[i].val = -18 --INVALID_LINK_NAME
-                response.error_msg[i].data = string.format('INVALID_LINK_NAME: %s', ee_link_name)
+                response.error_codes[i].val = -18 --INVALID_LINK_NAME
+                response.error_msgs[i].data = string.format('INVALID_LINK_NAME: %s', ee_link_name)
             end
         else
-            response.error_code[i].val = -17 --INVALID_JOINTS
-            response.error_msg[i] =
+            response.error_codes[i].val = -17 --INVALID_JOINTS
+            response.error_msgs[i] =
                 string.format(
                 'Number of joint names and vector size do not match: %d vs. %d',
                 #request.joint_names,
