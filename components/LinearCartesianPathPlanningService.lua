@@ -6,7 +6,6 @@ local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetLinearCartesianPath')
 local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
 
-
 local function table_concat(dst, src)
     for i, v in ipairs(src) do
         table.insert(dst, v)
@@ -75,7 +74,7 @@ local function getLinearPath(start, goal, num_samples)
     local result = {}
     local direction = goal:getOrigin() - start:getOrigin()
     for i = 1, num_samples do
-        pose:setOrigin(start:getOrigin() + direction*(i - 1) / num_samples)
+        pose:setOrigin(start:getOrigin() + direction * (i - 1) / num_samples)
         pose:setRotation(start:getRotation():slerp(goal:getRotation(), (i - 1) / num_samples))
         result[i] = pose:clone()
     end
@@ -88,12 +87,19 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         return true
     end
     local g_path = response.path
-    for i, v in ipairs(request.waypoints) do
-        local k = math.min(#request.waypoints, i + 1)
-        local w = request.waypoints[k]
-        local path = getLinearPath(v, w, request.num_steps)
-        if #path > 0 then
+    if request.num_steps == #request.waypoints and request.num_steps == 2 then
+        local path = getLinearPath(request.waypoints[1], request.waypoints[2], request.num_steps)
+        if #path>0 then
             table_concat(g_path, poses2MsgArray(path))
+        end
+    else
+        for i, v in ipairs(request.waypoints) do
+            local k = math.min(#request.waypoints, i + 1)
+            local w = request.waypoints[k]
+            local path = getLinearPath(v, w, request.num_steps)
+            if #path > 0 then
+                table_concat(g_path, poses2MsgArray(path))
+            end
         end
     end
     response.error_code.val = 1

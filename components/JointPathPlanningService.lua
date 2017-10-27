@@ -78,14 +78,25 @@ local function generatePath(waypoints, max_deviation)
     local suc, split, scip = path:analyse()
     waypoints = path.waypoints
     if not suc and #scip > 0 then
-        local indeces = torch.Storage(waypoints:size(1)):fill(1)
+        ros.INFO("scipping %d points split %d ", #scip, #split)
+        local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
         for i, v in ipairs(scip) do
             indeces[v] = 0
         end
-        waypoints = waypoints[{indeces, {}}]
-        path = optimplan.Path(waypoints, max_deviation)
-        suc, split, scip = path:analyse()
-        assert(#scip == 0)
+        local newIndeces = {}
+        for i = 1, indeces:size(1) do
+            if indeces[i] == 1 then
+                newIndeces[#newIndeces + 1] = i
+            end
+        end
+        ros.INFO("newIndeces %d points", #newIndeces)
+        waypoints = waypoints:index(1, torch.LongTensor(newIndeces)):clone()
+        path[1] = optimplan.Path(waypoints, max_deviation)
+        waypoints = path[1].waypoints:clone()
+        suc, split, scip = path[1]:analyse()
+        if(#scip > 0) then
+            ros.WARN("check max deviation parameter... can propably be reduced")
+        end
     end
     return path
 end

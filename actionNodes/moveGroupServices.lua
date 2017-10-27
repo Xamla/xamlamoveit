@@ -45,7 +45,7 @@ heartbeat:updateStatus(heartbeat.GO, 'Working ...')
 heartbeat:publish()
 
 local emerg_stop_flag = false
-
+local dt = ros.Rate(100)
 while ros.ok() and not emerg_stop_flag do
     for i, v in pairs(services) do
         local status, err = pcall(function() v:spin() end )
@@ -59,7 +59,7 @@ while ros.ok() and not emerg_stop_flag do
 
     heartbeat:publish()
     ros.spinOnce()
-    sys.sleep(0.01)
+    dt:sleep()
 end
 
 for i, v in pairs(services) do

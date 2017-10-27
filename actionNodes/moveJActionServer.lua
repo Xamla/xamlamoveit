@@ -37,24 +37,14 @@ mj_action_server:start()
 local dt = ros.Rate(125)
 dt:reset()
 
+local idle_dt = ros.Rate(20)
 heartbeat:updateStatus(heartbeat.GO, 'Working ...')
 heartbeat:publish()
 local global_state_summary = sysmon_watch:getGlobalStateSummary()
 error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
 local reinitialize = false
 while ros.ok() and mj_action_server.current_state ~= mj_action_server.all_states.FINISHED do
-    if reinitialize then
-        mj_action_server = nil
-        mj_action_server = MoveJActionServer(nh)
-        system_state_subscriber:registerCallback(
-            function(msg, header)
-                return mj_action_server:updateSystemState(msg, header)
-            end
-        )
-        print(mj_action_server)
-        mj_action_server:start()
-        reinitialize = false
-    end
+
     local status, err =
         pcall(
         function()
@@ -64,12 +54,16 @@ while ros.ok() and mj_action_server.current_state ~= mj_action_server.all_states
     if status == false then
         ros.ERROR(tostring(err))
         heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
-        mj_action_server:shutdown()
+        mj_action_server:reset()
         reinitialize = true
     end
     heartbeat:publish()
     ros.spinOnce()
-    dt:sleep()
+    if mj_action_server:hasTrajectoryActive() then
+        dt:sleep()
+    else
+        idle_dt:sleep()
+    end
 end
 
 mj_action_server:shutdown()

@@ -13,7 +13,7 @@ local function shutdownSetup()
 end
 local joyCtr, all_group_joint_names
 local limit_vel, limit_acc
-local run = true
+local run = false
 local set_float_spec = ros.SrvSpec('xamlamoveit_msgs/SetFloat')
 local get_float_spec = ros.SrvSpec('xamlamoveit_msgs/GetFloat')
 local get_string_spec = ros.SrvSpec('xamlamoveit_msgs/GetSelected')
@@ -260,6 +260,8 @@ function main(params)
         while ros.ok() do
             if run then
                 joyCtr:update()
+            else
+                sys.sleep(0.5)
             end
             ros.spinOnce()
             dt:sleep()

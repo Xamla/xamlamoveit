@@ -55,11 +55,15 @@ end
 
 function MoveJActionServer:onStop()
     self.worker:reset()
-    self.action_server:shutdown()
 end
 
 function MoveJActionServer:onShutdown()
     self.worker:shutdown()
+    self.action_server:shutdown()
+end
+
+function MoveJActionServer:hasTrajectoryActive()
+    return self.worker.currentPlan ~= nil
 end
 
 function MoveJActionServer:doTrajectoryAsync(traj)

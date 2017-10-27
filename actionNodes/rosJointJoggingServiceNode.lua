@@ -14,7 +14,7 @@ local xtable = xutils.Xtable
 local node_handle, sp
 
 local cntr
-local run = true
+local run = false
 
 local all_EE_parent_group_names, all_EE_parent_link_names = {}, {}
 local all_group_joint_names = {}
@@ -196,6 +196,8 @@ local function joggingJoystickServer(name)
                 ros.WARN(last_status_message_tracking)
                 success = true -- one warning should be fine
             end
+        else
+            sys.sleep(0.5)
         end
         dt:sleep()
         ros.spinOnce()

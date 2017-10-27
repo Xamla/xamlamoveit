@@ -19,7 +19,7 @@ function PlanParameters:__init(
     self.min_positions = min_positions
     self.max_velocity = max_velocity
     self.max_acceleration = max_acceleration
-    self.collision_check = collision_check or true
+    self.collision_check = collision_check == nil or collision_check
     self.max_deviation = max_deviation or 0.0
     self.dt = dt or 0.008
 end

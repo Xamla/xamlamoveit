@@ -114,10 +114,13 @@ function TrajectoryExecutionRequest:proceed()
             local dist_to_start = (traj.points[index].positions - p):norm()
             if dist_to_start == 0 then
                 self.starttime = now
+            else
+                self.starttime_debug = now
             end
             local t = now - self.starttime
             if t < ros.Duration(0) then
                 t = ros.Duration(0)
+
             end
 
             while traj.points[index].time_from_start:toSec() < t:toSec() and index < #traj.points do
@@ -144,10 +147,13 @@ function TrajectoryExecutionRequest:proceed()
                 self.status = errorCodes.CONTROL_FAILED
                 return false
             end
-            if delta:gt(0.3):sum() > 0 then
+            if delta:gt(50.3):sum() > 0 then
                 ros.ERROR('[TrajectoryExecutionRequest] joint tracking error is too big!!')
                 self.status = errorCodes.CONTROL_FAILED
                 return false
+            end
+            if delta:gt(1e-6):sum() == 0 then
+                self.status = errorCodes.SUCCESS
             end
         end
         ros.INFO('moveing')

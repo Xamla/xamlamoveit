@@ -322,21 +322,18 @@ local function handleMoveJTrajectory(self, traj)
         traj.joint_monitor = core.JointMonitor(manipulator:getActiveJoints():totable())
         traj.joint_monitor:waitReady(ros.Duration(0.1))
         rest, start_state, suc = generateRobotTrajectory(self, manipulator, traj.goal.goal.trajectory)
+
         if not suc then
-            status = self.errorCodes.INVALID_GOAL
+            status = self.errorCodes.INVALID_MOTION_PLAN
             suc = false
-            msg = 'Could not play Trajectory.'
-        end
-        plan = moveit.Plan()
-        plan:setStartStateMsg(start_state:toRobotStateMsg())
-        plan:setTrajectoryMsg(rest:getRobotTrajectoryMsg())
-        if not plan then
-            status = self.errorCodes.INVALID_GOAL
-            suc = false
-            msg = 'Could not create Plan.'
+            msg = 'Could create valid Trajectory.'
+        else
+            plan = moveit.Plan()
+            plan:setStartStateMsg(start_state:toRobotStateMsg())
+            plan:setTrajectoryMsg(rest:getRobotTrajectoryMsg())
         end
     end
-    if suc ~= false then
+    if suc == true then
         traj.starttime = ros.Time.now()
         traj = executePlan(self, plan, manipulator, traj)
     end
@@ -455,7 +452,6 @@ function MoveJWorker:reset()
             end
         end
     end
-    self:shutdown()
     self.allowed_execution_duration_scaling =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_execution_duration_scaling')
     self.allowed_goal_duration_margin =
@@ -466,10 +462,10 @@ function MoveJWorker:reset()
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_duration_monitoring')
     self.execution_velocity_scaling =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_velocity_scaling')
-    self.query_resource_lock_service =
-        self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
-    self.action_client =
-        actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
+    --self.query_resource_lock_service =
+    --    self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+    --self.action_client =
+    --    actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
 end
 
 local function MoveJWorkerCore(self)
