@@ -224,7 +224,7 @@ local function initControllers(delay, dt)
     feedback_buffer_pos.offset = offset
     feedback_buffer_vel = core.MonitorBuffer(offset + 1, #joint_name_collection)
     feedback_buffer_vel.offset = offset
-    last_command_joint_position = torch.ones(#joint_name_collection) * 1.3
+    last_command_joint_position = torch.zeros(#joint_name_collection)
     last_command_joint_velocity = last_command_joint_position:clone():zero()
     for i = 1, offset + 1 do
         feedback_buffer_pos:add(last_command_joint_position)
