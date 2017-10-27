@@ -105,12 +105,12 @@ local function queryFKServiceHandler(self, request, response, header)
     end
     local ee_link_name = self.robot_model:getEndEffectorLinkName(ee_names)
 
-    for i = 1, #request.point do
+    for i = 1, #request.points do
         response.error_codes[i] = ros.Message('moveit_msgs/MoveItErrorCodes')
         response.solutions[i] = ros.Message('geometry_msgs/PoseStamped')
         response.error_codes[i].val = 1
-        if #request.joint_names == request.point[i].positions:size(1) then
-            r_state:setVariablePositions(request.point[i].positions, request.joint_names)
+        if #request.joint_names == request.points[i].positions:size(1) then
+            r_state:setVariablePositions(request.points[i].positions, request.joint_names)
             r_state:update()
             local pose = r_state:getGlobalLinkTransform(ee_link_name)
             if pose then
@@ -129,7 +129,7 @@ local function queryFKServiceHandler(self, request, response, header)
                 string.format(
                 'Number of joint names and vector size do not match: %d vs. %d',
                 #request.joint_names,
-                request.point[i].positions:size(1)
+                request.points[i].positions:size(1)
             )
         end
 
