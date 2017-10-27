@@ -155,15 +155,15 @@ function MotionService:queryPose(move_group_name, jointvalues, link_name)
     local request = move_group_pose_interface:createRequest()
     request.group_name = move_group_name
     request.end_effector_link = link_name or ''
-    request.point[1] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-    request.point[1].positions = jointvalues.values
+    request.points[1] = ros.Message('xamlamoveit_msgs/JointPathPoint')
+    request.points[1].positions = jointvalues.values
     for i, v in ipairs(joint_names) do
         request.joint_names[i] = v
     end
     local response = move_group_pose_interface:call(request)
     --check order of joint names
-    if response.error_code[1].val == 1 then
-        return response.error_code[1], response.solution[1], response.error_msg[1]
+    if response.error_codes[1].val == 1 then
+        return response.error_codes[1], response.solutions[1], response.error_msgs[1]
     end
 end
 
@@ -178,17 +178,15 @@ function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
     for j = 1, #jointvalues_array do
         assert(torch.isTypeOf(jointvalues_array[j], datatypes.JointValues))
         local joint_names = jointvalues_array[j]:getNames()
-        request.point[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-        request.point[i].positions = jointvalues_array[i].values
+        request.points[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
+        request.points[i].positions = jointvalues_array[i].values
         for i, v in ipairs(joint_names) do
             request.joint_names[i] = v
         end
     end
     local response = move_group_pose_interface:call(request)
     --check order of joint names
-
-        return response.error_codes, response.solution, response.error_msg
-
+    return response.error_codes, response.solutions, response.error_msgs
 end
 
 -- get current Position of movegroup

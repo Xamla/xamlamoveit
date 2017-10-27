@@ -3,7 +3,7 @@ string group_name
 string end_effector_link
 
 string[] joint_names
-JointPathPoint[] point
+JointPathPoint[] points
 
 ---
 
