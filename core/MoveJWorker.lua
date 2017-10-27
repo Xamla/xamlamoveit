@@ -372,7 +372,8 @@ local function dispatchTrajectory(self)
         local suc, id_lock, creation, expiration
         local traj = self.currentPlan.traj
         local d = ros.Time.now() - traj.starttime
-        if self.currentPlan.status >= 0 then
+        status = self.currentPlan.status
+        if status >= 0 then
             if traj.expiration_date then
                 ros.WARN(tostring(traj.expiration_date))
                 local dur = ros.Duration((traj.expiration_date:toSec() - traj.creation_date:toSec()) / 2)
@@ -386,14 +387,14 @@ local function dispatchTrajectory(self)
             if self.execution_duration_monitoring ~= nil and traj.duration ~= nil then
                 if d > traj.duration * self.allowed_execution_duration_scaling then
                     if checkConvergence(traj.manipulator:getCurrentState(), traj.target, traj.jointNames) then
-                        self.currentPlan.status = self.errorCodes.SUCCESSFUL
+                        status = self.errorCodes.SUCCESSFUL
                     else
-                        self.currentPlan.status = self.errorCodes.ABORT
+                        status = self.errorCodes.ABORT
                     end
                 end
 
                 if suc == false then
-                    self.currentPlan.status = self.errorCodes.ABORT
+                    status = self.errorCodes.ABORT
                     ros.ERROR('Stop plan execution. Lock failed.')
                     self:cancelCurrentPlan('Stop plan execution. Lock failed.')
                 end
@@ -403,25 +404,25 @@ local function dispatchTrajectory(self)
             -- check if trajectory execution is still desired (e.g. not canceled)
             if traj:proceed() == false then
                 -- robot not ready or proceed callback returned false
-                self.currentPlan.status = self.errorCodes.ABORT
+                status = self.errorCodes.ABORT
                 ros.ERROR('Stop plan execution. proceed method returned false')
                 self:cancelCurrentPlan('Stop plan execution.')
             end
         end
         -- execute main update call
-        if self.currentPlan.status < 0 then -- error
+        if status < 0 then -- error
             if traj.abort ~= nil then
                 if traj.manipulator ~= nil then
                     traj.manipulator:stop()
                 end
-                ros.ERROR('status: ' .. self.currentPlan.status)
-                traj:abort('status: ' .. self.currentPlan.status, self.currentPlan.status) -- abort callback
+                ros.ERROR('status: ' .. status)
+                traj:abort('status: ' .. status,status) -- abort callback
             end
             if traj.id_lock and traj.jointNames then
                 suc, id_lock, creation, expiration = release_resource(self, traj.jointNames, traj.id_lock)
             end
             self.currentPlan = nil
-        elseif self.currentPlan.status == self.errorCodes.SUCCESSFUL then
+        elseif status == self.errorCodes.SUCCESSFUL then
             if traj.completed ~= nil then
                 traj:completed() -- completed callback
             end
