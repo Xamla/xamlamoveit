@@ -1,7 +1,7 @@
 #!/usr/bin/env th
 local ros = require 'ros'
-local components = require 'xamlamoveit.components'
-local MoveJActionServer = components.MoveJActionServer
+local motionLibrary = require 'xamlamoveit.motionLibrary'
+local MoveJActionServer = motionLibrary.MoveJActionServer
 local xutils = require 'xamlamoveit.xutils'
 local xamla_sysmon = require 'xamla_sysmon'
 

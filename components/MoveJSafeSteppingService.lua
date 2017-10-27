@@ -4,7 +4,7 @@ local xutils = require 'xamlamoveit.xutils'
 local xtable = xutils.Xtable
 local core = require 'xamlamoveit.core'
 local LeasedBaseLockClient = core.LeasedBaseLockClient
-local ms = require 'xamlamoveit.components.MotionService'
+local ms = require 'xamlamoveit.motionLibrary.MotionService'
 
 --get limits during init
 --determin current robot_state

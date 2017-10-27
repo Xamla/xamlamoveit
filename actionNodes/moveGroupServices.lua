@@ -2,9 +2,9 @@
 local ros = require 'ros'
 
 local xamlamoveit = require 'xamlamoveit'
-local mg = xamlamoveit.components.MoveGroupInfoNodeService
-local psis = xamlamoveit.components.PositionStateInfoService
-local jpccs = xamlamoveit.components.JointPositionCollisionCheckService
+local mg = xamlamoveit.motionLibrary.MoveGroupInfoNodeService
+local psis = xamlamoveit.motionLibrary.PositionStateInfoService
+local jpccs = xamlamoveit.motionLibrary.JointPositionCollisionCheckService
 local xamla_sysmon = require 'xamla_sysmon'
 
 local cmd = torch.CmdLine()
