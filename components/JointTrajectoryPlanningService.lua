@@ -3,20 +3,44 @@ local moveit = require 'moveit'
 local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
 
+local function generateSimpleTvpTrajectory(waypoints, max_velocities, max_accelerations, dt)
+    local start = waypoints[{1, {}}]
+    local goal = waypoints[{2, {}}]
+    local dim = goal:size(1)
+    print('dim', dim)
+    print('goal', goal)
+    local controller = require 'xamlamoveit.controller'.TvpController(dim)
+    controller.max_vel:copy(max_velocities)
+    controller.max_acc:copy(max_accelerations)
+    local result = controller:generateOfflineTrajectory(start, goal, dt)
+    local positions = torch.zeros(#result, dim)
+    local velocities = torch.zeros(#result, dim)
+    local accelerations = torch.zeros(#result, dim)
+    local time = {}
+    for i = 1, #result do
+        time[i] = dt * i
+        positions[{i, {}}]:copy(result[i].pos)
+        velocities[{i, {}}]:copy(result[i].vel)
+        accelerations[{i, {}}]:copy(result[i].acc)
+    end
+    time = torch.Tensor(time)
+    return time, positions, velocities, accelerations
+end
+
 local function generateTrajectory(waypoints, max_velocities, max_accelerations, max_deviation, dt)
     max_deviation = max_deviation or 1e-5
     max_deviation = max_deviation < 1e-5 and 1e-5 or max_deviation
 
     local time_step = dt or 0.008
-    time_step = math.max(time_step,0.001)
-    ros.INFO("generateTrajectory from waypoints with max dev: %08f, dt %08f", max_deviation, time_step)
+    time_step = math.max(time_step, 0.001)
+    ros.INFO('generateTrajectory from waypoints with max dev: %08f, dt %08f', max_deviation, time_step)
     local path = {}
     path[1] = optimplan.Path(waypoints, max_deviation)
     local suc, split, scip = path[1]:analyse()
     waypoints = path[1].waypoints:clone()
 
     if not suc and #scip > 0 then
-        ros.INFO("scipping %d points split %d ", #scip, #split)
+        ros.INFO('scipping %d points split %d ', #scip, #split)
         local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
         for i, v in ipairs(scip) do
             indeces[v] = 0
@@ -27,17 +51,17 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
                 newIndeces[#newIndeces + 1] = i
             end
         end
-        ros.INFO("newIndeces %d points", #newIndeces)
+        ros.INFO('newIndeces %d points', #newIndeces)
         waypoints = waypoints:index(1, torch.LongTensor(newIndeces)):clone()
         path[1] = optimplan.Path(waypoints, max_deviation)
         waypoints = path[1].waypoints:clone()
         suc, split, scip = path[1]:analyse()
-        if(#scip > 0) then
-            ros.WARN("check max deviation parameter... can propably be reduced")
+        if (#scip > 0) then
+            ros.WARN('check max deviation parameter... can propably be reduced')
         end
     end
     if not suc and #split > 0 then
-        ros.INFO("splitting plan")
+        ros.INFO('splitting plan')
         path = {}
         local start_index = 1
         for i, v in ipairs(split) do
@@ -46,29 +70,33 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
             end
             start_index = v
         end
-        print(start_index,waypoints:size(1))
+        print(start_index, waypoints:size(1))
         path[#path + 1] = optimplan.Path(waypoints[{{start_index, waypoints:size(1)}, {}}], max_deviation)
     end
     local trajectory = {}
     local valid = true
 
-    ros.INFO("generating trajectory form %d path segments, with dt = %f", #path, time_step)
-    local str = {[1] = "st", [2] ="nd", [3] ="th"}
+    ros.INFO('generating trajectory form %d path segments, with dt = %f', #path, time_step)
+    local str = {[1] = 'st', [2] = 'nd', [3] = 'th'}
     for i = 1, #path do
-        ros.INFO("generating trajectory form %d%s path segments", i, str[math.min(i,3)])
+        ros.INFO('generating trajectory form %d%s path segments', i, str[math.min(i, 3)])
         trajectory[i] = optimplan.Trajectory(path[i], max_velocities, max_accelerations, time_step)
         trajectory[i]:outputPhasePlaneTrajectory()
         if not trajectory[i]:isValid() then
             valid = false
         else
-            ros.INFO("Generation of Trajectories: %d%s", i/#path*100, '%')
+            ros.INFO('Generation of Trajectories: %d%s', i / #path * 100, '%')
         end
     end
-    return trajectory, valid
+    local time, pos, vel, acc
+    if valid then
+        time, pos, vel, acc = sample(trajectory, dt)
+    end
+    return valid, time, pos, vel, acc
 end
 
 local function sample(traj, dt)
-    ros.INFO("Resample Trajectory with dt = %f",dt)
+    ros.INFO('Resample Trajectory with dt = %f', dt)
     local time, pos, vel, acc
     if type(traj) == 'table' then
         time, pos, vel, acc = {}, {}, {}, {}
@@ -87,18 +115,18 @@ local function sample(traj, dt)
     else
         time, pos, vel, acc = traj:sample(dt or 0.01)
     end
-    ros.INFO("Trajectory num points = %d, duration %s",time:size(1),tostring(time[time:size(1)]))
+    ros.INFO('Trajectory num points = %d, duration %s', time:size(1), tostring(time[time:size(1)]))
     return time, pos, vel, acc
 end
 
 local function queryJointTrajectoryServiceHandler(self, request, response, header)
     if #request.waypoints < 2 then
-        ros.ERROR("Only one waypoint detected. Abort Trajectory generation.")
+        ros.ERROR('Only one waypoint detected. Abort Trajectory generation.')
         response.error_code.val = -2
         return true
     end
     if request.waypoints[1].positions:nDimension() < 1 then
-        ros.ERROR("Waypoints have wrong Dimensions")
+        ros.ERROR('Waypoints have wrong Dimensions')
         response.error_code.val = -2
         return true
     end
@@ -111,19 +139,26 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
         end
         waypoints[i]:copy(v.positions)
     end
-    local traj,
-        valid =
+
+    local valid,  time, pos, vel, acc
+    if waypoints:size(1)>2 then
+      valid,  time, pos, vel, acc =
         generateTrajectory(waypoints, request.max_velocity, request.max_acceleration, request.max_deviation, request.dt)
+    elseif waypoints:size(1) == 2 then
+        valid = true
+        time, pos, vel, acc = generateSimpleTvpTrajectory(waypoints, request.max_velocity, request.max_acceleration, request.dt)
+    else
+        valid = false
+    end
 
     if not valid then
-        ros.ERROR("Generated Trajectory is not valid!")
+        ros.ERROR('Generated Trajectory is not valid!')
         response.error_code.val = -2
         return true
     else
-        ros.INFO("Generated Trajectory is valid!")
+        ros.INFO('Generated Trajectory is valid!')
     end
 
-    local time, pos, vel, acc = sample(traj, request.dt)
     response.solution.joint_names = request.joint_names
     for i = 1, time:size(1) do
         response.solution.points[i] = ros.Message('trajectory_msgs/JointTrajectoryPoint')
