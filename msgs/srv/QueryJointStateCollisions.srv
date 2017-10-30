@@ -1,10 +1,19 @@
 string  move_group_name
 string[] joint_names
-float64[] positions
+JointPathPoint[] points
 
 ---
 
 bool success
 
-bool in_collision
-string message
+bool[] in_collision
+string[] messages
+
+int32[] error_codes
+
+# overall behavior
+int32 STATE_VALID = 1
+int32 STATE_SELF_COLLISION = -1
+int32 STATE_SCENE_COLLISION =-2
+int32 INVALID_JOINTS = -11
+int32 INVALID_MOVE_GROUP = -12

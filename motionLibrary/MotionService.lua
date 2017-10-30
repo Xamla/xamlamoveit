@@ -205,6 +205,32 @@ function MotionService:queryJointState(joint_names)
     return response.current_joint_position.position
 end
 
+function MotionService:queryStateCollision( move_group_name, joint_names, points)
+    local collision_check_interface =
+    self.node_handle:serviceClient(
+        '/xamlaMoveGroupServices/query_joint_position_collision_check', 'xamlamoveit_msgs/QueryJointStateCollisions'
+    )
+    local request = collision_check_interface:createRequest()
+    request.move_group_name = move_group_name
+    request.joint_names = joint_names
+    for i = 1, #points do
+        request.points[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
+        print("querySTateCollision",points[i])
+        request.points[i].positions = points[i]
+    end
+    print(request)
+    local response
+    if collision_check_interface:exists() then
+        ros.INFO('found service: .. ' .. collision_check_interface:getService())
+        response = collision_check_interface:call(request)
+        print(response)
+        return response.success, response.in_collision, response.error_codes, response.messages
+    else
+        ros.INFO('could not find service: .. ' .. collision_check_interface:getService())
+    end
+    return false
+end
+
 -- get Path from service
 local function queryJointPath(self, move_group_name, joint_names, waypoints, num_steps, max_deviation, with_moveit)
     local generate_path_interface =

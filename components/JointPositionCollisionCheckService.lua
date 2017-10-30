@@ -3,6 +3,14 @@ local moveit = require 'moveit'
 
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/QueryJointStateCollisions')
 
+local codes = {
+    STATE_VALID = 1,
+    STATE_SELF_COLLISION = -1,
+    STATE_SCENE_COLLISION = -2,
+    INVALID_JOINTS = -11,
+    INVALID_MOVE_GROUP = -12
+}
+
 local function checkMoveGroupName(self, name)
     local all_group_joint_names = self.robot_model:getJointModelGroupNames()
     ros.INFO('available move_groups:\n%s', tostring(all_group_joint_names))
@@ -40,43 +48,65 @@ end
 local function queryCollisionCheckServiceHandler(self, request, response, header)
     if not checkMoveGroupName(self, request.move_group_name) then
         response.success = false
-        response.message = string.format('Move_group_name: %s is not known', request.move_group_name)
+        response.messages[1] = string.format('Move_group_name: %s is not known', request.move_group_name)
+        response.error_codes[1] = codes.INVALID_MOVE_GROUP
         return true
     end
 
     if not checkJointNames(self, request.move_group_name, request.joint_names) then
         response.success = false
-        response.message = string.format('Joint names are not valid for this movegroup: %s', request.move_group_name)
-        return true
-    end
-
-    if #request.joint_names ~= request.positions:size(1) then
-        response.success = false
-        response.message =
-            string.format(
-            'Joint names have not the same length as we have joint values: %d vs. %d',
-            #request.joint_names,
-            request.positions:size(1)
-        )
+        response.messages[1] =
+            string.format('Joint names are not valid for this movegroup: %s', request.move_group_name)
+        response.error_codes[1] = codes.INVALID_MOVE_GROUP
         return true
     end
 
     local robot_state = moveit.RobotState.createFromModel(self.robot_model)
-    robot_state:setVariablePositions(request.positions, request.joint_names)
+    robot_state:enforceBounds() -- nur auf joint model ebene nicht im state
     robot_state:update()
-    self.plan_scene:syncPlanningScene()
-    local is_state_colliding = self.plan_scene:isStateColliding(request.move_group_name, robot_state, true)
-    local has_self_collision = self.plan_scene:checkSelfCollision(robot_state)
-    response.in_collision = is_state_colliding or has_self_collision
-    if is_state_colliding then
-        response.message = 'joint state is colliding with environment'
-    elseif has_self_collision then
-        response.message = 'joint state has self collisions'
-    else
-        response.message = 'State is valid.'
-    end
+    response.error_codes:resize(#request.points):zero()
+    print(response)
+    for i = 1, #request.points do
+        if #request.joint_names ~= request.points[i].positions:size(1) then
+            response.success = false
+            response.messages[i] =
+                string.format(
+                'Joint names have not the same length as we have joint values: %d vs. %d',
+                #request.joint_names,
+                request.points[i].positions:size(1)
+            )
+            response.error_codes[i] = codes.INVALID_JOINTS
+            return true
+        end
 
-    response.success = true
+        ros.INFO('set state')
+        robot_state:setVariablePositions(request.points[i].positions, request.joint_names)
+        ros.INFO('update state')
+        robot_state:update()
+        print(robot_state:getVariablePositions())
+        ros.INFO('sync scene')
+        self.plan_scene:syncPlanningScene()
+        ros.INFO('checks selfcollision')
+        local is_state_colliding = self.plan_scene:isStateColliding(request.move_group_name, robot_state, true)
+        ros.INFO('checks scene collision')
+        local has_self_collision = self.plan_scene:checkSelfCollision(robot_state)
+        ros.INFO('set collision')
+        response.in_collision[i] = is_state_colliding or has_self_collision
+        if is_state_colliding then
+            response.messages[i] = 'joint state is colliding'
+            response.error_codes[i] = codes.STATE_SCENE_COLLISION
+        elseif has_self_collision then
+            response.messages[i] = 'joint state has self collisions'
+            ros.INFO('set self collision: ' .. response.messages[i])
+            response.error_codes[i] = codes.STATE_SELF_COLLISION
+        else
+            response.messages[i] = 'State is valid.'
+            ros.INFO('No collision: ' .. response.messages[i])
+            response.error_codes[i] = codes.STATE_VALID
+        end
+        response.success = true
+        print(response)
+    end
     return true
 end
 
