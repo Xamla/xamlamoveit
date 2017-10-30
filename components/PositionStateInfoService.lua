@@ -27,6 +27,8 @@ local function createIKRequest(group_name, robot_state, avoid_collisions, poses_
         end
         req_msg.ik_link_names = ik_link_names
         req_msg.pose_stamped_vector = poses
+        req_msg.timeout = ros.Duration(0.2)
+        req_msg.attempts = 1
     else
         if #ik_link_names > 0 then
             req_msg.ik_link_name = ik_link_names[1]
