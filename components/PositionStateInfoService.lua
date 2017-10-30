@@ -224,22 +224,28 @@ function PositionStateInfoService:onStart()
 end
 
 function PositionStateInfoService:onProcess()
+    local state_info_call = not self.callback_queue:isEmpty()
+    local ik_info_call = not self.ik_callback_queue:isEmpty()
+    local fk_info_call = not self.fk_callback_queue:isEmpty()
+    if not (state_info_call or ik_info_call or fk_info_call) then
+        return
+    end
     self.robot_state:setVariablePositions(
         self.joint_monitor:getNextPositionsTensor(),
         self.joint_monitor:getJointNames()
     )
     self.robot_state:update()
-    if not self.callback_queue:isEmpty() then
+    if state_info_call then
         ros.INFO('[!] incoming PositionStateInfoService call')
         self.callback_queue:callAvailable()
     end
 
-    if not self.ik_callback_queue:isEmpty() then
+    if ik_info_call then
         ros.INFO('[!] incoming ComputeIKService call')
         self.ik_callback_queue:callAvailable()
     end
 
-    if not self.fk_callback_queue:isEmpty() then
+    if fk_info_call then
         ros.INFO('[!] incoming ComputeFKService call')
         self.fk_callback_queue:callAvailable()
     end
