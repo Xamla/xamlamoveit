@@ -186,7 +186,7 @@ local function joggingJoystickServer(name)
         dt:sleep()
         ros.spinOnce()
     end
-
+    local idle_dt = ros.Rate(2)
     local success = true
     while ros.ok() do
         if run then
@@ -197,7 +197,7 @@ local function joggingJoystickServer(name)
                 success = true -- one warning should be fine
             end
         else
-            sys.sleep(0.5)
+            idle_dt:sleep()
         end
         dt:sleep()
         ros.spinOnce()

@@ -255,13 +255,14 @@ function main(params)
     joyCtr = Controller.JoystickControllerOpenLoop(nh, moveGroup, controller_name, params.frequency, false)
 
     local dt = ros.Rate(1 / params.frequency)
+    local idle_dt = ros.Rate(2)
     if joyCtr:connect('jogging_command') then
         dt:reset()
         while ros.ok() do
             if run then
                 joyCtr:update()
             else
-                sys.sleep(0.5)
+                idle_dt:sleep()
             end
             ros.spinOnce()
             dt:sleep()

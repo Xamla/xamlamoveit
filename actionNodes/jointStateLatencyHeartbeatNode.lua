@@ -8,6 +8,7 @@ local xamla_sysmon = require 'xamla_sysmon'
 local cmd = torch.CmdLine()
 cmd:option('-frequency', 60, 'Node cycle time in Hz')
 cmd:option('-heartbeat', 10, 'Heartbeat cycle time in Hz')
+cmd:option('-monitorTimeout', 100, 'Timeout factor. 1/frequency * factor')
 local parameter = xamlamoveit.xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
 ros.init(parameter['__name'] or 'xamlaJointMonitor')
 
@@ -26,8 +27,14 @@ if not succ then
   heartbeat_frequence = parameter.heartbeat
 end
 
+local timeout_factor
+timeout_factor, succ = nh:getParamDouble('monitorTimeout')
+if not succ then
+  timeout_factor = parameter.monitorTimeout
+end
+
 local monitor = jsa.new(nh)
-monitor.timeout = ros.Duration(1/frequency*4)
+monitor.timeout = ros.Duration(1/frequency*timeout_factor)
 
 local system_state_subscriber =
     nh:subscribe(
