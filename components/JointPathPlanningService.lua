@@ -140,15 +140,16 @@ local function queryJointPathServiceHandler(self, request, response, header)
     else
         response.error_code.val = 1
     end
+
     local path = generatePath(waypoints, response.max_deviation)
     local dist = path:getLength()
     local num_steps = request.num_steps
-    local vel = dist / (num_steps - 1)
+    local spec = ros.MsgSpec('xamlamoveit_msgs/JointPathPoint')
     for i = 0, num_steps - 1 do
-        response.path[i + 1] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-        response.path[i + 1].positions = path:getConfig(vel * i)
+        response.path[i + 1] = ros.Message(spec)
+        local t = i / (num_steps-1)
+        response.path[i + 1].positions = path:getConfig(t * dist)
     end
-
 
     return true
 end
