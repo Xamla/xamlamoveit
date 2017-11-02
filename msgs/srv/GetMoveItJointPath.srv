@@ -7,18 +7,11 @@ string group_name
 string[] joint_names
 JointPathPoint[] waypoints
 
-# The maximum distance (in Cartesian space) between consecutive points
-# in the returned path. This must always be specified and > 0
-float64 max_deviation
-
-uint32 num_steps
-
-bool moveit_adaptive_plan
-
 ---
 
 # The computed solution trajectory, for the desired group, in configuration space
 JointPathPoint[] path
+string[] joint_names
 
 # The error code of the computation
 moveit_msgs/MoveItErrorCodes error_code

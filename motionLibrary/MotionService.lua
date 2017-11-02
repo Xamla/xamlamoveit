@@ -81,13 +81,15 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     request.attempts = attempts or 5
     request.timeout = timeout or ros.Duration(0.5)
     request.points = poses2MsgArray(pose)
+    request.const_seed = false
     if seed_joint_values then
         request.seed.positions = seed_joint_values
     end
     request.check_collision = true -- gemeint ist hier die self collision die sollte immer on sein
     print(request)
     local response = self.compute_ik_interface:call(request)
-    return response.error_code.val, response.solution
+    print(response)
+    return response.error_codes, response.solutions
 end
 
 --get Avalable move groups
@@ -235,22 +237,12 @@ function MotionService:queryStateCollision(move_group_name, joint_names, points)
 end
 
 -- get Path from service
-local function queryJointPath(self, move_group_name, joint_names, waypoints, num_steps, max_deviation, with_moveit)
+local function queryJointPath(self, move_group_name, joint_names, waypoints)
     local generate_path_interface =
-        self.node_handle:serviceClient('xamlaPlanningServices/query_joint_path', 'xamlamoveit_msgs/GetOptimJointPath')
-    local with_moveit = with_moveit or false
+        self.node_handle:serviceClient('xamlaPlanningServices/query_joint_path', 'xamlamoveit_msgs/GetMoveItJointPath')
     local request = generate_path_interface:createRequest()
-    request.max_deviation = max_deviation
     request.group_name = move_group_name
     request.joint_names = joint_names
-    if num_steps > 1.0 then
-        ros.INFO('Absolute amount of points specified: ' .. num_steps)
-        request.num_steps = num_steps
-    else
-        request.num_steps = math.ceil(waypoints:size(2) * num_steps)
-        ros.INFO('Relative amount of points specified: ' .. request.num_steps)
-    end
-    request.moveit_adaptive_plan = with_moveit
     for i = 1, waypoints:size(2) do
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
         request.waypoints[i].positions = waypoints[{{}, i}]
@@ -266,8 +258,8 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints, num
 
     --check order of joint names
     if response.error_code.val > 0 then
-        local path = torch.Tensor(num_steps, waypoints[{{}, 1}]:size(1))
-        for i = 1, num_steps do
+        local path = torch.Tensor(#response.path, waypoints[{{}, 1}]:size(1))
+        for i = 1, #response.path do
             path[i]:copy(response.path[i].positions)
         end
         return true, path
@@ -416,10 +408,7 @@ local function planJointPath_1(self, start, goal, parameters)
         self,
         parameters.move_group_name,
         parameters.joint_names,
-        torch.cat({start, goal}, 2),
-        2,
-        0.0,
-        parameters.check_collision
+        torch.cat({start, goal}, 2)
     )
 end
 
@@ -430,10 +419,7 @@ local function planJointPath_2(self, waypoints, parameters)
         self,
         parameters.move_group_name,
         parameters.joint_names,
-        torch.cat(waypoints, 2),
-        #waypoints,
-        0.0,
-        parameters.check_collision
+        torch.cat(waypoints, 2)
     )
 end
 

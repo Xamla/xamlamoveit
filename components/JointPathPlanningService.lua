@@ -2,7 +2,14 @@ local ros = require 'ros'
 local moveit = require 'moveit'
 local optimplan = require 'optimplan'
 --require 'xamlamoveit.components.RosComponent'
-local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointPath')
+local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetMoveItJointPath')
+
+local function table_concat(dst, src)
+    for i, v in ipairs(src) do
+        table.insert(dst, v)
+    end
+    return dst
+end
 
 local function checkMoveGroupName(self, name)
     local all_group_joint_names = self.robot_model:getJointModelGroupNames()
@@ -65,40 +72,9 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
     end
     local result = {}
     for i, v in ipairs(plannedwaypoints) do
-        result[i] = torch.cat(v, 2)
+        table_concat(result, v)
     end
-    return true, torch.cat(result, 2):t()
-end
-
-local function generatePath(waypoints, max_deviation)
-    local max_deviation = max_deviation or 1e-6
-    max_deviation = max_deviation < 1e-6 and 1e-6 or max_deviation
-
-    local path = optimplan.Path(waypoints, max_deviation)
-    local suc, split, scip = path:analyse()
-    waypoints = path.waypoints
-    if not suc and #scip > 0 then
-        ros.INFO("scipping %d points split %d ", #scip, #split)
-        local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
-        for i, v in ipairs(scip) do
-            indeces[v] = 0
-        end
-        local newIndeces = {}
-        for i = 1, indeces:size(1) do
-            if indeces[i] == 1 then
-                newIndeces[#newIndeces + 1] = i
-            end
-        end
-        ros.INFO("newIndeces %d points", #newIndeces)
-        waypoints = waypoints:index(1, torch.LongTensor(newIndeces)):clone()
-        path[1] = optimplan.Path(waypoints, max_deviation)
-        waypoints = path[1].waypoints:clone()
-        suc, split, scip = path[1]:analyse()
-        if(#scip > 0) then
-            ros.WARN("check max deviation parameter... can propably be reduced")
-        end
-    end
-    return path
+    return true, result, robot_state:getVariableNames():totable()
 end
 
 local function queryJointPathServiceHandler(self, request, response, header)
@@ -128,29 +104,22 @@ local function queryJointPathServiceHandler(self, request, response, header)
 
     local moveit_plan_success
 
-    if request.moveit_adaptive_plan then
-        ros.INFO('using moveit')
-        moveit_plan_success, waypoints = getMoveitPath(self, request.group_name, request.joint_names, waypoints)
-        if moveit_plan_success then
-            ros.INFO("moveit plan succeeded")
-            response.error_code.val = 1
-        else
-            response.error_code.val = -2
-        end
-    else
+    ros.INFO('using moveit')
+    local joint_names_m
+    moveit_plan_success, waypoints, joint_names_m = getMoveitPath(self, request.group_name, request.joint_names, waypoints)
+    if moveit_plan_success then
+        ros.INFO('moveit plan succeeded')
         response.error_code.val = 1
+    else
+        response.error_code.val = -2
     end
 
-    local path = generatePath(waypoints, response.max_deviation)
-    local dist = path:getLength()
-    local num_steps = request.num_steps
     local spec = ros.MsgSpec('xamlamoveit_msgs/JointPathPoint')
-    for i = 0, num_steps - 1 do
-        response.path[i + 1] = ros.Message(spec)
-        local t = i / (num_steps-1)
-        response.path[i + 1].positions = path:getConfig(t * dist)
+    for i, v in ipairs(waypoints) do
+        response.path[i] = ros.Message(spec)
+        response.path[i].positions = v
     end
-
+    response.joint_names = joint_names_m
     return true
 end
 

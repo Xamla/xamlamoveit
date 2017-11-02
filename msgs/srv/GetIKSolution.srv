@@ -5,7 +5,7 @@ string end_effector_link
 
 # seed for the start point
 JointPathPoint seed
-
+bool const_seed
 # A sequence of waypoints to be followed by the specified link,
 # while moving the specified group, such that the group moves only
 # in a straight line between waypoints
@@ -17,8 +17,8 @@ duration timeout
 
 ---
 
-# The computed solution trajectory, for the desired group, in configuration space
-JointPathPoint[] solution
+# The computed solution trajectory, for the desired group and joints, in configuration space
+JointPathPoint[] solutions
 
 # The error code of the computation
-moveit_msgs/MoveItErrorCodes error_code
+moveit_msgs/MoveItErrorCodes[] error_codes

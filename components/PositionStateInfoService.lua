@@ -6,7 +6,14 @@ local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetCurrentJointState')
 local ik_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
 local fk_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetFKSolution')
 
-local function createIKRequest(group_name, robot_state, avoid_collisions, poses_stamped, ik_link_names, attempts, timeout)
+local function createIKRequest(
+    group_name,
+    robot_state,
+    avoid_collisions,
+    poses_stamped,
+    ik_link_names,
+    attempts,
+    timeout)
     local ik_link_names = ik_link_names or {}
     local robot_state_msg
     if robot_state then
@@ -42,10 +49,12 @@ end
 
 local function queryIKServiceHandler(self, request, response, header)
     local r_state = self.robot_state:clone()
+    local last_good
     ros.INFO(tostring(request))
     if request.seed then
         r_state:setVariablePositions(request.seed.positions, request.joint_names)
         r_state:update()
+        last_good = request.seed.positions:clone()
     end
 
     local known_joint_names = self.robot_model:getGroupJointNames(request.group_name)
@@ -53,30 +62,48 @@ local function queryIKServiceHandler(self, request, response, header)
 
     local target_link = request.end_effector_link
     local attempts = request.attempts or 5
-    local timeout = request.timeout or ros.Duration(0.5)
-    local ik_req =
-        createIKRequest(request.group_name, r_state, request.collision_check, {request.points[1]}, {target_link}, attempts, timeout)
-    local ik_res = self.ik_service_client:call(ik_req)
-    response.error_code = ik_res.error_code
-    --[[
-    if ik_res.error_code.val ~= 1 then
-        response.error_code = ik_res.error_code
-        return true
+    local timeout = request.timeout or ros.Duration(0.2)
+    if timeout == ros.Duration(0) then
+        timeout = ros.Duration(0.2)
     end
-    --]]
-    if not r_state:fromRobotStateMsg(ik_res.solution) then
-        response.error_code.val = -17 -- INVALID_ROBOT_STATE
+    for point_index = 1, #request.points do
+        local ik_req =
+            createIKRequest(
+            request.group_name,
+            r_state,
+            request.collision_check,
+            {request.points[point_index]},
+            {target_link},
+            attempts,
+            timeout
+        )
+        local ik_res = self.ik_service_client:call(ik_req)
+        response.error_codes[point_index] = ik_res.error_code
+
+        if not r_state:fromRobotStateMsg(ik_res.solution) then
+            response.error_codes[point_index] = ros.Message('moveit_msgs/MoveItErrorCodes')
+            response.error_codes[point_index].val = -17 -- INVALID_ROBOT_STATE
+        end
+        local point_msg = ros.Message('xamlamoveit_msgs/JointPathPoint')
+        local state = r_state:getVariablePositions()
+        local names = r_state:getVariableNames():totable()
+        local res = torch.DoubleTensor(#request.joint_names)
+        for i, v in ipairs(request.joint_names) do
+            local index = table.indexof(names, v)
+            res[i] = state[index]
+        end
+        point_msg.positions = res
+        response.solutions[point_index] = point_msg
+        if response.error_codes[point_index].val == 1 then
+            last_good:copy(res)
+        end
+        if request.const_seed == true then
+            r_state:setVariablePositions(request.seed.positions, request.joint_names)
+            last_good = request.seed.positions:clone()
+        else
+            r_state:setVariablePositions(last_good, request.joint_names)
+        end
     end
-    local point_msg = ros.Message('xamlamoveit_msgs/JointPathPoint')
-    local state = r_state:getVariablePositions()
-    local names = r_state:getVariableNames():totable()
-    local res = torch.DoubleTensor(#request.joint_names)
-    for i, v in ipairs(request.joint_names) do
-        local index = table.indexof(names, v)
-        res[i] = state[index]
-    end
-    point_msg.positions = res
-    response.solution[1] = point_msg
     return true
 end
 
@@ -102,7 +129,7 @@ local function queryFKServiceHandler(self, request, response, header)
     local ee_names = self.robot_model:getGroupEndEffectorName(request.group_name)
     if ee_names == '' then
         response.error_codes[1] = ros.Message('moveit_msgs/MoveItErrorCodes')
-        response.error_msgs[1] = ""
+        response.error_msgs[1] = ''
         response.error_codes[1].val = -15
         response.error_msgs[1] = 'MoveGroup name is empty!'
         return true
@@ -136,7 +163,6 @@ local function queryFKServiceHandler(self, request, response, header)
                 request.points[i].positions:size(1)
             )
         end
-
     end
     return true
 end

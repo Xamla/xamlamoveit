@@ -70,7 +70,7 @@ add_service_files(
    StatusController.srv
    GetCurrentJointState.srv
    GetOptimJointTrajectory.srv
-   GetOptimJointPath.srv
+   GetMoveItJointPath.srv
    GetComponentState.srv
    QueryLock.srv
    QueryJointStateCollisions.srv
