@@ -6,7 +6,7 @@ local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetCurrentJointState')
 local ik_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
 local fk_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetFKSolution')
 
-local function createIKRequest(group_name, robot_state, avoid_collisions, poses_stamped, ik_link_names)
+local function createIKRequest(group_name, robot_state, avoid_collisions, poses_stamped, ik_link_names, attempts, timeout)
     local ik_link_names = ik_link_names or {}
     local robot_state_msg
     if robot_state then
@@ -27,15 +27,15 @@ local function createIKRequest(group_name, robot_state, avoid_collisions, poses_
         end
         req_msg.ik_link_names = ik_link_names
         req_msg.pose_stamped_vector = poses
-        req_msg.timeout = ros.Duration(0.2)
-        req_msg.attempts = 1
+        req_msg.timeout = timeout
+        req_msg.attempts = attempts
     else
         if #ik_link_names > 0 then
             req_msg.ik_link_name = ik_link_names[1]
         end
         req_msg.pose_stamped = poses_stamped[1]
-        req_msg.timeout = ros.Duration(0.1)
-        req_msg.attempts = 5
+        req_msg.timeout = timeout
+        req_msg.attempts = attempts
     end
     return req_msg
 end
@@ -52,8 +52,10 @@ local function queryIKServiceHandler(self, request, response, header)
     ros.DEBUG('query Group EndEffector Names for: ' .. request.group_name)
 
     local target_link = request.end_effector_link
+    local attempts = request.attempts or 5
+    local timeout = request.timeout or ros.Duration(0.5)
     local ik_req =
-        createIKRequest(request.group_name, r_state, request.collision_check, {request.points[1]}, {target_link})
+        createIKRequest(request.group_name, r_state, request.collision_check, {request.points[1]}, {target_link}, attempts, timeout)
     local ik_res = self.ik_service_client:call(ik_req)
     response.error_code = ik_res.error_code
     --[[

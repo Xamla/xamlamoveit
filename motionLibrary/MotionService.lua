@@ -71,13 +71,15 @@ function MotionService:queryCartesianPath(waypoints, sample_resolution)
     return response
 end
 
-function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector_link)
+function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector_link, attempts, timeout)
     --local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
     --local compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
     local request = self.compute_ik_interface:createRequest()
     request.group_name = parameters.move_group_name
     request.joint_names = parameters.joint_names
     request.end_effector_link = end_effector_link or ''
+    request.attempts = attempts or 5
+    request.timeout = timeout or ros.Duration(0.5)
     request.points = poses2MsgArray(pose)
     if seed_joint_values then
         request.seed.positions = seed_joint_values

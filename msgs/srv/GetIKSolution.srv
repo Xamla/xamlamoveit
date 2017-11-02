@@ -12,6 +12,8 @@ JointPathPoint seed
 geometry_msgs/PoseStamped[] points
 
 bool collision_check
+int32 attemts
+duration timeout
 
 ---
 
