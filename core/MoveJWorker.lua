@@ -227,7 +227,7 @@ local function executePlan(self, plan, manipulator, traj)
     return traj
 end
 
-local function generateRobotTrajectory(self, manipulator, trajectory)
+local function generateRobotTrajectory(self, manipulator, trajectory, check_collision)
     local suc = true
     local move_group_name = manipulator:getName()
     local traj = moveit.RobotTrajectory(self.robot_model, move_group_name)
@@ -261,14 +261,16 @@ local function generateRobotTrajectory(self, manipulator, trajectory)
         p:update()
         traj:addSuffixWayPoint(p, dt)
     end
-    if self.plan_scene:syncPlanningScene() then
-        if not self.plan_scene:isPathValid(start_state, traj, move_group_name, true) then
-            ros.ERROR('[generateRobotTrajectory] Path not valid')
+    if check_collision == true then
+        if self.plan_scene:syncPlanningScene() then --TODO parameter einstellen. performance check
+            if not self.plan_scene:isPathValid(start_state, traj, move_group_name, true) then
+                ros.ERROR('[generateRobotTrajectory] Path not valid')
+                suc = false
+            end
+        else
+            ros.ERROR('[generateRobotTrajectory] Planning Scene could not be updated')
             suc = false
         end
-    else
-        ros.ERROR('[generateRobotTrajectory] Planning Scene could not be updated')
-        suc = false
     end
     return traj, start_state, suc
 end
@@ -321,7 +323,7 @@ local function handleMoveJTrajectory(self, traj)
     else
         traj.joint_monitor = core.JointMonitor(manipulator:getActiveJoints():totable())
         traj.joint_monitor:waitReady(ros.Duration(0.1))
-        rest, start_state, suc = generateRobotTrajectory(self, manipulator, traj.goal.goal.trajectory)
+        rest, start_state, suc = generateRobotTrajectory(self, manipulator, traj.goal.goal.trajectory, traj.check_collision)
 
         if suc == false then
             status = self.errorCodes.INVALID_GOAL
@@ -416,7 +418,7 @@ local function dispatchTrajectory(self)
                     traj.manipulator:stop()
                 end
                 ros.ERROR('status: ' .. status)
-                traj:abort('status: ' .. status,status) -- abort callback
+                traj:abort('status: ' .. status, status) -- abort callback
             end
             if traj.id_lock and traj.jointNames then
                 suc, id_lock, creation, expiration = release_resource(self, traj.jointNames, traj.id_lock)

@@ -27,6 +27,30 @@ local function generateSimpleTvpTrajectory(waypoints, max_velocities, max_accele
     return time, positions, velocities, accelerations
 end
 
+local function sample(traj, dt)
+    ros.INFO('Resample Trajectory with dt = %f', dt)
+    local time, pos, vel, acc
+    if type(traj) == 'table' then
+        time, pos, vel, acc = {}, {}, {}, {}
+        for i, v in ipairs(traj) do
+            time[i], pos[i], vel[i], acc[i] = v:sample(dt or 0.01)
+        end
+
+        for i = 2, #time do
+            local j = i - 1
+            time[i]:add(time[j][time[j]:size(1)])
+        end
+        time = torch.cat(time, 1)
+        pos = torch.cat(pos, 1)
+        acc = torch.cat(acc, 1)
+        vel = torch.cat(vel, 1)
+    else
+        time, pos, vel, acc = traj:sample(dt or 0.01)
+    end
+    ros.INFO('Trajectory num points = %d, duration %s', time:size(1), tostring(time[time:size(1)]))
+    return time, pos, vel, acc
+end
+
 local function generateTrajectory(waypoints, max_velocities, max_accelerations, max_deviation, dt)
     max_deviation = max_deviation or 1e-5
     max_deviation = max_deviation < 1e-5 and 1e-5 or max_deviation
@@ -93,30 +117,6 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
         time, pos, vel, acc = sample(trajectory, dt)
     end
     return valid, time, pos, vel, acc
-end
-
-local function sample(traj, dt)
-    ros.INFO('Resample Trajectory with dt = %f', dt)
-    local time, pos, vel, acc
-    if type(traj) == 'table' then
-        time, pos, vel, acc = {}, {}, {}, {}
-        for i, v in ipairs(traj) do
-            time[i], pos[i], vel[i], acc[i] = v:sample(dt or 0.01)
-        end
-
-        for i = 2, #time do
-            local j = i - 1
-            time[i]:add(time[j][time[j]:size(1)])
-        end
-        time = torch.cat(time, 1)
-        pos = torch.cat(pos, 1)
-        acc = torch.cat(acc, 1)
-        vel = torch.cat(vel, 1)
-    else
-        time, pos, vel, acc = traj:sample(dt or 0.01)
-    end
-    ros.INFO('Trajectory num points = %d, duration %s', time:size(1), tostring(time[time:size(1)]))
-    return time, pos, vel, acc
 end
 
 local function queryJointTrajectoryServiceHandler(self, request, response, header)

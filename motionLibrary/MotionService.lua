@@ -171,7 +171,7 @@ end
 function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
     assert(move_group_name)
     local move_group_pose_interface =
-    self.node_handle:serviceClient('xamlaMoveGroupServices/query_fk', 'xamlamoveit_msgs/GetFKSolution')
+        self.node_handle:serviceClient('xamlaMoveGroupServices/query_fk', 'xamlamoveit_msgs/GetFKSolution')
     local request = move_group_pose_interface:createRequest()
     request.group_name = move_group_name
     request.end_effector_link = link_name or ''
@@ -205,17 +205,18 @@ function MotionService:queryJointState(joint_names)
     return response.current_joint_position.position
 end
 
-function MotionService:queryStateCollision( move_group_name, joint_names, points)
+function MotionService:queryStateCollision(move_group_name, joint_names, points)
     local collision_check_interface =
-    self.node_handle:serviceClient(
-        '/xamlaMoveGroupServices/query_joint_position_collision_check', 'xamlamoveit_msgs/QueryJointStateCollisions'
+        self.node_handle:serviceClient(
+        '/xamlaMoveGroupServices/query_joint_position_collision_check',
+        'xamlamoveit_msgs/QueryJointStateCollisions'
     )
     local request = collision_check_interface:createRequest()
     request.move_group_name = move_group_name
     request.joint_names = joint_names
     for i = 1, #points do
         request.points[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-        print("querySTateCollision",points[i])
+        print('querySTateCollision', points[i])
         request.points[i].positions = points[i]
     end
     print(request)
@@ -303,11 +304,13 @@ local function queryJointTrajectory(self, move_group_name, joint_names, waypoint
     return response
 end
 
-function MotionService:executeJointTrajectoryAsync(traj, cancelToken)
+function MotionService:executeJointTrajectoryAsync(traj, check_collision, cancelToken)
     local action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
+    g.check_collision = check_collision
+    print(g)
     cancelToken.done = false
     local function action_done(state, result)
         ros.INFO('actionDone')
@@ -335,10 +338,10 @@ function MotionService:executeJointTrajectoryAsync(traj, cancelToken)
     end
 end
 
-function MotionService:executeJointTrajectory(traj)
+function MotionService:executeJointTrajectory(traj, check_collision)
     local cancelToken = {done = false}
     local dt = ros.Rate(25)
-    if self:executeJointTrajectoryAsync(traj, cancelToken) then
+    if self:executeJointTrajectoryAsync(traj, check_collision, cancelToken) then
         while ros.ok() and cancelToken.done == false do
             ros.spinOnce()
             dt:sleep()

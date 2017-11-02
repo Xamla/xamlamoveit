@@ -65,6 +65,7 @@ function TrajectoryExecutionRequest:__init(goal_handle)
     self.joint_monitor = nil
     self.goal = goal_handle:getGoal()
     self.error_codes = errorCodes
+    self.check_collision = self.goal_handle.goal.goal.check_collision
 end
 
 function TrajectoryExecutionRequest:accept()
