@@ -58,13 +58,13 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
             robot_state:setVariablePositions(waypoints[i], joint_names)
             manipulator:setStartState(robot_state)
             if not manipulator:setJointValueTarget(waypoints[k]) then
-                ros.ERROR('Setting joint value target failed.\n Joints: %s', waypoints[k])
-                return false
+                ros.ERROR('Setting joint value target failed.\n waypoint %d, Joints: %s',k, waypoints[k])
+                return false, nil, robot_state:getVariableNames():totable()
             end
             local s, p = manipulator:plan()
             if s == 0 then
                 ros.ERROR('Moveit Planning failed')
-                return false
+                return false, nil, robot_state:getVariableNames():totable()
             end
             local positions, velocities, accelerations, efforts = p:convertTrajectoyMsgToTable(p:getTrajectoryMsg())
             plannedwaypoints[i] = positions
@@ -110,15 +110,16 @@ local function queryJointPathServiceHandler(self, request, response, header)
     if moveit_plan_success then
         ros.INFO('moveit plan succeeded')
         response.error_code.val = 1
+        local spec = ros.MsgSpec('xamlamoveit_msgs/JointPathPoint')
+        for i, v in ipairs(waypoints) do
+            response.path[i] = ros.Message(spec)
+            response.path[i].positions = v
+        end
     else
         response.error_code.val = -2
     end
 
-    local spec = ros.MsgSpec('xamlamoveit_msgs/JointPathPoint')
-    for i, v in ipairs(waypoints) do
-        response.path[i] = ros.Message(spec)
-        response.path[i].positions = v
-    end
+
     response.joint_names = joint_names_m
     return true
 end

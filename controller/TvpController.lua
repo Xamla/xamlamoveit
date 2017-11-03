@@ -23,7 +23,7 @@ function TvpController:update(target, dt)
 
     -- calc time to reach target with max acceleration in decelerating phase
     local distance_to_go = target - self.state.pos
-    local time_to_target = torch.sqrt(torch.abs(distance_to_go):cdiv(self.max_acc) * 2) -- solve s=1/2 * a * t^2 for t
+    local time_to_target = torch.sqrt(torch.abs(distance_to_go):cdiv(self.max_acc)) * 2  -- solve s=1/2 * a * t^2 for t
 
     -- scale to discrete timesteps
     local real_time_to_target = torch.ceil(time_to_target / dt) * dt
@@ -63,7 +63,7 @@ function TvpController:generateOfflineTrajectory(start, goal, dt)
     local counter = 1
     self:reset()
     self.state.pos:copy(start)
-    local max_counter = 1000
+    local max_counter = 2000
     while (goal - self.state.pos):norm() > 1e-5 and max_counter > counter do
         self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
