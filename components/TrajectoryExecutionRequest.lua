@@ -100,7 +100,7 @@ end
 
 
 function TrajectoryExecutionRequest:proceed()
-    ros.INFO('proceed')
+    ros.DEBUG('proceed')
     if self.goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
         if self.manipulator == nil then
             ros.ERROR('[TrajectoryExecutionRequest] move group interface is nil')
@@ -157,7 +157,7 @@ function TrajectoryExecutionRequest:proceed()
                 self.status = errorCodes.SUCCESS
             end
         end
-        ros.INFO('moveing')
+        ros.DEBUG('moveing')
         return true
     else
         ros.WARN(

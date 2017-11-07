@@ -40,7 +40,6 @@ local function poses2MsgArray(points)
             table.insert(result, msg)
         end
     elseif torch.isTypeOf(points, datatypes.Pose) then
-        print('else')
         local msg = ros.Message(pose_msg_spec)
         msg.pose.position.x = points.translation[1]
         msg.pose.position.y = points.translation[2]
@@ -85,10 +84,8 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     if seed_joint_values then
         request.seed.positions = seed_joint_values
     end
-    request.check_collision = true -- gemeint ist hier die self collision die sollte immer on sein
-    print(request)
+    request.collision_check = true -- gemeint ist hier die self collision die sollte immer on sein
     local response = self.compute_ik_interface:call(request)
-    print(response)
     return response.error_codes, response.solutions
 end
 
@@ -220,15 +217,15 @@ function MotionService:queryStateCollision(move_group_name, joint_names, points)
     request.joint_names = joint_names
     for i = 1, #points do
         request.points[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-        print('querySTateCollision', points[i])
+        print('queryStateCollision', points[i])
         request.points[i].positions = points[i]
     end
-    print(request)
+    --print(request)
     local response
     if collision_check_interface:exists() then
         ros.INFO('found service: .. ' .. collision_check_interface:getService())
         response = collision_check_interface:call(request)
-        print(response)
+        --print(response)
         return response.success, response.in_collision, response.error_codes, response.messages
     else
         ros.INFO('could not find service: .. ' .. collision_check_interface:getService())
@@ -270,6 +267,7 @@ end
 
 -- get Trajectory from service
 local function queryJointTrajectory(self, move_group_name, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
+    ros.INFO("queryJointTrajectory")
     local generate_trajectory_interface =
         self.node_handle:serviceClient(
         'xamlaPlanningServices/query_joint_trajectory',
@@ -289,8 +287,8 @@ local function queryJointTrajectory(self, move_group_name, joint_names, waypoint
     end
     local response = nil
     if generate_trajectory_interface:exists() then
-        response = generate_trajectory_interface:call(request)
         ros.INFO('found service: ..' .. generate_trajectory_interface:getService())
+        response = generate_trajectory_interface:call(request)
     else
         ros.INFO('could not find service: ..' .. generate_trajectory_interface:getService())
     end
@@ -303,8 +301,7 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, cancel
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
-    g.check_collision = check_collision
-    print(g)
+    g.check_collision = check_collision or false
     cancelToken.done = false
     local function action_done(state, result)
         ros.INFO('actionDone')
@@ -347,8 +344,8 @@ function MotionService:executeJointTrajectory(traj, check_collision)
     end
 end
 
---IJointTrajectory Plan(Pose start, Pose goal, PlanParameters parameters);
 local function planMoveCartesian_1(self, start, goal, parameters)
+    ros.INFO("planMoveCartesian_1")
     assert(torch.isTypeOf(start, datatypes.Pose))
     assert(torch.isTypeOf(goal, datatypes.Pose))
     assert(
@@ -357,19 +354,20 @@ local function planMoveCartesian_1(self, start, goal, parameters)
     )
     local seed = self:queryJointState(parameters.joint_names)
     local suc, start = self:queryIK(start, parameters, seed)
-    if suc ~= 1 then
+    if suc[1].val ~= 1 then
         print('start suc ', suc)
         return false
     end
-    suc, goal = self:queryIK(goal, parameters, start[1].positions)
-    if suc ~= 1 then
-        print('goal suc ', suc)
+    suc, goal = self:queryIK(goal, parameters, start.solutions[1])
+    if suc[1].val ~= 1 then
+        print('goal suc ', suc.error_code.val)
         return false
     end
-    return self:planJointPath(start[1].positions, goal[1].positions, parameters)
+    return self:planMoveJoint(torch.cat(start[1].positions, goal[1].positions,2):t(), parameters)
 end
 
 local function planMoveCartesian_2(self, waypoints, parameters)
+    ros.INFO("planMoveCartesian_2")
     assert(torch.type(waypoints) == 'table')
     assert(
         torch.type(parameters) == 'PlanParameters',
@@ -379,17 +377,18 @@ local function planMoveCartesian_2(self, waypoints, parameters)
     local seed = self:queryJointState(parameters.joint_names)
     for i, v in ipairs(waypoints) do
         local suc, start = self:queryIK(v, parameters, seed)
-        if suc ~= 1 then
+        if suc[1].val ~= 1 then
             print('start suc ', suc)
             return false
         end
         table.insert(result, start[1].positions)
         seed = start[1].positions
     end
-    return self:planJointPath(result, parameters)
+    return self:planMoveJoint(torch.cat(result,2):t(), parameters)
 end
 
 function MotionService:planMoveCartesian(_1, _2, _3)
+    ros.INFO("planMoveCartesian")
     if torch.isTypeOf(_1, datatypes.Pose) then
         return planMoveCartesian_1(self, _1, _2, _3)
     elseif torch.type(_1) == 'table' then
@@ -452,12 +451,15 @@ function MotionService:planCartesianPath(waypoints, parameters)
     local res = self:queryCartesianPath(waypoints, #waypoints)
     if res.error_code.val == 1 then
         pathCartesian = res.path
+    else
+        ros.ERROR("No valid Cartesian path found: %d", res.error_code.val)
     end
     return res.error_code.val, stampedMessages2PoseArray(pathCartesian)
 end
 
 --IJointTrajectory PlanMoveJoint(IJointPath path, PlanParameters parameters);
 function MotionService:planMoveJoint(path, parameters)
+    ros.INFO("planMoveJoint")
     assert(torch.isTypeOf(path, torch.DoubleTensor))
     assert(torch.type(parameters) == 'PlanParameters')
     assert(
@@ -482,6 +484,8 @@ function MotionService:planMoveJoint(path, parameters)
     )
     if res.error_code.val == 1 then
         trajectory = res.solution
+    else
+        ros.ERROR("No valid joint trajectory found: %d", res.error_code.val)
     end
     return res.error_code.val, trajectory
 end

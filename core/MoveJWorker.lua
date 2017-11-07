@@ -1,6 +1,7 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
 local core = require 'xamlamoveit.core'
+local xutils = require 'xamlamoveit.xutils'
 
 local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
@@ -13,6 +14,41 @@ errorCodes.NO_IK_FOUND = -3
 errorCodes.INVALID_LINK_NAME = -4
 
 local MoveJWorker = torch.class('MoveJWorker')
+
+local function checkMoveGroupName(self, name)
+    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+    self.robot_model = self.robot_model_loader:getModel()
+    self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
+    self.plan_scene:syncPlanningScene()
+    local all_group_joint_names = self.robot_model:getJointModelGroupNames()
+    ros.INFO('available move_groups:\n%s', tostring(all_group_joint_names))
+    for k, v in pairs(all_group_joint_names) do
+        if name == v then
+            return true
+        end
+    end
+    ros.ERROR('could not find move_group: ' .. name)
+    return false
+end
+
+local function checkConvergence(cq, target, jointNames)
+    local fullJointStateNames = cq:getVariableNames():totable()
+    local currentPosition = cq:getVariablePositions()
+    local sum = 0
+    for i, v in ipairs(jointNames) do
+        if v == fullJointStateNames[i] then
+            ros.DEBUG('jointName: %s, target = %f, current %f', v, target[i], currentPosition[i])
+            sum = sum + math.abs(target[i] - currentPosition[i])
+        end
+    end
+    if sum / #jointNames < 1e-3 then
+        ros.INFO('Converged')
+        return true
+    else
+        ros.WARN('Not Converged')
+        return false
+    end
+end
 
 local function checkParameterForAvailability(self, topic, wait_duration, max_counter)
     wait_duration = wait_duration or ros.Duration(1.0)
@@ -30,6 +66,31 @@ local function checkParameterForAvailability(self, topic, wait_duration, max_cou
         error('could not initialize!! ' .. topic)
     end
     return value
+end
+
+local function setVelocityScalingInMoveGroup(self, manipulator, velocity_scaling)
+    manipulator:setMaxVelocityScalingFactor(velocity_scaling)
+end
+
+local function initializeMoveGroup(self, group_id, velocity_scaling)
+    local group_id = group_id or 'manipulator'
+    if checkMoveGroupName(self, group_id) then
+        local velocity_scaling = velocity_scaling or 0.5
+        ros.INFO('connection with movegroup: ' .. group_id)
+        local manipulator = moveit.MoveGroupInterface(group_id)
+        ros.INFO('set parameters for movegroup: ' .. group_id)
+        manipulator:setMaxVelocityScalingFactor(velocity_scaling)
+        manipulator:setPlanningTime(2.0)
+
+        ros.INFO('start state monitor for movegroup: ' .. group_id)
+        -- ask move group for current state
+        manipulator:startStateMonitor(0.008)
+        local cs = manipulator:getCurrentState()
+        manipulator:setStartStateToCurrentState()
+        local currentPose = manipulator:getCurrentPose():toTensor()
+        ros.INFO('MoveIt! initialization done. Current end effector link: "%s"', manipulator:getEndEffectorLink())
+        return manipulator
+    end
 end
 
 function MoveJWorker:__init(nh)
@@ -57,6 +118,11 @@ function MoveJWorker:__init(nh)
         self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
     self.action_client =
         actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
+    self.manipulators = {}
+    local move_group_names = self.robot_model:getJointModelGroupNames()
+    for i, v in ipairs(move_group_names) do
+        self.manipulators[v] = initializeMoveGroup(self, v)
+    end
 end
 
 function MoveJWorker:doTrajectoryAsync(traj)
@@ -98,65 +164,8 @@ function MoveJWorker:cancelCurrentPlan(abortMsg)
     end
 end
 
-local function checkMoveGroupName(self, name)
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = self.robot_model_loader:getModel()
-    self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
-    self.plan_scene:syncPlanningScene()
-    local all_group_joint_names = self.robot_model:getJointModelGroupNames()
-    ros.INFO('available move_groups:\n%s', tostring(all_group_joint_names))
-    for k, v in pairs(all_group_joint_names) do
-        if name == v then
-            return true
-        end
-    end
-    ros.ERROR('could not find move_group: ' .. name)
-    return false
-end
-
-local function checkConvergence(cq, target, jointNames)
-    local fullJointStateNames = cq:getVariableNames():totable()
-    local currentPosition = cq:getVariablePositions()
-    local sum = 0
-    for i, v in ipairs(jointNames) do
-        if v == fullJointStateNames[i] then
-            ros.DEBUG('jointName: %s, target = %f, current %f', v, target[i], currentPosition[i])
-            sum = sum + math.abs(target[i] - currentPosition[i])
-        end
-    end
-    if sum / #jointNames < 1e-3 then
-        ros.INFO('Converged')
-        return true
-    else
-        ros.WARN('Not Converged')
-        return false
-    end
-end
-
-local function initializeMoveGroup(self, group_id, velocity_scaling)
-    local group_id = group_id or 'manipulator'
-    if checkMoveGroupName(self, group_id) then
-        local velocity_scaling = velocity_scaling or 0.5
-        ros.INFO('connection with movegroup: ' .. group_id)
-        local manipulator = moveit.MoveGroupInterface(group_id)
-        ros.INFO('set parameters for movegroup: ' .. group_id)
-        manipulator:setMaxVelocityScalingFactor(velocity_scaling)
-        manipulator:setGoalTolerance(1E-5)
-        manipulator:setPlanningTime(2.0)
-
-        ros.INFO('start state monitor for movegroup: ' .. group_id)
-        -- ask move group for current state
-        manipulator:startStateMonitor(0.008)
-        local cs = manipulator:getCurrentState()
-        manipulator:setStartStateToCurrentState()
-        local currentPose = manipulator:getCurrentPose():toTensor()
-        ros.INFO('MoveIt! initialization done. Current end effector link: "%s"', manipulator:getEndEffectorLink())
-        return manipulator
-    end
-end
-
-local function query_lock(self, id_resources, id_lock, release_flag)
-    ros.WARN('query_lock')
+local function queryLock(self, id_resources, id_lock, release_flag)
+    ros.WARN('queryLock')
     local request = self.query_resource_lock_service:createRequest()
     request.release = release_flag or false
     request.id_resources = id_resources
@@ -169,12 +178,12 @@ local function query_lock(self, id_resources, id_lock, release_flag)
     end
 end
 
-local function lock_resource(self, id_resources, id_lock)
-    return query_lock(self, id_resources, id_lock, false)
+local function lockResource(self, id_resources, id_lock)
+    return queryLock(self, id_resources, id_lock, false)
 end
 
-local function release_resource(self, id_resources, id_lock)
-    return query_lock(self, id_resources, id_lock, true)
+local function releaseResource(self, id_resources, id_lock)
+    return queryLock(self, id_resources, id_lock, true)
 end
 
 local function executeAsync(self, plan)
@@ -207,7 +216,7 @@ local function executePlan(self, plan, manipulator, traj)
         local trajectory = plan:getTrajectoryMsg()
         local jointNames = trajectory.joint_trajectory.joint_names
         ros.WARN('executePlan')
-        local suc, id_lock, creation, expiration = lock_resource(self, jointNames, nil)
+        local suc, id_lock, creation, expiration = lockResource(self, jointNames, nil)
         if suc then
             ros.WARN('executeAsync')
             if executeAsync(self, plan) then
@@ -231,11 +240,13 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     local suc = true
     local move_group_name = manipulator:getName()
     local traj = moveit.RobotTrajectory(self.robot_model, move_group_name)
-
+    tic('getCurrentState')
     local start_state = manipulator:getCurrentState()
+    toc('getCurrentState')
     --local dstNames = start_state:getVariableNames()
     local ori_start_state = start_state:clone()
     --print(trajectory)
+    tic('generateTrajectory')
     local dt = trajectory.points[1].time_from_start:toSec()
     start_state:setVariablePositions(trajectory.points[1].positions, trajectory.joint_names)
     start_state:setVariableVelocities(trajectory.points[1].velocities, trajectory.joint_names)
@@ -261,7 +272,10 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
         p:update()
         traj:addSuffixWayPoint(p, dt)
     end
+    toc('generateTrajectory')
+
     if check_collision == true then
+        tic('checkCollision')
         if self.plan_scene:syncPlanningScene() then --TODO parameter einstellen. performance check
             if not self.plan_scene:isPathValid(start_state, traj, move_group_name, true) then
                 ros.ERROR('[generateRobotTrajectory] Path not valid')
@@ -271,6 +285,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
             ros.ERROR('[generateRobotTrajectory] Planning Scene could not be updated')
             suc = false
         end
+        toc('checkCollision')
     end
     return traj, start_state, suc
 end
@@ -316,14 +331,17 @@ local function handleMoveJTrajectory(self, traj)
     ros.INFO('xamlamoveit_msgs/moveJActionGoal')
     group_name = findGroupNameFromJointNames(self, traj.goal.goal.trajectory.joint_names)
     ros.INFO('Specified groupName: ' .. group_name)
-
-    manipulator = initializeMoveGroup(self, group_name)
+    manipulator = self.manipulators[group_name]
     if not manipulator then
         status = self.errorCodes.INVALID_GOAL
     else
         traj.joint_monitor = core.JointMonitor(manipulator:getActiveJoints():totable())
         traj.joint_monitor:waitReady(ros.Duration(0.1))
-        rest, start_state, suc = generateRobotTrajectory(self, manipulator, traj.goal.goal.trajectory, traj.check_collision)
+        tic('generateRobotTrajectory')
+        rest,
+            start_state,
+            suc = generateRobotTrajectory(self, manipulator, traj.goal.goal.trajectory, traj.check_collision)
+        toc('generateRobotTrajectory')
 
         if suc == false then
             status = self.errorCodes.INVALID_GOAL
@@ -377,10 +395,10 @@ local function dispatchTrajectory(self)
         status = self.currentPlan.status
         if status >= 0 then
             if traj.expiration_date then
-                ros.WARN(tostring(traj.expiration_date))
+                ros.DEBUG("Expiration data: " .. tostring(traj.expiration_date))
                 local dur = ros.Duration((traj.expiration_date:toSec() - traj.creation_date:toSec()) / 2)
                 if dur > (traj.expiration_date - ros.Time.now()) then
-                    suc, id_lock, creation, expiration = lock_resource(self, traj.jointNames, traj.id_lock)
+                    suc, id_lock, creation, expiration = lockResource(self, traj.jointNames, traj.id_lock)
                     traj.creation_date = creation
                     traj.expiration_date = expiration
                     traj.id_lock = id_lock
@@ -421,14 +439,14 @@ local function dispatchTrajectory(self)
                 traj:abort('status: ' .. status, status) -- abort callback
             end
             if traj.id_lock and traj.jointNames then
-                suc, id_lock, creation, expiration = release_resource(self, traj.jointNames, traj.id_lock)
+                suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
             end
             self.currentPlan = nil
         elseif status == self.errorCodes.SUCCESSFUL then
             if traj.completed ~= nil then
                 traj:completed() -- completed callback
             end
-            suc, id_lock, creation, expiration = release_resource(self, traj.jointNames, traj.id_lock)
+            suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
             self.currentPlan = nil
         end
     end

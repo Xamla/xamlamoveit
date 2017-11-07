@@ -64,11 +64,12 @@ function TvpController:generateOfflineTrajectory(start, goal, dt)
     self:reset()
     self.state.pos:copy(start)
     local max_counter = 2000
-    while (goal - self.state.pos):norm() > 1e-5 and max_counter > counter do
+    while (goal - self.state.pos):norm() > 1e-4 and max_counter > counter do
         self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
         counter = counter + 1
     end
+    result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
     if max_counter <= counter then
         print('not converged')
     end
