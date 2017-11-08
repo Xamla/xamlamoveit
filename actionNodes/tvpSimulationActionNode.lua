@@ -145,6 +145,7 @@ local function moveJAction_serverGoal(global_state_summary, goal_handle, joint_m
         end,
         proceed = function()
             if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+
                 return true
             else
                 ros.WARN(
@@ -264,7 +265,6 @@ local function moveGripperAction_serverGoal(global_state_summary, goal_handle, j
         end
     end
     local current_position = joint_monitor:getPositionsTensor(target_joint_names)
-    print(current_position)
     local command = current_position:clone()
     command:fill(g.goal.command.position)
     local max_min_pos, max_vel, max_acc = queryJointLimits(target_joint_names)
@@ -291,6 +291,12 @@ local function moveGripperAction_serverGoal(global_state_summary, goal_handle, j
         end,
         proceed = function()
             if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+                local fb = goal_handle:createFeeback()
+                fb.reached_goal = false
+                fb.stalled = false
+                local pos = joint_monitor:getPositionsTensor(target_joint_names)
+                fb.position = pos[1]
+                goal_handle:publishFeedback(fb)
                 return true
             else
                 ros.WARN(
@@ -305,7 +311,10 @@ local function moveGripperAction_serverGoal(global_state_summary, goal_handle, j
         end,
         completed = function()
             local r = goal_handle:createResult()
-            r.error_code = worker.errorCodes.SUCCESSFUL
+            r.reached_goal = true
+            r.stalled = false
+            local pos = joint_monitor:getPositionsTensor(target_joint_names)
+            r.position = pos[1]
             goal_handle:setSucceeded(r, 'Completed')
         end
     }
@@ -432,7 +441,7 @@ local function initActions()
         elseif v.type == 'GripperCommand' then
             action_server[v.name]:registerGoalCallback(
                 function(gh)
-                    moveGripperAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints)
+                    moveGripperAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints, action_server[v.name])
                 end
             )
             action_server[v.name]:registerCancelCallback(GripperCommand_Cancel)
