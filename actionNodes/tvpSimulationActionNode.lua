@@ -241,12 +241,12 @@ local function initActions()
             action_server[v.name] =
                 ActionServer(
                 node_handle,
-                string.format('%s/joint_trajectory_action', v.name),
+                string.format('%s/%s', v.name, v.action_ns),
                 'control_msgs/FollowJointTrajectory'
             )
         else
             action_server[v.name] =
-                ActionServer(node_handle, 'joint_trajectory_action', 'control_msgs/FollowJointTrajectory')
+                ActionServer(node_handle, v.action_ns, 'control_msgs/FollowJointTrajectory')
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
