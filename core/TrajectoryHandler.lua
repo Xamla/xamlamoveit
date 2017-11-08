@@ -53,7 +53,15 @@ local function reachedGoal(self)
     end
 
     local q_goal, qd_goal = self.sampler:getGoalPosition()
-    local q_actual = state_pos:index(1, torch.LongTensor(feedback_idx)):clone()
+    local q_actual
+    if #self.traj.joint_names>1 then
+        q_actual = state_pos:index(1, torch.LongTensor(feedback_idx)):clone()
+    else
+        q_actual = torch.zeros(#self.traj.joint_names)
+        for i,v in pairs(feedback_idx) do
+            q_actual[v] = state_pos[i]
+        end
+    end
     --self.realtimeState.q_actual
     --local qd_actual = state_vel[feedback_idx]
 

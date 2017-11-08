@@ -194,6 +194,145 @@ local function FollowJointTrajectory_Cancel(goalHandle)
     end
 end
 
+local function queryJointLimits(joint_names)
+    local max_vel = torch.zeros(#joint_names)
+    local max_acc = torch.zeros(#joint_names)
+    local max_min_pos = torch.zeros(#joint_names, 2)
+    local nh = node_handle
+    local root_path = 'robot_description_planning/joint_limits'
+    for i, name in ipairs(joint_names) do
+        local has_pos_param = string.format('/%s/%s/has_position_limits', root_path, name)
+        local get_max_pos_param = string.format('/%s/%s/max_position', root_path, name)
+        local get_min_pos_param = string.format('/%s/%s/min_position', root_path, name)
+        local has_vel_param = string.format('/%s/%s/has_velocity_limits', root_path, name)
+        local get_vel_param = string.format('/%s/%s/max_velocity', root_path, name)
+        local has_acc_param = string.format('/%s/%s/has_acceleration_limits', root_path, name)
+        local get_acc_param = string.format('/%s/%s/max_acceleration', root_path, name)
+        if nh:getParamVariable(has_pos_param) then
+            max_min_pos[i][1] = nh:getParamVariable(get_max_pos_param)
+            max_min_pos[i][2] = nh:getParamVariable(get_min_pos_param)
+        else
+            ros.WARN('Joint: %s has no velocity limit', name)
+        end
+        if nh:getParamVariable(has_vel_param) then
+            max_vel[i] = nh:getParamVariable(get_vel_param)
+        else
+            ros.WARN('Joint: %s has no velocity limit', name)
+        end
+        if nh:getParamVariable(has_acc_param) then
+            max_acc[i] = nh:getParamVariable(get_acc_param)
+        else
+            max_acc[i] = max_vel[i] * 0.5
+            ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
+        end
+    end
+
+    return max_min_pos, max_vel, max_acc
+end
+
+local function generateSimpleTvpTrajectory(start, goal, max_velocities, max_accelerations, dt)
+    local dim = goal:size(1)
+    print('dim', dim)
+    print('goal', goal)
+    local controller = require 'xamlamoveit.controller'.TvpController(dim)
+    controller.max_vel:copy(max_velocities)
+    controller.max_acc:copy(max_accelerations)
+    local result = controller:generateOfflineTrajectory(start, goal, dt)
+    local positions = torch.zeros(#result, dim)
+    local velocities = torch.zeros(#result, dim)
+    local accelerations = torch.zeros(#result, dim)
+    local time = {}
+    for i = 1, #result do
+        time[i] = dt * i
+        positions[{i, {}}]:copy(result[i].pos)
+        velocities[{i, {}}]:copy(result[i].vel)
+        accelerations[{i, {}}]:copy(result[i].acc)
+    end
+    time = torch.Tensor(time)
+    return time, positions, velocities, accelerations
+end
+
+local function moveGripperAction_serverGoal(global_state_summary, goal_handle, joint_monitor, target_joint_names)
+    local g = goal_handle:getGoal()
+    if global_state_summary then
+        error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
+        if error_state then
+            ros.ERROR('Global state is NO GO ')
+            print(global_state_summary)
+            goal_handle:setRejected(nil, 'Global state is NO GO')
+            return false
+        end
+    end
+    local current_position = joint_monitor:getPositionsTensor(target_joint_names)
+    print(current_position)
+    local command = current_position:clone()
+    command:fill(g.goal.command.position)
+    local max_min_pos, max_vel, max_acc = queryJointLimits(target_joint_names)
+
+    local time, pos, vel, acc = generateSimpleTvpTrajectory(current_position, command, max_vel, max_acc, 0.016)
+    local traj = {
+        time = time,
+        pos = pos,
+        vel = vel,
+        acc = acc,
+        goalHandle = goal_handle,
+        goal = g,
+        joint_monitor = joint_monitor,
+        joint_names = target_joint_names,
+        state_joint_names = joint_name_collection,
+        accept = function()
+            if goal_handle:getGoalStatus().status == GoalStatus.PENDING then
+                goal_handle:setAccepted('Starting gripper trajectory execution')
+                return true
+            else
+                ros.WARN('Status of queued gripper trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
+                return false
+            end
+        end,
+        proceed = function()
+            if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+                return true
+            else
+                ros.WARN(
+                    'Goal status of current gripper trajectory no longer ACTIVE (actual: %d).',
+                    goal_handle:getGoalStatus().status
+                )
+                return false
+            end
+        end,
+        abort = function(self, msg)
+            goal_handle:setAborted(nil, msg or 'Error')
+        end,
+        completed = function()
+            local r = goal_handle:createResult()
+            r.error_code = worker.errorCodes.SUCCESSFUL
+            goal_handle:setSucceeded(r, 'Completed')
+        end
+    }
+    if traj.pos:nElement() == 0 then -- empty trajectory
+        local r = goal_handle:createResult()
+        r.error_code = TrajectoryResultStatus.SUCCESSFUL
+        goal_handle:setSucceeded(r, 'Completed (nothing to do)')
+        ros.WARN('Received empty GripperCommand request (goal: %s).', goal_handle:getGoalID().id)
+    else
+        worker:doTrajectoryAsync(traj) -- queue for processing
+        ros.INFO('Gripper trajectory queued for execution (goal: %s).', goal_handle:getGoalID().id)
+    end
+end
+
+local function GripperCommand_Cancel(goalHandle)
+    ros.INFO('GripperCommand_Cancel')
+    if global_state_summary then
+        error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
+        if error_state then
+            ros.ERROR('Global state is NO GO ')
+            print(global_state_summary)
+            goal_handle:setRejected(nil, 'Global state is NO GO')
+            return false
+        end
+    end
+end
+
 local error_state = false
 
 local function queryControllerList(node_handle)
@@ -236,19 +375,22 @@ local function initActions()
                 joint_name_collection[#joint_name_collection + 1] = vv
             end
         end
-
-        if #v.name > 0 then
+        if v.type == 'FollowJointTrajectory' then
+            if #v.name > 0 then
+                action_server[v.name] =
+                    ActionServer(
+                    node_handle,
+                    string.format('%s/%s', v.name, v.action_ns),
+                    'control_msgs/FollowJointTrajectory'
+                )
+            else
+                action_server[v.name] = ActionServer(node_handle, v.action_ns, 'control_msgs/FollowJointTrajectory')
+            end
+            ns = string.split(action_server[v.name].node:getNamespace(), '/')
+        elseif v.type == 'GripperCommand' then
             action_server[v.name] =
-                ActionServer(
-                node_handle,
-                string.format('%s/%s', v.name, v.action_ns),
-                'control_msgs/FollowJointTrajectory'
-            )
-        else
-            action_server[v.name] =
-                ActionServer(node_handle, v.action_ns, 'control_msgs/FollowJointTrajectory')
+                ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'control_msgs/GripperCommand')
         end
-        ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
     ros.INFO('Init JointMonitor')
     local joint_monitor = core.JointMonitor(joint_name_collection)
@@ -280,13 +422,23 @@ local function initActions()
         ros.INFO('JointMonitor is ready')
     end
     for i, v in ipairs(config) do
-        action_server[v.name]:registerGoalCallback(
-            function(gh)
-                moveJAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints)
-            end
-        )
+        if v.type == 'FollowJointTrajectory' then
+            action_server[v.name]:registerGoalCallback(
+                function(gh)
+                    moveJAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints)
+                end
+            )
+            action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
+        elseif v.type == 'GripperCommand' then
+            action_server[v.name]:registerGoalCallback(
+                function(gh)
+                    moveGripperAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints)
+                end
+            )
+            action_server[v.name]:registerCancelCallback(GripperCommand_Cancel)
+        end
         joint_monitor_collection[#joint_monitor_collection + 1] = joint_monitor
-        action_server[v.name]:registerCancelCallback(FollowJointTrajectory_Cancel)
+
         action_server[v.name]:start()
         print(v.name)
     end

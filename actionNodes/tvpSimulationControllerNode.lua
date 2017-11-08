@@ -27,67 +27,6 @@ local TrajectoryResultStatus = {
     PATH_TOLERANCE_VIOLATED = -4,
     GOAL_TOLERANCE_VIOLATED = -5
 }
-
---[[
-local config = {
-    {
-        name = '',
-        ns = '/sda10d',
-        group = 0,
-        joints = {
-            'arm_left_joint_1_s',
-            'arm_left_joint_2_l',
-            'arm_left_joint_3_e',
-            'arm_left_joint_4_u',
-            'arm_left_joint_5_r',
-            'arm_left_joint_6_b',
-            'arm_left_joint_7_t',
-            'arm_right_joint_1_s',
-            'arm_right_joint_2_l',
-            'arm_right_joint_3_e',
-            'arm_right_joint_4_u',
-            'arm_right_joint_5_r',
-            'arm_right_joint_6_b',
-            'arm_right_joint_7_t',
-            'torso_joint_b1'
-        }
-    },
-    {
-        name = 'sda10d_r1_controller',
-        ns = '/sda10d',
-        group = 0,
-        joints = {
-            'arm_left_joint_1_s',
-            'arm_left_joint_2_l',
-            'arm_left_joint_3_e',
-            'arm_left_joint_4_u',
-            'arm_left_joint_5_r',
-            'arm_left_joint_6_b',
-            'arm_left_joint_7_t'
-        }
-    },
-    {
-        name = 'sda10d_r2_controller',
-        ns = '/sda10d',
-        group = 1,
-        joints = {
-            'arm_right_joint_1_s',
-            'arm_right_joint_2_l',
-            'arm_right_joint_3_e',
-            'arm_right_joint_4_u',
-            'arm_right_joint_5_r',
-            'arm_right_joint_6_b',
-            'arm_right_joint_7_t'
-        }
-    },
-    {
-        name = 'sda10d_b1_controller',
-        ns = '/sda10d',
-        group = 2,
-        joints = {'torso_joint_b1'}
-    }
-}
-]]
 local config = {}
 local node_handle, sp, worker
 
@@ -158,7 +97,7 @@ end
 
 local error_state = false
 
-local function query_joint_limits(joint_names, namespace)
+local function queryJointLimits(joint_names, namespace)
     namespace = namespace or node_handle:getNamespace()
     local max_vel = torch.zeros(#joint_names)
     local max_acc = torch.zeros(#joint_names)
@@ -229,7 +168,7 @@ local function initControllers(delay, dt)
     for i = 1, offset + 1 do
         feedback_buffer_pos:add(last_command_joint_position)
     end
-    controller.max_vel, controller.max_acc = query_joint_limits(joint_name_collection, node_handle:getNamespace())
+    controller.max_vel, controller.max_acc = queryJointLimits(joint_name_collection, node_handle:getNamespace())
     controller.state.pos:copy(last_command_joint_position)
     subscriber = node_handle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
     subscriber:registerCallback(jointCommandCb)
