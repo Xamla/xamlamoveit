@@ -395,11 +395,11 @@ local function initActions()
             else
                 action_server[v.name] = ActionServer(node_handle, v.action_ns, 'control_msgs/FollowJointTrajectory')
             end
-            ns = string.split(action_server[v.name].node:getNamespace(), '/')
         elseif v.type == 'GripperCommand' then
             action_server[v.name] =
                 ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'control_msgs/GripperCommand')
         end
+        ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
     ros.INFO('Init JointMonitor')
     local joint_monitor = core.JointMonitor(joint_name_collection)
