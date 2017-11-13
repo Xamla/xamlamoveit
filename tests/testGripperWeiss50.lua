@@ -22,29 +22,32 @@ if weissGripper:hasError () then
     ros.ERROR("error detected trigger reset")
     weissGripper:reset ()
 end
+
 ros.spinOnce()
 --ros.INFO("reset")
 --weissGripper:reset()
-weissGripper:SetGripForce(80)
+--weissGripper:SetGripForce(80)
 ros.spinOnce()
 if not weissGripper:isOpen () then
     ros.INFO("gripper should be open")
-    weissGripper:open()
+    weissGripper:openViaAction()
 end
+
 ros.INFO("close")
-weissGripper:close()
+weissGripper:closeViaAction()
+
 
 ros.spinOnce()
-weissGripper:SetGripForce(80)
+--weissGripper:SetGripForce(80)
 ros.spinOnce()
 if not weissGripper:isOpen () then
     ros.INFO("open " .. weissGripper.seq)
-    weissGripper:open()
+    weissGripper:openViaAction()
 end
 ros.spinOnce()
 
 
-weissGripper:move(0.0)
+weissGripper:moveViaAction(0.0)
 ros.spinOnce()
 
 sys.sleep(1.0)
