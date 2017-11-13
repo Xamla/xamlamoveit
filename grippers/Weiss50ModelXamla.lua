@@ -4,10 +4,10 @@
 local ros = require 'ros'
 require 'ros.actionlib.SimpleActionClient'
 local actionlib = ros.actionlib
-
+local SimpleClientGoalState = actionlib.SimpleClientGoalState
 
 local grippers = require 'xamlamoveit.grippers.env'
-local Weiss50ModelXamla = torch.class('xamla.moveit.grippers.Weiss50ModelXamla', grippers)
+local Weiss50ModelXamla = torch.class('xamlamoveit.grippers.Weiss50ModelXamla', grippers)
 function Weiss50ModelXamla:__init (nodehandle, nodeIDstring)
   self.serviceGripperCtl = nil
   self.actionGripperActivation = nil
@@ -23,7 +23,7 @@ function Weiss50ModelXamla:__init (nodehandle, nodeIDstring)
 end
 
 local function stateCb(self, msg, header)
-  ros.WARN("received message")
+  ros.DEBUG("received message")
   self.width = msg.width
   self.gripState = msg.status_id
   self.seq = self.seq + 1
@@ -56,6 +56,7 @@ function Weiss50ModelXamla:connect (namespace)
     ros.INFO("Try to connect SetForce")
     self.gripperServices.wsgSetForce = nodehandle:serviceClient(string.format('/%s/set_force',namespace), 'wsg_50_common/Conf')
     ros.INFO("Check connection.")
+    self.actionGripper = actionlib.SimpleActionClient('control_msgs/GripperCommand', "/" .. namespace .. "/gripper_cmd", nodehandle)
     ros.spinOnce()
 
     while not (self.gripperStatus:getNumPublishers() > 0) and ros.ok() do
@@ -105,8 +106,37 @@ end
 
 
 function Weiss50ModelXamla:openViaAction(execute_timeout, preempt_timeout, set_speed_and_force, speed, force)
-    ros.WARN("[Weiss50ModelXamla:openViaAction] Not implemented")
-  return false
+
+    if not self.actionGripper:isServerConnected() then
+        ros.ERROR("no connection to server")
+        return false
+    end
+    local g = self.actionGripper:createGoal()
+    g.command.position = 0.05 -- in m
+    g.command.max_effort = force or 10.0 -- N
+    print(g)
+    local done = false
+
+    local function action_done(state, result)
+        ros.INFO('actionDone')
+        ros.INFO('Finished with states: %s (%d)', SimpleClientGoalState[state], state)
+        ros.INFO('Result:\n%s', result)
+        done = true
+    end
+
+    local function action_active()
+        ros.INFO('executeAsync Action_active')
+    end
+
+    local function action_feedback(feedback)
+        ros.INFO('Action_feedback \n\t%s ', tostring(feedback))
+    end
+    self.actionGripper:sendGoal(g, action_done, action_active, action_feedback)
+    while not done and ros.ok() do
+        sys.sleep(0.1)
+        ros.spinOnce()
+    end
+    return true
 end
 
 
