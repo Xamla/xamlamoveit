@@ -94,6 +94,8 @@ function setControllerNameHandler(request, response, header)
         response.message = "string is empty"
     end
     run = false
+    cntr.controller_name = new_controller_name
+    cntr.robotControllerTopic =  string.format('/%s/joint_command', cntr.controller_name)
     response.success = true
     response.message = "Success"
     return true
