@@ -342,6 +342,95 @@ local function GripperCommand_Cancel(goalHandle)
     end
 end
 
+local function moveWeissGripperAction_serverGoal(global_state_summary, goal_handle, joint_monitor, target_joint_names)
+    local g = goal_handle:getGoal()
+    if global_state_summary then
+        error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
+        if error_state then
+            ros.ERROR('Global state is NO GO ')
+            print(global_state_summary)
+            goal_handle:setRejected(nil, 'Global state is NO GO')
+            return false
+        end
+    end
+    local current_position = joint_monitor:getPositionsTensor(target_joint_names)
+    local command = current_position:clone()
+    command:fill(g.goal.cmd.position)
+    local max_min_pos, max_vel, max_acc = queryJointLimits(target_joint_names)
+
+    local time, pos, vel, acc = generateSimpleTvpTrajectory(current_position, command, max_vel, max_acc, 0.016)
+    local traj = {
+        time = time,
+        pos = pos,
+        vel = vel,
+        acc = acc,
+        goalHandle = goal_handle,
+        goal = g,
+        joint_monitor = joint_monitor,
+        joint_names = target_joint_names,
+        state_joint_names = joint_name_collection,
+        accept = function()
+            if goal_handle:getGoalStatus().status == GoalStatus.PENDING then
+                goal_handle:setAccepted('Starting gripper trajectory execution')
+                return true
+            else
+                ros.WARN('Status of queued gripper trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
+                return false
+            end
+        end,
+        proceed = function()
+            if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+                local fb = goal_handle:createFeeback()
+                fb.reached_goal = false
+                fb.stalled = false
+                local pos = joint_monitor:getPositionsTensor(target_joint_names)
+                fb.position = pos[1]
+                goal_handle:publishFeedback(fb)
+                return true
+            else
+                ros.WARN(
+                    'Goal status of current gripper trajectory no longer ACTIVE (actual: %d).',
+                    goal_handle:getGoalStatus().status
+                )
+                return false
+            end
+        end,
+        abort = function(self, msg)
+            goal_handle:setAborted(nil, msg or 'Error')
+        end,
+        completed = function()
+            local r = goal_handle:createResult()
+            r.reached_goal = true
+            r.stalled = false
+            local pos = joint_monitor:getPositionsTensor(target_joint_names)
+            r.position = pos[1]
+            goal_handle:setSucceeded(r, 'Completed')
+        end
+    }
+    if traj.pos:nElement() == 0 then -- empty trajectory
+        local r = goal_handle:createResult()
+        r.error_code = TrajectoryResultStatus.SUCCESSFUL
+        goal_handle:setSucceeded(r, 'Completed (nothing to do)')
+        ros.WARN('Received empty GripperCommand request (goal: %s).', goal_handle:getGoalID().id)
+    else
+        worker:doTrajectoryAsync(traj) -- queue for processing
+        ros.INFO('Gripper trajectory queued for execution (goal: %s).', goal_handle:getGoalID().id)
+    end
+end
+
+local function WeissGripperCommand_Cancel(goalHandle)
+    ros.INFO('WeissGripperCommand_Cancel')
+    if global_state_summary then
+        error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
+        if error_state then
+            ros.ERROR('Global state is NO GO ')
+            print(global_state_summary)
+            goal_handle:setRejected(nil, 'Global state is NO GO')
+            return false
+        end
+    end
+end
+
 local error_state = false
 
 local function queryControllerList(node_handle)
@@ -398,6 +487,9 @@ local function initActions()
         elseif v.type == 'GripperCommand' then
             action_server[v.name] =
                 ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'control_msgs/GripperCommand')
+        elseif v.type == 'WeissGripperCmd' then
+                action_server[v.name] =
+                    ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'wsg_50_common/WeissGripperCmd')
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
@@ -445,6 +537,13 @@ local function initActions()
                 end
             )
             action_server[v.name]:registerCancelCallback(GripperCommand_Cancel)
+        elseif v.type == 'WeissGripperCmd' then
+            action_server[v.name]:registerGoalCallback(
+                function(gh)
+                    moveWeissGripperAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints, action_server[v.name])
+                end
+            )
+            action_server[v.name]:registerCancelCallback(WeissGripperCmd_Cancel)
         end
         joint_monitor_collection[#joint_monitor_collection + 1] = joint_monitor
 

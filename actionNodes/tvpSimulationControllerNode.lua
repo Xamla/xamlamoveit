@@ -302,7 +302,6 @@ local function simulation(delay, dt)
         dt:sleep()
     end
     joint_state_publisher:shutdown()
-    system_state_subscriber:shutdown()
 end
 
 simulation(parameter.delay, parameter.frequency)
