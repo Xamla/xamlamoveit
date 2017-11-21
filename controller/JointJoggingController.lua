@@ -231,13 +231,13 @@ function JointJoggingController:tracking(q_dot, duration)
                 publisherPointPositionCtrl = self.nh:advertise(self.robotControllerTopic, joint_pos_spec)
                 ros.WARN(publisherPointPositionCtrl:getTopic())
             end
-            --if self.FIRSTPOINT then
-            --  sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
-            --  self.FIRSTPOINT = false
-            --else
-            --  sendPositionCommand(q_des, q_dot, group, duration)
-            --end
-            sendPositionCommand(q_des, q_dot, group, duration)
+            if self.FIRSTPOINT then
+              sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
+              self.FIRSTPOINT = false
+            else
+              sendPositionCommand(q_des, q_dot, group, duration)
+            end
+            --sendPositionCommand(q_des, q_dot, group, duration)
             self.lastCommandJointPositons:copy(q_des)
         else
             if publisherPointPositionCtrl then
@@ -278,8 +278,17 @@ end
 
 function JointJoggingController:update()
     self:getNewRobotState()
+    --if self.CONVERED then
+    --    self.start_time = ros.Time.now()
+    --end
+
     if self.CONVERED then
         self.start_time = ros.Time.now()
+        self:getNewRobotState()
+    else
+        self.state:setVariablePositions(self.lastCommandJointPositons, self.joint_monitor:getJointNames())
+        self.state:update()
+        self.current_pose = self:getCurrentPose()
     end
 
     self:updateDeltaT()
@@ -337,7 +346,7 @@ end
 function JointJoggingController:reset(timeout)
     self.state = self.move_group:getCurrentState()
     self.lastCommandJointPositons = self.state:copyJointGroupPositions(self.move_group:getName()):clone()
-    self.lastCommandJointVelocity = self.lastCommandJointPositons:clone():zeros()
+    self.lastCommandJointVelocity = self.lastCommandJointPositons:clone():zero()
     self.joint_monitor:shutdown()
     self.joint_monitor = core.JointMonitor(self.move_group:getActiveJoints():totable())
     self.positionNameMap = createVariableNameMap(self)

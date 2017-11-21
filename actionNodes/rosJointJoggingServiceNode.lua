@@ -46,6 +46,10 @@ local function findString(my_string, collection)
     local index = -1
     if torch.type(collection) == "table" then
         index = table.indexof(collection, my_string)
+    elseif torch.type(collection) == "std.StringVector" then
+        index = table.indexof(collection:totable(), my_string)
+    else
+        error('unknown type: ' .. torch.type(collection))
     end
 
     if index > -1 then
@@ -67,7 +71,7 @@ function setMoveGroupHandler(request, response, header)
             response.success = succ
             response.message = msg
         else
-            local response_message = "Unknown group name! Choose from: "
+            local response_message = string.format("Unknown group name! Choose from: %s", new_move_group_name)
             for i, v in ipairs(all_group_joint_names) do
                 response_message = string.format("%s %s;", response_message, v)
             end
