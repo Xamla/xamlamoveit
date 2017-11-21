@@ -54,7 +54,7 @@ local function sendPositionCommand(q_des, q_dot, group)
     mPoint.velocities:set(q_dot)
     mPoint.time_from_start = ros.Duration(0.1)
     m.points = {mPoint}
-
+    ros.WARN(publisherPointPositionCtrl:getTopic())
     publisherPointPositionCtrl:publish(m)
 end
 
@@ -229,11 +229,11 @@ function JointJoggingController:tracking(q_dot, duration)
         if self:isValid(q_des, self.lastCommandJointPositons) then
             if not publisherPointPositionCtrl then
                 publisherPointPositionCtrl = self.nh:advertise(self.robotControllerTopic, joint_pos_spec)
-                ros.WARN(publisherPointPositionCtrl:getTopic())
             end
             if self.FIRSTPOINT then
-              sendPositionCommand(self.lastCommandJointPositons, q_dot:zero(), group, duration)
+              sendPositionCommand(self.lastCommandJointPositons, torch.zeros(q_dot:size()), group, duration)
               self.FIRSTPOINT = false
+              self.CONVERED = false
             else
               sendPositionCommand(q_des, q_dot, group, duration)
             end
@@ -278,9 +278,6 @@ end
 
 function JointJoggingController:update()
     self:getNewRobotState()
-    --if self.CONVERED then
-    --    self.start_time = ros.Time.now()
-    --end
 
     if self.CONVERED then
         self.start_time = ros.Time.now()
@@ -288,7 +285,6 @@ function JointJoggingController:update()
     else
         self.state:setVariablePositions(self.lastCommandJointPositons, self.joint_monitor:getJointNames())
         self.state:update()
-        self.current_pose = self:getCurrentPose()
     end
 
     self:updateDeltaT()

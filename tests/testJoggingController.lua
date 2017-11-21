@@ -70,8 +70,8 @@ function main()
     local sp = ros.AsyncSpinner() -- background job
     sp:start()
 
-    local moveGroup, psi = initializeMoveIt('arm_left')
-    local myTopic = '/joggingJoystickServer/jogging_command'
+    local moveGroup, psi = initializeMoveIt('/sda10d/sda10d_r1_controller')
+    local myTopic = '/xamlaJointJogging/jogging_command'
     local publisherPointPositionCtrl = nodehandle:advertise(myTopic, joint_traj_spec)
     local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
     local start_stop_controll_client =
