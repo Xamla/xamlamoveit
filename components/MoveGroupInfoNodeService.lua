@@ -13,7 +13,7 @@ local function queryServiceHandler(self, request, response, header)
         l.name = v
         l.sub_move_group_ids = self.robot_model:getJointModelSubGroupNames(v)
         l.joint_names = self.robot_model:getGroupJointNames(v)
-        l.end_effector_names = self.robot_model:getGroupEndEffectorNames(v)
+        l.end_effector_names = {self.robot_model:getEndEffectorLinkName(v)} --self.robot_model:getGroupEndEffectorNames(v)
         table.insert(response.move_group_interfaces, l)
     end
     return true
