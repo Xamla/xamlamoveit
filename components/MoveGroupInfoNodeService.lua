@@ -5,15 +5,19 @@ local srv_spec = ros.SrvSpec('xamlamoveit_msgs/QueryMoveGroupInterfaces')
 local msg_spec = ros.MsgSpec('xamlamoveit_msgs/MoveGroupInterfaceDescription')
 
 local function queryServiceHandler(self, request, response, header)
-    print('print(all_EE_parent_link_names)')
-    print(self.all_EE_parent_link_names)
-
     for k, v in pairs(self.all_group_joint_names) do
         local l = ros.Message(msg_spec)
         l.name = v
         l.sub_move_group_ids = self.robot_model:getJointModelSubGroupNames(v)
         l.joint_names = self.robot_model:getGroupJointNames(v)
-        l.end_effector_names = {self.robot_model:getEndEffectorLinkName(v)} --self.robot_model:getGroupEndEffectorNames(v)
+        local test = robot_model:getGroupEndEffectorNames(v)
+        l.end_effector_names = {}
+        for ii, vv in pairs(test) do
+            local index = table.indexof(l.end_effector_names, self.robot_model:getEndEffectorLinkName(vv))
+            if index < 0 then
+                table.insert(l.end_effector_names, self.robot_model:getEndEffectorLinkName(vv))
+            end
+        end
         table.insert(response.move_group_interfaces, l)
     end
     return true
