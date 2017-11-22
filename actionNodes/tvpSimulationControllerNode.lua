@@ -223,7 +223,7 @@ end
 local function simulation(delay, dt)
     sim_seq = 1
     local heartbeat = xamla_sysmon.Heartbeat.new()
-    heartbeat:start(node_handle, 10) --[Hz]
+    heartbeat:start(node_handle, 1) --[Hz]
     heartbeat:updateStatus(heartbeat.GO, '')
     heartbeat:publish()
     local sysmon_watch = xamla_sysmon.Watch.new(node_handle, 3.0)
@@ -241,19 +241,20 @@ local function simulation(delay, dt)
             local err =
                 string.format(
                 'exeeded cycleTime delay: expected :%f actual: %f, diff: %f',
-                dt:expectedCycleTime():toSec() * 2,
+                dt:expectedCycleTime():toSec(),
                 dt:cycleTime():toSec(),
-                dt:expectedCycleTime():toSec() * 2 - dt:cycleTime():toSec()
+                dt:expectedCycleTime():toSec() - dt:cycleTime():toSec()
             )
             if timeout_recovery_counter >= 200 then
-                heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, err)
+                ros.WARN(err)
+                --heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, err)
             end
             timeout_recovery_counter = 0
             timeout_error = true
         end
         if timeout_error == true and timeout_recovery_counter >= 200 then
             timeout_error = false
-            heartbeat:updateStatus(heartbeat.GO, '')
+            --heartbeat:updateStatus(heartbeat.GO, '')
         end
 
         global_state_summary = sysmon_watch:getGlobalStateSummary()
