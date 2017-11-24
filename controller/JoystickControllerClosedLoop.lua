@@ -355,7 +355,7 @@ function JoystickControllerClosedLoop:tracking(q_dot, duration)
     else
         self.converged = false
         self.FIRSTPOINT = false
-        ros.WARN("tracking is NOT CONVERED")
+        ros.WARN("tracking is NOT CONVERGED")
     end
 
     if not self.converged then

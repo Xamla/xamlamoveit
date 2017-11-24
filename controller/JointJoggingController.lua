@@ -84,7 +84,7 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
         ros.console.set_logger_level(nil, ros.console.Level.Debug)
     end
 
-    self.CONVERED = false
+    self.CONVERGED = false
     self.FIRSTPOINT = true
     self.nh = node_handle
     self.q_des = nil
@@ -225,7 +225,7 @@ function JointJoggingController:tracking(q_dot, duration)
     local state = self.state:clone()
     local q_des = self.lastCommandJointPositons + q_dot
 
-    if not self.CONVERED or self.FIRSTPOINT then
+    if not self.CONVERGED or self.FIRSTPOINT then
         if self:isValid(q_des, self.lastCommandJointPositons) then
             if not publisherPointPositionCtrl then
                 publisherPointPositionCtrl = self.nh:advertise(self.robotControllerTopic, joint_pos_spec)
@@ -233,7 +233,7 @@ function JointJoggingController:tracking(q_dot, duration)
             if self.FIRSTPOINT then
               sendPositionCommand(self.lastCommandJointPositons, torch.zeros(q_dot:size()), group, duration)
               self.FIRSTPOINT = false
-              self.CONVERED = false
+              self.CONVERGED = false
             else
               sendPositionCommand(q_des, q_dot, group, duration)
             end
@@ -259,13 +259,13 @@ function JointJoggingController:tracking(q_dot, duration)
     end
 
     if q_dot:norm() < 1e-12 then
-        self.CONVERED = true
+        self.CONVERGED = true
         --BEGIN_EXECUTION = ros.Time.now()
         self.FIRSTPOINT = true
     else
-        self.CONVERED = false
+        self.CONVERGED = false
         self.FIRSTPOINT = false
-        ros.WARN('tracking is NOT CONVERED')
+        ros.WARN('tracking is NOT CONVERGED')
     end
     return true, 'success'
 end
@@ -279,7 +279,7 @@ end
 function JointJoggingController:update()
     self:getNewRobotState()
 
-    if self.CONVERED then
+    if self.CONVERGED then
         self.start_time = ros.Time.now()
         self:getNewRobotState()
     else
@@ -291,7 +291,7 @@ function JointJoggingController:update()
 
     local succ, msg = true, 'IDLE'
     if self.new_message and ros.ok() then
-        ros.INFO('new messege lock resouce')
+        ros.INFO('New message lock resource')
         if self.resource_lock == nil then
             self.resource_lock = self.lock_client:lock(self.state:getVariableNames())
         else
@@ -302,10 +302,10 @@ function JointJoggingController:update()
         end
 
         if self.resource_lock.success then
-            ros.INFO('lock resouce successfull')
+            ros.INFO('Lock resource successful')
             succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)
         else
-            ros.WARN('lock resouce unsuccessfull')
+            ros.WARN('Lock resource unsuccessful')
             self.resource_lock = nil
         end
         self.lastCommandJointVelocity:zero()
@@ -328,13 +328,13 @@ function JointJoggingController:setMoveGroupInterface(name)
     local ready = self:reset(ros.Duration(0.01))
     local move_group_name = self.move_group:getName()
     if ready and (move_group_name == name) then
-        return true, 'Successfully changed movegroup.'
+        return true, 'Successfully changed MoveGroup.'
     else
         if move_group_name ~= name then
-            return false, string.Format('Could not set moveGroup with name: %s. ', name)
+            return false, string.Format('Could not set MoveGroup with name: %s.', name)
         end
         if not ready then
-            return false, 'joint state is not available in time.'
+            return false, 'Joint state is not available in time.'
         end
     end
 end
