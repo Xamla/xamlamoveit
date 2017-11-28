@@ -4,7 +4,7 @@ local tf = ros.tf
 local moveit = require "moveit"
 local xamlamoveit = require "xamlamoveit"
 local controller = xamlamoveit.controller
-
+local xamla_sysmon = require 'xamla_sysmon'
 local planning = xamlamoveit.planning
 
 local xutils = xamlamoveit.xutils
@@ -12,7 +12,7 @@ local printf = xutils.printf
 local xtable = xutils.Xtable
 
 local node_handle, sp
-
+local sysmon_watch
 local cntr
 local run = false
 
@@ -25,6 +25,7 @@ local function initSetup(name)
     ros.init(name)
     node_handle = ros.NodeHandle("~")
     service_queue = ros.CallbackQueue()
+    sysmon_watch = xamla_sysmon.Watch.new(node_handle, 1)
 
     sp = ros.AsyncSpinner() -- background job
     sp:start()
@@ -52,16 +53,29 @@ local function findString(my_string, collection)
         error('unknown type: ' .. torch.type(collection))
     end
 
-    if index > -1 then
-        return true, index
+    return index > -1, index
+end
+
+local function startJogging()
+    local sys_state = sysmon_watch:getGlobalStateSummary()
+    if sys_state.go == true then
+        cntr:reset()
+        run = true
+        return true, 'Success'
     else
-        return false, index
+        local message = 'Jogging not started, because system state is NOGO: ' .. sys_state.error_message
+        ros.WARN(message)
+        return false, message
     end
 end
 
-function setMoveGroupHandler(request, response, header)
-    local new_move_group_name = request.data
+local function stopJogging()
     run = false
+end
+
+local function setMoveGroupHandler(request, response, header)
+    local new_move_group_name = request.data
+    stopJogging()
     if cntr.move_group:getName() == new_move_group_name then
         response.success = true
         response.message = "Set move_group successfuly"
@@ -83,7 +97,7 @@ function setMoveGroupHandler(request, response, header)
     return true
 end
 
-function getMoveGroupHandler(request, response, header)
+local function getMoveGroupHandler(request, response, header)
     response.success = true
     response.selected = cntr.move_group:getName()
     response.collection = all_group_joint_names
@@ -91,13 +105,13 @@ function getMoveGroupHandler(request, response, header)
     return true
 end
 
-function setControllerNameHandler(request, response, header)
+local function setControllerNameHandler(request, response, header)
     local new_controller_name = request.data
     if new_controller_name == nil or new_controller_name == "" then
         response.success = false
         response.message = "string is empty"
     end
-    run = false
+    stopJogging()
     cntr.controller_name = new_controller_name
     cntr.robotControllerTopic =  string.format('/%s/joint_command', cntr.controller_name)
     response.success = true
@@ -105,7 +119,7 @@ function setControllerNameHandler(request, response, header)
     return true
 end
 
-function getControllerNameHandler(request, response, header)
+local function getControllerNameHandler(request, response, header)
     local name = cntr.controller_name
     if name then
         response.selected = name
@@ -115,25 +129,30 @@ function getControllerNameHandler(request, response, header)
     return true
 end
 
-function startStopHandler(request, response, header)
+local function startStopHandler(request, response, header)
     local startStop = request.data
     if startStop == nil then
         response.success = false
-        response.message = "bool is nil"
+        response.message = 'bool is nil'
         return true
     end
-    run = startStop
-    response.success = true
-    response.message = "Success"
+    local success, message = true, 'Success'
+    if startStop == true then
+        success, message = startJogging()
+    else
+        stopJogging()
+    end
+    response.success = success
+    response.message = message
     return true
 end
 
-function getVelocityLimitsHandler(request, response, header)
+local function getVelocityLimitsHandler(request, response, header)
     response.data = cntr.velocity_scaling
     return true
 end
 
-function setVelocityLimitsHandler(request, response, header)
+local function setVelocityLimitsHandler(request, response, header)
     local scaling = request.data
     scaling = math.min(1.0,math.max(0,scaling))
     cntr.velocity_scaling = scaling
@@ -142,7 +161,7 @@ function setVelocityLimitsHandler(request, response, header)
     return true
 end
 
-function getStatusHandler(request, response, header)
+local function getStatusHandler(request, response, header)
     response.is_running = run
     response.move_group_name = cntr.move_group:getName()
     response.joint_names = cntr.joint_monitor:getJointNames()
@@ -172,6 +191,7 @@ local function joggingJoystickServer(name)
         planningGroup = all_group_joint_names[1]
     end
 
+    cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(planningGroup), controller_name, dt)
     ---Services
     --set_limits
     set_limits_server = nh:advertiseService("set_velocity_scaling", set_float_spec, setVelocityLimitsHandler)
@@ -187,14 +207,19 @@ local function joggingJoystickServer(name)
     --status
     status_server = nh:advertiseService("status", get_status_spec, getStatusHandler)
 
-    cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(planningGroup), controller_name, dt)
     while not cntr:connect("jogging_command") do
         dt:sleep()
         ros.spinOnce()
     end
-    local idle_dt = ros.Rate(2)
+    local idle_dt = ros.Rate(10)
     local success = true
     while ros.ok() do
+        ros.spinOnce()
+        local sys_state = sysmon_watch:getGlobalStateSummary()
+        if sys_state.no_go == true and run == true then
+            ros.WARN('Jogging stopped because system state is NOGO. ' .. sys_state.error_message)
+            stopJogging()
+        end
         if run then
             ros.DEBUG("RUNNING")
             success, last_status_message_tracking = cntr:update()
@@ -206,7 +231,6 @@ local function joggingJoystickServer(name)
             idle_dt:sleep()
         end
         dt:sleep()
-        ros.spinOnce()
         collectgarbage()
     end
     shutdownSetup()

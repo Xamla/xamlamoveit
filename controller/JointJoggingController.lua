@@ -1,25 +1,11 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
-local tf = ros.tf
-local timer = torch.Timer()
 local planning = require 'xamlamoveit.planning'
-local xutils = require 'xamlamoveit.xutils'
 local core = require 'xamlamoveit.core'
-local clamp = xutils.clamp
-
-local SPEED_LIMIT = {fast = 1, slow = 0.2}
-local SENSITIVITY_THRESHOLD = 0.2
-local currentSpeedLimit = 'slow'
-
-local axesValues = {}
-local stepSizeZ = 1.
-local stepSizeR = 0.1
 
 local publisherPointPositionCtrl
-local lastJoystickMessage
 
 local test_spec = ros.MsgSpec('trajectory_msgs/JointTrajectoryPoint')
--- JointPosition --
 local joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 
 function jointCommandCb(self, msg, header)
@@ -32,14 +18,13 @@ function jointCommandCb(self, msg, header)
             end
         end
         self.seq = self.seq + 1
-        self.new_message = true
     end
 end
 
 ---
 --@param desired joint angle position
 local function sendPositionCommand(q_des, q_dot, group)
-    ros.INFO('sendPositionCommand')
+    --ros.INFO('sendPositionCommand')
     local m = ros.Message(joint_pos_spec)
     local mPoint = ros.Message(test_spec)
     local names = std.StringVector()
@@ -54,7 +39,7 @@ local function sendPositionCommand(q_des, q_dot, group)
     mPoint.velocities:set(q_dot)
     mPoint.time_from_start = ros.Duration(0.1)
     m.points = {mPoint}
-    ros.WARN(publisherPointPositionCtrl:getTopic())
+    --ros.WARN(publisherPointPositionCtrl:getTopic())
     publisherPointPositionCtrl:publish(m)
 end
 
@@ -113,7 +98,6 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
 
     self.controller_name = ctr_name or 'pos_based_pos_traj_controller'
     self.seq = 1
-    self.new_message = false
 
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.kinematic_model = self.robot_model_loader:getModel()
@@ -125,6 +109,10 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
     self.resource_lock = nil
 
     self.velocity_scaling = 1.0
+
+    if not publisherPointPositionCtrl then
+        publisherPointPositionCtrl = self.nh:advertise(self.robotControllerTopic, joint_pos_spec)
+    end
 end
 
 local function satisfiesBounds(self, positions)
@@ -203,6 +191,10 @@ function JointJoggingController:getOutTopic()
 end
 
 function JointJoggingController:shutdown()
+    if publisherPointPositionCtrl then
+        publisherPointPositionCtrl:shutdown()
+        publisherPointPositionCtrl = nil
+    end
     self.subscriber_jog:shutdown()
 end
 
@@ -222,14 +214,10 @@ function JointJoggingController:tracking(q_dot, duration)
 
     duration = duration or ros.Time.now() - BEGIN_EXECUTION
     local group = self.move_group
-    local state = self.state:clone()
     local q_des = self.lastCommandJointPositons + q_dot
 
     if not self.CONVERGED or self.FIRSTPOINT then
         if self:isValid(q_des, self.lastCommandJointPositons) then
-            if not publisherPointPositionCtrl then
-                publisherPointPositionCtrl = self.nh:advertise(self.robotControllerTopic, joint_pos_spec)
-            end
             if self.FIRSTPOINT then
               sendPositionCommand(self.lastCommandJointPositons, torch.zeros(q_dot:size()), group, duration)
               self.FIRSTPOINT = false
@@ -240,13 +228,12 @@ function JointJoggingController:tracking(q_dot, duration)
             --sendPositionCommand(q_des, q_dot, group, duration)
             self.lastCommandJointPositons:copy(q_des)
         else
-            if publisherPointPositionCtrl then
-                publisherPointPositionCtrl:shutdown()
-            end
-            publisherPointPositionCtrl = nil
             ros.ERROR('command is not valid!!!')
             return false, 'command is not valid!!!'
         end
+    elseif self.CONVERGED and publisherPointPositionCtrl ~= nil then
+        -- Repeat last position command to prevent robot driver from going into idle state
+        sendPositionCommand(self.lastCommandJointPositons, torch.zeros(q_dot:size()), group, duration)
     end
 
     if self.debug then
@@ -265,7 +252,7 @@ function JointJoggingController:tracking(q_dot, duration)
     else
         self.CONVERGED = false
         self.FIRSTPOINT = false
-        ros.WARN('tracking is NOT CONVERGED')
+        --ros.WARN('tracking is NOT CONVERGED')
     end
     return true, 'success'
 end
@@ -274,24 +261,22 @@ function JointJoggingController:getNewRobotState()
     local p, l = self.joint_monitor:getNextPositionsTensor(self.dt * 2)
     self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
     self.lastCommandJointPositons:copy(p)
+    self.state:update()
 end
 
 function JointJoggingController:update()
-    self:getNewRobotState()
-
     if self.CONVERGED then
         self.start_time = ros.Time.now()
-        self:getNewRobotState()
     else
-        self.state:setVariablePositions(self.lastCommandJointPositons, self.joint_monitor:getJointNames())
-        self.state:update()
+        local p = self.joint_monitor:getPositionsTensor(self.joint_monitor:getJointNames())
+        self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
     end
 
     self:updateDeltaT()
 
     local succ, msg = true, 'IDLE'
-    if self.new_message and ros.ok() then
-        ros.INFO('New message lock resource')
+    if ros.ok() then
+        --ros.INFO('New message lock resource')
         if self.resource_lock == nil then
             self.resource_lock = self.lock_client:lock(self.state:getVariableNames())
         else
@@ -302,14 +287,13 @@ function JointJoggingController:update()
         end
 
         if self.resource_lock.success then
-            ros.INFO('Lock resource successful')
+            --ros.INFO('Lock resource successful')
             succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)
         else
             ros.WARN('Lock resource unsuccessful')
             self.resource_lock = nil
         end
         self.lastCommandJointVelocity:zero()
-        self.new_message = false
     else
         if self.resource_lock ~= nil then
             local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
@@ -347,7 +331,12 @@ function JointJoggingController:reset(timeout)
     self.joint_monitor = core.JointMonitor(self.move_group:getActiveJoints():totable())
     self.positionNameMap = createVariableNameMap(self)
     self.time_last = ros.Time.now()
-    return self.joint_monitor:waitReady(timeout or ros.Duration(0.1))
+    if not self.joint_monitor:waitReady(timeout or ros.Duration(0.1)) then
+        return false
+    end
+    self:getNewRobotState()
+
+    return true
 end
 
 function JointJoggingController:setSpeed(speed)
