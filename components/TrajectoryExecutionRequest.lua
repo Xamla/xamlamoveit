@@ -4,6 +4,7 @@ local components = require 'xamlamoveit.components.env'
 local TrajectoryExecutionRequest = torch.class('xamlamoveit.components.TrajectoryExecutionRequest', components)
 
 local GoalStatus = require 'ros.actionlib.GoalStatus'
+local epsilon = 1e-3;
 
 local errorCodes = {
     SUCCESS = 1,
@@ -113,7 +114,8 @@ function TrajectoryExecutionRequest:proceed()
             local traj = self.goal.goal.trajectory
             local index = 1
             local dist_to_start = (traj.points[index].positions - p):norm()
-            if dist_to_start == 0 then
+            if dist_to_start <= epsilon then
+                ros.INFO('Set starttime to now')
                 self.starttime = now
             else
                 self.starttime_debug = now
