@@ -404,23 +404,27 @@ local function dispatchTrajectory(self)
                     traj.id_lock = id_lock
                 end
             end
-            if self.execution_duration_monitoring ~= nil and traj.duration ~= nil then
-                if d > traj.duration * self.allowed_execution_duration_scaling then
-                    if checkConvergence(traj.manipulator:getCurrentState(), traj.target, traj.jointNames) then
-                        status = self.errorCodes.SUCCESSFUL
-                    else
+
+            if traj.duration == nil then
+                error('Trajectory duration field must not be nil.')
+            end
+
+            if d > traj.duration then
+                if checkConvergence(traj.manipulator:getCurrentState(), traj.target, traj.jointNames) then
+                    status = self.errorCodes.SUCCESSFUL
+                elseif self.execution_duration_monitoring == true then
+                    if d > traj.duration * self.allowed_execution_duration_scaling then
                         status = self.errorCodes.ABORT
                     end
                 end
-
-                if suc == false then
-                    status = self.errorCodes.ABORT
-                    ros.ERROR('Stop plan execution. Lock failed.')
-                    self:cancelCurrentPlan('Stop plan execution. Lock failed.')
-                end
-            else
-                error('important parameter were not set')
             end
+
+            if suc == false then
+                status = self.errorCodes.ABORT
+                ros.ERROR('Stop plan execution. Lock failed.')
+                self:cancelCurrentPlan('Stop plan execution. Lock failed.')
+            end
+
             -- check if trajectory execution is still desired (e.g. not canceled)
             if traj:proceed() == false then
                 -- robot not ready or proceed callback returned false
