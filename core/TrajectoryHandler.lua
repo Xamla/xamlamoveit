@@ -40,8 +40,6 @@ function TrajectoryHandler:cancel()
     end
 end
 
-
-
 local function reachedGoal(self)
     local state_pos = self.traj.joint_monitor:getNextPositionsTensor()
     local feedback_idx = {}

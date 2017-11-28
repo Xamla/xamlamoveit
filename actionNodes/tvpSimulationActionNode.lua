@@ -145,7 +145,6 @@ local function moveJAction_serverGoal(global_state_summary, goal_handle, joint_m
         end,
         proceed = function()
             if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
-
                 return true
             else
                 ros.WARN(
@@ -611,7 +610,7 @@ local function simulation()
         if error_state == false then
             if initialized == false then
                 xutils.tic('Initialize')
-                ros.INFO('Reinizialise')
+                ros.INFO('Reinitializing...')
                 dt = init()
                 heartbeat:updateStatus(heartbeat.GO, '')
                 initialized = true

@@ -1,6 +1,10 @@
 local ros = require 'ros'
 local TrajectoryHandler = require 'xamlamoveit.core.TrajectoryHandler'
 
+local DEFAULT_SERVO_TIME = 0.008
+local DEFAULT_MAX_IDLE_CYCLES = 250                 -- number of cycles before simulated reverse connection disconnects
+local DEFAULT_REVERSE_CONNECTION_DELAY = 0.3        -- delay in seconds (e.g. to simulate script upload to UR)
+
 local TrajectoryHandlerStatus = {
     ProtocolError = -3,
     ConnectionLost = -2,
@@ -25,7 +29,9 @@ errorCodes.ABORT = -2
 errorCodes.NO_IK_FOUND = -3
 errorCodes.INVALID_LINK_NAME = -4
 
+--- SimulationConnection class
 local SimulationConnection = torch.class('SimulationConnection')
+
 function SimulationConnection:__init(nh, logger)
     self.nodehandle = nh
     self.joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
@@ -61,8 +67,8 @@ end
 
 function SimulationConnection:cancel()
 end
-----
 
+--- GenerativeSimulationWorker class
 local GenerativeSimulationWorker = torch.class('GenerativeSimulationWorker')
 
 function GenerativeSimulationWorker:__init(nh)
@@ -71,7 +77,11 @@ function GenerativeSimulationWorker:__init(nh)
     self.nodehandle = nh
     self.errorCodes = errorCodes
     self.logger = logger
-    self.servoTime = 0.008
+    self.servoTime = DEFAULT_SERVO_TIME
+    self.reverseConnectionDelay = DEFAULT_REVERSE_CONNECTION_DELAY
+    self.idleCycles = 0
+    self.maxIdleCycles = DEFAULT_MAX_IDLE_CYCLES
+    self.reverseConnectionEstablished = false
     self.reverseConnection = SimulationConnection.new(nh, logger)
 end
 
@@ -149,6 +159,16 @@ end
 local function dispatchTrajectory(self)
     if self.currentTrajectory == nil then
         if #self.trajectoryQueue > 0 then -- check if new trajectory is available
+
+            -- simulate reverse connection delay
+            if not self.reverseConnectionEstablished then
+                if self.reverseConnectionDelay > 0 then
+                    sys.sleep(self.reverseConnectionDelay)      -- sleep (simulate blocking accept call in UR driver)
+                end
+                self.reverseConnectionEstablished = true
+                self.idleCycles = 0
+            end
+
             while #self.trajectoryQueue > 0 do
                 local traj = table.remove(self.trajectoryQueue, 1)
                 if traj.accept == nil or traj:accept() then -- call optional accept callback
@@ -185,6 +205,8 @@ local function dispatchTrajectory(self)
 
         -- check if trajectory execution is still desired (e.g. not canceled)
         if (traj.proceed == nil or traj:proceed()) then
+            self.idleCycles = 0     -- reset idle counter
+
             -- execute main update call
             local ok,
                 err =
@@ -212,6 +234,12 @@ local function dispatchTrajectory(self)
             -- robot not ready or proceed callback returned false
             self:cancelCurrentTrajectory('Robot not ready or proceed callback returned false.')
         end
+    else
+        self.idleCycles = self.idleCycles + 1
+        if self.reverseConnectionEstablished and self.idleCycles > self.maxIdleCycles then
+            self.logger.info('[GenerativeSimulationWorker] Robot was idle for %d cycles. Closing reverse connection.', self.idleCycles)
+            self.reverseConnectionEstablished = false
+        end
     end
 end
 
@@ -220,13 +248,13 @@ local function workerCore(self)
 end
 
 function GenerativeSimulationWorker:spin()
-    local ok,
-        err =
+    local ok, err =
         pcall(
-        function()
-            workerCore(self)
-        end
-    )
+            function()
+                workerCore(self)
+            end
+        )
+
     -- abort current trajectory
     if (not ok) and self.currentPlan then
         local traj = self.currentPlan.traj

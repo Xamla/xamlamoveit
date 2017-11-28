@@ -1,6 +1,7 @@
 #!/usr/bin/env th
 local torch = require 'torch'
 local ros = require 'ros'
+local xamla_sysmon = require 'xamla_sysmon'
 local xamlamoveit = require 'xamlamoveit'
 local core = xamlamoveit.core
 local xutils = xamlamoveit.xutils
@@ -15,8 +16,6 @@ local joint_sensor_spec = ros.MsgSpec('sensor_msgs/JointState')
 local joint_msg = ros.Message(joint_sensor_spec)
 
 local subscriber
-
-local xamla_sysmon = require 'xamla_sysmon'
 
 -- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryResult.html
 local TrajectoryResultStatus = {
@@ -177,8 +176,8 @@ local function initControllers(delay, dt)
 end
 
 local cmd = torch.CmdLine()
-cmd:option('-delay', 0.150, 'Feedback delay time in ms')
-cmd:option('-frequency', 0.008, 'Node cycle time in ms')
+cmd:option('-delay', 0.150, 'Feedback delay time in s')
+cmd:option('-frequency', 0.008, 'Node cycle time in s')
 
 local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
 initSetup(parameter['__name']) -- TODO
@@ -186,6 +185,7 @@ initSetup(parameter['__name']) -- TODO
 local joint_state_publisher
 local sim_seq = 1
 local offset
+
 local function sendJointState(position, velocity, joint_names, sequence)
     local m = ros.Message(joint_sensor_spec)
     m.header.seq = sequence
@@ -236,7 +236,11 @@ local function simulation(delay, dt)
     dt:reset()
     local global_state_summary = sysmon_watch:getGlobalStateSummary()
     local dependencies_are_no_go = global_state_summary.no_go and not global_state_summary.only_secondary_error
+
+    -- main simulation loop
     while ros.ok() do
+
+        -- check if we are running with an acceptable rate
         if not timeout_error and dt:expectedCycleTime():toSec() * 2 <= dt:cycleTime():toSec() then
             local err =
                 string.format(
@@ -265,16 +269,19 @@ local function simulation(delay, dt)
             if initialized == false then
                 sim_seq = 1
                 xutils.tic('Initialize')
-                ros.INFO('Reinizialise')
+                ros.INFO('Reinitializing...')
                 heartbeat:updateStatus(heartbeat.GO, '')
-                last_command_joint_position:copy(controller.state.pos)
+                last_command_joint_position:copy(controller.state.pos)      -- begin with current controller state
                 --controller.state.pos:copy(last_command_joint_position)
                 initialized = true
                 xutils.toc('Initialize')
                 dt:reset()
             end
+
+            -- main update controller
             controller:update(last_command_joint_position, dt:expectedCycleTime():toSec())
             --controller:update(last_command_joint_position, ros.Time.now():toSec() - last_command_time:toSec())
+
             ros.DEBUG('latency: %f', ros.Time.now():toSec() - last_command_time:toSec())
         else
             if initialized then
@@ -284,6 +291,8 @@ local function simulation(delay, dt)
             if heartbeat:getStatus() == heartbeat.GO then
                 heartbeat:updateStatus(heartbeat.SECONDARY_ERROR, '')
             end
+
+            -- stay at current position
             controller:update(controller.state.pos, dt:expectedCycleTime():toSec())
         end
 

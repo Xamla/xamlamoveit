@@ -1,10 +1,9 @@
 local ros = require 'ros'
-
 local components = require 'xamlamoveit.components.env'
-local TrajectoryExecutionRequest = torch.class('xamlamoveit.components.TrajectoryExecutionRequest', components)
-
 local GoalStatus = require 'ros.actionlib.GoalStatus'
 local epsilon = 1e-3;
+
+local TrajectoryExecutionRequest = torch.class('xamlamoveit.components.TrajectoryExecutionRequest', components)
 
 local errorCodes = {
     SUCCESS = 1,
@@ -32,6 +31,7 @@ local errorCodes = {
     SENSOR_INFO_STALE = -24,
     NO_IK_SOLUTION = -31
 }
+
 -- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryResult.html
 local TrajectoryResultStatus = {
     SUCCESSFUL = 0,
@@ -41,22 +41,6 @@ local TrajectoryResultStatus = {
     PATH_TOLERANCE_VIOLATED = -4,
     GOAL_TOLERANCE_VIOLATED = -5
 }
-
-local function checkConvergence(cq, target, jointNames)
-    local fullJointStateNames = cq:getVariableNames()
-    local currrentPosition = cq:getVariablePositions()
-    local sum = 0
-    for i, v in ipairs(jointNames) do
-        if v == fullJointStateNames[i] then
-            sum = sum + math.abs(target[i] - currrentPosition[i])
-        end
-    end
-    if (sum / #jointNames) < 1e-4 then
-        return true
-    else
-        return false
-    end
-end
 
 function TrajectoryExecutionRequest:__init(goal_handle)
     self.starttime = ros.Time.now()
@@ -99,7 +83,6 @@ local function interpolateCubic(t, t0, t1, p0, p1, v0, v1)
     return pos, vel
 end
 
-
 function TrajectoryExecutionRequest:proceed()
     ros.DEBUG('proceed')
     if self.goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
@@ -120,18 +103,17 @@ function TrajectoryExecutionRequest:proceed()
             else
                 self.starttime_debug = now
             end
+
             local t = now - self.starttime
             if t < ros.Duration(0) then
                 t = ros.Duration(0)
-
             end
 
-            while traj.points[index].time_from_start:toSec() < t:toSec() and index < #traj.points do
+            -- linear search for last point < t, increment index when t is greater than next (index+1) point's time_from_start
+            while index < #traj.points and t:toSec() >= traj.points[index+1].time_from_start:toSec() do
                 index = index + 1
             end
-            --if traj.points[index].time_from_start:toSec() > t:toSec() then
-            --    index = index -1
-            --end
+
             local k = math.min(index + 1, #traj.points)
             local t0, t1 = traj.points[index].time_from_start:toSec(), traj.points[k].time_from_start:toSec()
             local p0, v0 = traj.points[index].positions, traj.points[index].velocities
@@ -159,7 +141,7 @@ function TrajectoryExecutionRequest:proceed()
                 self.status = errorCodes.SUCCESS
             end
         end
-        ros.DEBUG('moveing')
+        ros.DEBUG('moving')
         return true
     else
         ros.WARN(
