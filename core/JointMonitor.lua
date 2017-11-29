@@ -145,6 +145,28 @@ function JointMonitor:getPositions(target_joint_names)
     return pos, max_latency
 end
 
+function JointMonitor:getPositionsOrdered(target_joint_names)
+    local target_joint_names = target_joint_names or self.joint_names
+    local now = ros.Time.now()
+    local pos = {}
+    local max_latency = ros.Duration(0)
+
+    for i, v in ipairs(target_joint_names) do
+        assert(self.joint_status[v] ~= nil, 'Could not find joint: ' .. v)
+
+        local latency = now - self.joint_status[v][2]
+        if latency > max_latency then
+            max_latency = latency
+        end
+        if latency > self.joint_timeout then
+            ros.ERROR(string.format("joint timeout: '%s' was last updated %fs ago.", v, latency:toSec()))
+        end
+        pos[#pos + 1] = self.joint_status[v][1]
+        assert(pos[#pos] ~= nil, string.format("Position value of joint '%s' is invalid.", v))
+    end
+    return pos, max_latency
+end
+
 -- Get joint position values in the order of the joint_names list used to initialize the JointMonitor.
 function JointMonitor:getPositionsUnchecked()
     local pos = {}
@@ -159,14 +181,24 @@ function JointMonitor:getPositionsTensor(target_joint_names)
     return torch.DoubleTensor({p}):squeeze(1), l
 end
 
+function JointMonitor:getPositionsOrderedTensor(target_joint_names)
+    local p, l = self:getPositionsOrdered(target_joint_names)
+    return torch.DoubleTensor({p}):squeeze(1), l
+end
+
 function JointMonitor:getNextPositions(timeout)
     self:waitForNextState(timeout)
     return self:getPositions()
 end
 
-function JointMonitor:getNextPositionsTensor(timeout,target_joint_names)
+function JointMonitor:getNextPositionsTensor(timeout, target_joint_names)
     self:waitForNextState(timeout)
     return self:getPositionsTensor(target_joint_names)
+end
+
+function JointMonitor:getNextPositionsOrderedTensor(timeout, target_joint_names)
+    self:waitForNextState(timeout)
+    return self:getPositionsOrderedTensor(target_joint_names)
 end
 
 function JointMonitor:getTimestamps()
