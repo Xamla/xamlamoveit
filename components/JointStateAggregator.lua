@@ -2,8 +2,8 @@ local ros = require 'ros'
 local moveit = require 'moveit'
 local JointMonitor = require 'xamlamoveit.core'.JointMonitor
 local components = require 'xamlamoveit.components.env'
-local JointStateAggregator,
-    parent =
+
+local JointStateAggregator, parent =
     torch.class('xamlamoveit.components.JointStateAggregator', 'xamlamoveit.components.RosComponent', components)
 
 local joint_state_spec = ros.MsgSpec('sensor_msgs/JointState')

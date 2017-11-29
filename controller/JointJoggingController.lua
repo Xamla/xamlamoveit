@@ -17,7 +17,24 @@ function jointCommandCb(self, msg, header)
                 self.lastCommandJointVelocity[self.positionNameMap[name]] = msg.points[1].velocities[i]
             end
         end
-        self.seq = self.seq + 1
+    end
+end
+
+function setpointCommandCb(self, msg, header)
+    if #msg.points > 0 then
+        if self.lastCommandSetpoint == nil then
+            self.lastCommandSetpoint = self.joint_monitor:getPositionsOrderedTensor(self.joint_names)
+        end
+        print('---', msg)
+        print('---', self.lastCommandSetpoint)
+        for i, name in ipairs(msg.joint_names) do
+            local index = table.indexof(self.joint_names, name)
+            if index > -1 then
+                print(index)
+                local t = msg.points[1].positions[i]
+                self.lastCommandSetpoint[index] = t
+            end
+        end
     end
 end
 
@@ -75,8 +92,10 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
     self.q_des = nil
     self.move_group = move_group or error('move_group should not be nil')
     self.state = move_group:getCurrentState()
+    self.joint_names = self.state:getVariableNames()
     self.lastCommandJointPositons = self.state:copyJointGroupPositions(move_group:getName()):clone()
     self.lastCommandJointVelocity = torch.zeros(self.lastCommandJointPositons:size())
+    self.lastCommandSetpoint = nil
     self.joint_monitor = core.JointMonitor(move_group:getActiveJoints():totable())
     self.positionNameMap = createVariableNameMap(self)
     self.time_last = ros.Time.now()
@@ -97,7 +116,6 @@ function JointJoggingController:__init(node_handle, move_group, ctr_name, dt, de
     BEGIN_EXECUTION = ros.Time.now()
 
     self.controller_name = ctr_name or 'pos_based_pos_traj_controller'
-    self.seq = 1
 
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.kinematic_model = self.robot_model_loader:getModel()
@@ -155,7 +173,7 @@ function JointJoggingController:isValid(q_des, q_curr) -- avoid large jumps in p
     return diff < 1
 end
 
-function JointJoggingController:connect(topic, timeout)
+function JointJoggingController:connect(incremental_topic, setpoint_topic, timeout)
     local timeout = timeout
     if torch.type(timeout) == 'number' or torch.type(timeout) == 'nil' then
         timeout = ros.Duration(timeout)
@@ -166,14 +184,21 @@ function JointJoggingController:connect(topic, timeout)
         error('dt has unsupported type')
     end
 
-    local topic = topic or 'joy'
-    self.subscriber_jog = self.nh:subscribe(topic, joint_pos_spec, 1)
+    self.subscriber_jog = self.nh:subscribe(incremental_topic, joint_pos_spec, 1)
     self.subscriber_jog:registerCallback(
         function(msg, header)
             jointCommandCb(self, msg, header)
         end
     )
-    ros.INFO(string.format("Subscribed to '%s' node. Please start using your jogging device.", topic))
+
+    self.subscriber_setpoint = self.nh:subscribe(setpoint_topic, joint_pos_spec, 1)
+    self.subscriber_setpoint:registerCallback(
+        function(msg, header)
+            setpointCommandCb(self, msg, header)
+        end
+    )
+
+    ros.INFO(string.format("Subscribed to '%s' node. Please start using your jogging device.", incremental_topic))
     local ready = self.joint_monitor:waitReady()
     if not ready then
         return false, 'Could not collect joint states'
@@ -257,6 +282,25 @@ function JointJoggingController:tracking(q_dot, duration)
     return true, 'success'
 end
 
+function JointJoggingController:setpointTracking(setpoint, duration)
+    if type(duration) == 'number' then
+        duration = ros.Duration(duration)
+    end
+    duration = duration or ros.Time.now() - BEGIN_EXECUTION
+
+    local current_joint_positions = self.joint_monitor:getPositionsOrderedTensor(self.joint_names)
+    if self:isValid(setpoint, current_joint_positions) then
+        sendPositionCommand(setpoint, torch.zeros(setpoint:size()), self.move_group, duration)
+        self.lastCommandJointPositons:copy(setpoint)
+        self.lastCommandJointVelocity:zero()
+        self.FIRSTPOINT = true
+    else
+        return false, 'Command is not valid.'
+    end
+
+    return true, 'success'
+end
+
 function JointJoggingController:getNewRobotState()
     local p, l = self.joint_monitor:getNextPositionsTensor(self.dt * 2)
     self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
@@ -288,7 +332,12 @@ function JointJoggingController:update()
 
         if self.resource_lock.success then
             --ros.INFO('Lock resource successful')
-            succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)
+            if self.lastCommandSetpoint ~= nil then
+                succ, msg = self:setpointTracking(self.lastCommandSetpoint, self.dt)
+                self.lastCommandSetpoint = nil
+            else
+                succ, msg = self:tracking(self.lastCommandJointVelocity:clone(), self.dt)
+            end
         else
             ros.WARN('Lock resource unsuccessful')
             self.resource_lock = nil
@@ -325,6 +374,7 @@ end
 
 function JointJoggingController:reset(timeout)
     self.state = self.move_group:getCurrentState()
+    self.joint_names = self.state:getVariableNames()
     self.lastCommandJointPositons = self.state:copyJointGroupPositions(self.move_group:getName()):clone()
     self.lastCommandJointVelocity = self.lastCommandJointPositons:clone():zero()
     self.joint_monitor:shutdown()
