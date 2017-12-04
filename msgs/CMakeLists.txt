@@ -56,6 +56,7 @@ add_message_files(
 #	XamlaGripper.msg
   MoveGroupInterfaceDescription.msg
   ComponentState.msg
+  ControllerState.msg
   JointPathPoint.msg
 )
 

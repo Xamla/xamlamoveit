@@ -316,8 +316,6 @@ function JointJoggingController:update()
         self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
     end
 
-    self:updateDeltaT()
-
     local succ, msg = true, 'IDLE'
     if ros.ok() then
         --ros.INFO('New message lock resource')
