@@ -105,30 +105,6 @@ local function getMoveGroupHandler(request, response, header)
     return true
 end
 
-local function setControllerNameHandler(request, response, header)
-    local new_controller_name = request.data
-    if new_controller_name == nil or new_controller_name == "" then
-        response.success = false
-        response.message = "string is empty"
-    end
-    stopJogging()
-    cntr.controller_name = new_controller_name
-    cntr.robotControllerTopic =  string.format('/%s/joint_command', cntr.controller_name)
-    response.success = true
-    response.message = "Success"
-    return true
-end
-
-local function getControllerNameHandler(request, response, header)
-    local name = cntr.controller_name
-    if name then
-        response.selected = name
-    else
-        response.selected = ""
-    end
-    return true
-end
-
 local function startStopHandler(request, response, header)
     local startStop = request.data
     if startStop == nil then
@@ -148,39 +124,36 @@ local function startStopHandler(request, response, header)
 end
 
 local function getVelocityLimitsHandler(request, response, header)
-    response.data = cntr.velocity_scaling
+    response.data = cntr.speed_scaling
     return true
 end
 
 local function setVelocityLimitsHandler(request, response, header)
     local scaling = request.data
     scaling = math.min(1.0,math.max(0,scaling))
-    cntr.velocity_scaling = scaling
+    cntr.speed_scaling = scaling
     response.success = true
     response.message = "Scaling set to " .. scaling
     return true
 end
 
 local function getStatusHandler(request, response, header)
+    ros.INFO("getStatusHandler")
     response.is_running = run
     response.move_group_name = cntr.move_group:getName()
     response.joint_names = cntr.joint_monitor:getJointNames()
-    response.out_topic = cntr:getOutTopic()
-    response.in_topic = cntr:getInTopic()
-    response.status_message_tracking = last_status_message_tracking
+    response.out_topic = ""--cntr:getOutTopic()[1]
+    response.in_topic = ""--cntr:getInTopic()[1]
+    response.status_message_tracking = tostring(last_status_message_tracking)
     return true
 end
 
-local function joggingJoystickServer(name)
-    initSetup(name or "joggingJoystickServer")
+local function joggingServer(name)
+    initSetup(name or "joggingServer")
     local nh = node_handle
     local ns = nh:getNamespace()
     local psi = moveit.PlanningSceneInterface()
     local dt = ros.Duration(1 / 125)
-    local controller_name, succ = nh:getParamString("controller_name")
-    if not succ then
-        controller_name = "sda10d"
-    end
     local robot_model_loader = moveit.RobotModelLoader("robot_description")
     local robot_model = robot_model_loader:getModel()
 
@@ -190,8 +163,8 @@ local function joggingJoystickServer(name)
     if not succ or (table.indexof(all_group_joint_names, planningGroup or "") < 0) then
         planningGroup = all_group_joint_names[1]
     end
-
-    cntr = controller.JointJoggingController(nh, moveit.MoveGroupInterface(planningGroup), controller_name, dt)
+    local config = nh:getParamVariable(string.format('%s/controller_list', nh:getNamespace()))
+    cntr = controller.JoggingControllerOpenLoop(nh, moveit.MoveGroupInterface(planningGroup), config, dt)
     ---Services
     --set_limits
     set_limits_server = nh:advertiseService("set_velocity_scaling", set_float_spec, setVelocityLimitsHandler)
@@ -199,9 +172,6 @@ local function joggingJoystickServer(name)
     --set_movegroup
     set_movegroup_server = nh:advertiseService("set_movegroup_name", set_string_spec, setMoveGroupHandler)
     get_movegroup_server = nh:advertiseService("get_movegroup_name", get_string_spec, getMoveGroupHandler)
-
-    set_controller_name_server = nh:advertiseService("set_controller_name", set_string_spec, setControllerNameHandler)
-    get_controller_name_server = nh:advertiseService("get_controller_name", get_string_spec, getControllerNameHandler)
 
     start_stop_server = nh:advertiseService("start_stop_tracking", set_bool_spec, startStopHandler)
     --status
@@ -211,6 +181,9 @@ local function joggingJoystickServer(name)
         dt:sleep()
         ros.spinOnce()
     end
+
+
+    print(config)
     local idle_dt = ros.Rate(10)
     local success = true
     while ros.ok() do
@@ -224,7 +197,7 @@ local function joggingJoystickServer(name)
             ros.DEBUG("RUNNING")
             success, last_status_message_tracking = cntr:update()
             if not success then
-                ros.WARN(last_status_message_tracking)
+                ros.WARN(tostring(last_status_message_tracking))
                 success = true -- one warning should be fine
             end
         else
@@ -238,4 +211,4 @@ end
 
 local result = xutils.parseRosParametersFromCommandLine(arg) or {}
 
-joggingJoystickServer(result["__name"])
+joggingServer(result["__name"])

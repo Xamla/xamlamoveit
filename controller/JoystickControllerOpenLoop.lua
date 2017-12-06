@@ -359,7 +359,6 @@ function JoystickControllerOpenLoop:tracking(q_dot, duration)
             end
             self.lastCommandJointPositons:copy(q_des)
         else
-            --os.exit()
             if publisherPointPositionCtrl then
                 publisherPointPositionCtrl:shutdown()
             end

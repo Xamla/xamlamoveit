@@ -40,6 +40,7 @@ function JointSet:isSubset(other)
   assert(torch.type(other) == 'JointSet')
   return table.isSubset(self.joint_names, other.joint_names)
 end
+
 function JointSet:isSimilar(other)
   assert(torch.type(other) == 'JointSet')
   return table.isSimilar(self.joint_names, other.joint_names)
@@ -67,6 +68,11 @@ end
 
 function JointSet:count()
   return #self.joint_names
+end
+
+
+function JointSet:clone()
+  return JointSet.new(self.joint_names)
 end
 
 function JointSet:__tostring()

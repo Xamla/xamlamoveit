@@ -18,11 +18,32 @@ function JointValues:__init(joint_set, values)
 end
 
 function JointValues:getValue(name)
-    return self.joint_set:getValue(name)
+    return self.values[self.joint_set:getIndexOf(name)]
+end
+
+function JointValues:setValue(name, value)
+    self.values[self.joint_set:getIndexOf(name)] = value
+end
+
+function JointValues:setValues(names, values)
+    for i, v in ipairs(names) do
+        self.values[self.joint_set:getIndexOf(v)] = values[i]
+    end
 end
 
 function JointValues:getNames()
     return self.joint_set.joint_names
+end
+
+function JointValues:add(other)
+    assert(other.joint_set:count() == self.joint_set:count())
+    for i, v in ipairs(self:getNames()) do
+        self.values[i] = self.values[i] + other:getValue(v)
+    end
+end
+
+function JointValues:clone()
+    return JointValues.new(self.joint_set:clone(), self.values:clone())
 end
 
 return JointValues
