@@ -15,6 +15,7 @@ function TvpController:__init(dim)
     self.max_acc = torch.ones(dim) * math.pi
     self.last_update = nil
     self.scale = nil
+    self.converged = true
 end
 
 function TvpController:update(target, dt)
@@ -24,7 +25,8 @@ function TvpController:update(target, dt)
     -- calc time to reach target with max acceleration in decelerating phase
     local distance_to_go = target - self.state.pos
     local time_to_target = torch.sqrt(torch.abs(distance_to_go):cdiv(self.max_acc)) * 2  -- solve s=1/2 * a * t^2 for t
-
+    self.converged = distance_to_go:norm() < 1e-4
+    ---print("distance_to_go:norm()", distance_to_go:norm())
     -- scale to discrete timesteps
     local real_time_to_target = torch.ceil(time_to_target / dt) * dt
 

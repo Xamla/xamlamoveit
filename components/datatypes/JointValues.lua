@@ -36,9 +36,21 @@ function JointValues:getNames()
 end
 
 function JointValues:add(other)
+    if other.joint_set:count() < self.joint_set:count() then
+        for i, v in ipairs(other:getNames()) do
+            self:setValue(v,self:getValue(v) + other.values[i])
+        end
+    else
+        for i, v in ipairs(self:getNames()) do
+            self.values[i] = self.values[i] + other:getValue(v)
+        end
+    end
+end
+
+function JointValues:sub(other)
     assert(other.joint_set:count() == self.joint_set:count())
     for i, v in ipairs(self:getNames()) do
-        self.values[i] = self.values[i] + other:getValue(v)
+        self.values[i] = self.values[i] - other:getValue(v)
     end
 end
 

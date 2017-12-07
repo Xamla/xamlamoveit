@@ -1,9 +1,6 @@
-local Controller = require 'xamlamoveit.controller'
 local ros = require 'ros'
-tf = ros.tf
 local moveit = require 'moveit'
 local xutils = require 'xamlamoveit.xutils'
-local printf = xutils.printf
 local joint_traj_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 local joint_point_spec = ros.MsgSpec('trajectory_msgs/JointTrajectoryPoint')
 
@@ -69,13 +66,13 @@ function main()
     local nodehandle = ros.NodeHandle()
     local sp = ros.AsyncSpinner() -- background job
     sp:start()
-
-    local moveGroup, psi = initializeMoveIt('/sda10d/sda10d_r1_controller')
-    local myTopic = '/xamlaJointJogging/jogging_command'
+    local jogging_nodename = 'xamlaJointJogging'
+    local moveGroup, psi = initializeMoveIt('controller')
+    local myTopic = string.format('/%s/jogging_command', jogging_nodename)
     local publisherPointPositionCtrl = nodehandle:advertise(myTopic, joint_traj_spec)
     local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
     local start_stop_controll_client =
-        nodehandle:serviceClient('/joggingJoystickServer/start_stop_tracking', set_bool_spec)
+        nodehandle:serviceClient(string.format('/%s/start_stop_tracking', jogging_nodename), set_bool_spec)
 
     local names = std.StringVector()
     moveGroup:getActiveJoints(names)
@@ -83,7 +80,7 @@ function main()
 
     local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
 
-    local stepSize = 0.01 --rad/s
+    local stepSize = 1 --0.01 --rad/s
     local q_dot = torch.zeros(1)
     local input = ''
     while input ~= 'q' do
