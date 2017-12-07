@@ -201,6 +201,7 @@ local function joggingServer(name)
                 success = true -- one warning should be fine
             end
         else
+            cntr:releaseResources()
             idle_dt:sleep()
         end
         dt:sleep()

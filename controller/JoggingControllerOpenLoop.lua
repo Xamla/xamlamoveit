@@ -102,8 +102,8 @@ local function sendPositionCommand(self, q_des, q_dot, names)
                 m.joint_names[ii] = names[ii]
             end
             mPoint.positions:set(q_des)
-            mPoint.velocities:set(q_dot) --TODO this is probably not optimal.
-            mPoint.time_from_start = ros.Time.now() - BEGIN_EXECUTION
+            -- mPoint.velocities:set(q_dot) --TODO this is probably not optimal.
+            mPoint.time_from_start = ros.Duration(0.0)
             m.points = {mPoint}
             publisherPointPositionCtrl[v.name]:publish(m)
             ros.INFO('sendPositionCommand to: ' .. publisherPointPositionCtrl[v.name]:getTopic())
@@ -189,7 +189,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     )
     self.current_pose = self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
     self.target_pose = self.state:getGlobalLinkTransform(self.move_group:getEndEffectorLink())
-    self.timeout = ros.Duration(10.5)
+    self.timeout = ros.Duration(0.5)
     self.controller = tvpController.new(#self.joint_set.joint_names)
     transformListener = tf.TransformListener()
 end
@@ -374,7 +374,7 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
         duration = ros.Duration(duration)
     end
 
-    duration = duration or ros.Time.now() - BEGIN_EXECUTION
+    duration = ros.Duration(0.0)
     local state = self.state:clone()
     --scaleJointVelocity(q_dot, self.max_vel)
 
@@ -516,10 +516,8 @@ function JoggingControllerOpenLoop:update()
         ros.INFO('NOT CONVERGED')
     else
         self.mode = 0
-        if self.resource_lock ~= nil then
-            self.lock_client:release(self.resource_lock)
-            self.resource_lock = nil
-        end
+        self:tracking(self.lastCommandJointPositions:clone())
+        sendFeedback(self)
     end
 
     return true, status_msg
@@ -550,6 +548,13 @@ function JoggingControllerOpenLoop:reset(timeout)
         return true
     end
     return false
+end
+
+function JoggingControllerOpenLoop:releaseResources()
+    if self.resource_lock ~= nil then
+        self.lock_client:release(self.resource_lock)
+        self.resource_lock = nil
+    end
 end
 
 function JoggingControllerOpenLoop:setMoveGroupInterface(name)
