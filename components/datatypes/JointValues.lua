@@ -1,5 +1,5 @@
 local datatypes = require 'xamlamoveit.components.datatypes.env'
-require 'xamlamoveit.components.datatypes.JointSet'
+local js = require 'xamlamoveit.components.datatypes.JointSet'
 
 local JointValues = torch.class('xamlamoveit.components.datatypes.JointValues', datatypes)
 
@@ -52,6 +52,15 @@ function JointValues:sub(other)
     for i, v in ipairs(self:getNames()) do
         self.values[i] = self.values[i] - other:getValue(v)
     end
+end
+
+function JointValues:select(names)
+    local tmp_jointset = js.new(names)
+    local values = torch.zeros(#names)
+    for i,v in ipairs(names) do
+        values[i] = self:getValue(v)
+    end
+    return JointValues.new(tmp_jointset, values)
 end
 
 function JointValues:clone()

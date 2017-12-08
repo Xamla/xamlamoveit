@@ -182,8 +182,6 @@ local function joggingServer(name)
         ros.spinOnce()
     end
 
-
-    print(config)
     local idle_dt = ros.Rate(10)
     local success = true
     while ros.ok() do
