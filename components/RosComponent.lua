@@ -5,8 +5,6 @@ local xamal_sysmon = require 'xamla_sysmon'
 local components = require 'xamlamoveit.components.env'
 local RosComponent = torch.class('xamlamoveit.components.RosComponent',components)
 
-local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetComponentState')
-
 function RosComponent:__init()
     self.all_states = circle_states
     self.current_state = circle_states.IDLE
