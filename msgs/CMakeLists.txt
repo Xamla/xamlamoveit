@@ -71,7 +71,6 @@ add_service_files(
    GetCurrentJointState.srv
    GetOptimJointTrajectory.srv
    GetMoveItJointPath.srv
-   GetComponentState.srv
    QueryLock.srv
    QueryJointStateCollisions.srv
    GetIKSolution.srv
