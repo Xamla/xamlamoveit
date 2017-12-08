@@ -53,7 +53,7 @@ function Weiss50ModelXamla:connect(namespace, actionname)
     self.gripperServices.wsgGrasp =
         nodehandle:serviceClient(string.format("/%s/grasp", namespace), "wsg_50_common/Move")
     ros.INFO("Try to connect Homing")
-    self.gripperServices.wsgHoming = nodehandle:serviceClient(string.format("/%s/homing", namespace), "std_srvs/Empty")
+    self.gripperServices.wsgHoming = nodehandle:serviceClient(string.format("homing", namespace), "std_srvs/Empty")
     ros.INFO("Try to connect Move")
     self.gripperServices.wsgMove = nodehandle:serviceClient(string.format("/%s/move", namespace), "wsg_50_common/Move")
     ros.INFO("Try to connect Move_incrementally")
@@ -103,6 +103,43 @@ end
 function Weiss50ModelXamla:resetViaAction(execute_timeout, preempt_timeout)
     ros.WARN("[Weiss50ModelXamla:resetViaAction] Not implemented")
     return false
+end
+
+function Weiss50ModelXamla:homingViaAction(execute_timeout, preempt_timeout)
+
+    if not self.action_gripper:isServerConnected() then
+        ros.ERROR("[openViaAction] no connection to server")
+        return false
+    end
+    local g = self.action_gripper:createGoal()
+
+    g.cmd.command = 104 -- homing
+    g.cmd.width = 0 --* 1000 -- in m
+    g.cmd.speed = 0
+    g.cmd.max_effort = 10.0 -- N
+
+    local done = false
+
+    local function action_done(state, result)
+        ros.INFO("actionDone")
+        ros.INFO("Finished with states: %s (%d)", SimpleClientGoalState[state], state)
+        ros.INFO("Result:\n%s", result)
+        done = true
+    end
+
+    local function action_active()
+        ros.INFO("executeAsync Action_active")
+    end
+
+    local function action_feedback(feedback)
+        ros.INFO("Action_feedback \n\t%s ", tostring(feedback))
+    end
+    self.action_gripper:sendGoal(g, action_done, action_active, action_feedback)
+    while not done and ros.ok() do
+        sys.sleep(0.1)
+        ros.spinOnce()
+    end
+    return true
 end
 
 function Weiss50ModelXamla:open(value)

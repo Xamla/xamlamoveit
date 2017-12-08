@@ -13,19 +13,20 @@ local weissGripper = grippers.Weiss50ModelXamla(nodehandle)
 ros.spinOnce()
 ros.INFO("connect")
 weissGripper.speed_value = 0.05
-local namespace = "/xamla/wsg50_driver/wsg50/" -- "xamla/wsg50_driver/wsg50"
-local actionname = "gripper_control"
+local namespace = "/xamla/wsg_25_driver/gripper" -- "xamla/wsg50_driver/wsg50"
+local actionname = "gripper_controller"
 while not weissGripper:connect(namespace, actionname) and ros.ok() do
     ros.ERROR("cannot connect")
     ros.spinOnce()
 end
 
-if weissGripper:hasError () then
-    ros.ERROR("error detected trigger reset")
-    weissGripper:reset ()
-end
+--weissGripper:homingViaAction()
+
+
+    weissGripper:reset()
 
 ros.spinOnce()
+
 --ros.INFO("reset")
 --weissGripper:reset()
 --weissGripper:SetGripForce(80)
@@ -33,12 +34,12 @@ ros.spinOnce()
 if not weissGripper:isOpen (0.05) then
     ros.INFO("gripper should be open")
     ros.spinOnce()
-    weissGripper:openViaAction(0.05)
+    weissGripper:openViaAction(0.04)
 end
-
+--[[
 ros.INFO("close")
 weissGripper:closeViaAction()
-
+]]
 --[[
 ros.spinOnce()
 --weissGripper:SetGripForce(80)
