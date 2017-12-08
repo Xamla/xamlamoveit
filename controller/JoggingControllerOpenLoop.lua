@@ -127,7 +127,11 @@ end
 local function sendFeedback(self)
     --TODO find correct publisher for corresponding joint value set controllers
     --ros.INFO('sendFeedback to: ' .. self.publisher_feedback:getTopic())
-    self.feedback_message.cartesian_distance:set(torch.zeros(6))
+    local rel_pose = self.target_pose:mul(self.current_pose:inverse())
+    local tmp = torch.zeros(6)
+    tmp[{{1,3}}]:copy(rel_pose:getOrigin())
+    tmp[{{4,6}}]:copy(rel_pose:getRotation():getAxisAngle())
+    self.feedback_message.cartesian_distance:set(tmp)
     self.feedback_message.converged = self.controller.converged
     self.publisher_feedback:publish(self.feedback_message)
 end
@@ -518,14 +522,16 @@ function JoggingControllerOpenLoop:update()
         self.controller.converged = false
     end
 
+    local timeout_b = false
     if self.timeout:toSec() < (ros.Time.now() - self.start_time):toSec() then
         self.lastCommandJointPositions.values:copy(self.controller.state.pos)
         self.controller.state.vel:zero()
         self.controller.state.acc:zero()
         q_dot.values:zero()
+        timeout_b = true
     end
 
-    if not self.controller.converged then
+    if not self.controller.converged and not timeout_b then
         if self.resource_lock == nil then
             --ros.INFO('lock resources')
             self.resource_lock = self.lock_client:lock(self.state:getVariableNames():totable())
@@ -549,15 +555,11 @@ function JoggingControllerOpenLoop:update()
     else
         self.mode = 0
         self:tracking(self.lastCommandJointPositions:clone())
-
     end
     sendFeedback(self)
     return true, status_msg
 end
 
-function JoggingControllerOpenLoop:setSpeed(speed)
-    ros.INFO('Set speed to %s', speed)
-end
 
 function JoggingControllerOpenLoop:reset(timeout)
     self.state = self.move_group:getCurrentState()

@@ -176,6 +176,11 @@ local function joggingServer(name)
     if suc then
         cntr.max_speed_scaling = math.min(1.0, math.max(0.001, value))
     end
+
+    value, suc = nh:getParamDouble('timeout')
+    if suc then
+        cntr.timeout = ros.Duration(value)
+    end
     ---Services
     --set_limits
     set_limits_server = nh:advertiseService('set_velocity_scaling', set_float_spec, setVelocityLimitsHandler)
