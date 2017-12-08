@@ -29,8 +29,8 @@ local TrajectoryResultStatus = {
 local config = {}
 local node_handle, sp, worker
 
-local function initSetup(ns)
-    ros.init(ns)
+local function initSetup(ns, param)
+    ros.init(ns, nil, param)
     node_handle = ros.NodeHandle('~')
     --service_queue = ros.CallbackQueue()
 
@@ -138,7 +138,7 @@ local function initControllers(delay, dt)
         end
         start_time = ros.Time.now()
         current_time = ros.Time.now()
-        config = node_handle:getParamVariable(string.format('%s/controller_list', node_handle:getNamespace()))
+        config = node_handle:getParamVariable('controller_list')
 
         if not ros.ok() then
             return -1, 'Ros is not ok'
@@ -180,7 +180,7 @@ cmd:option('-delay', 0.150, 'Feedback delay time in s')
 cmd:option('-frequency', 0.008, 'Node cycle time in s')
 
 local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
-initSetup(parameter['__name']) -- TODO
+initSetup( parameter['__name'], parameter ) -- TODO
 
 local joint_state_publisher
 local sim_seq = 1

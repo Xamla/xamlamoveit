@@ -16,23 +16,24 @@ function Weiss50ModelXamla:__init(nodehandle, nodeIDstring)
     self.nh = nodehandle
     self.gripperServices = {}
     self.gripperStatus = nil
-    self.speed_value = 10
-    self.width = -1
+    self.speed_value = 0.01
+    self.width = -0.001
     self.gripState = nil
     self.seq = 0
 end
 
 local function stateCb(self, msg, header)
     ros.DEBUG("received message")
-    self.width = msg.width
+    self.width = msg.width / 1000
     self.gripState = msg.status_id
     self.seq = self.seq + 1
 end
 
-function Weiss50ModelXamla:connect(namespace)
+function Weiss50ModelXamla:connect(namespace, actionname)
     local nodehandle = self.nh -- generic node handle
     local init_b = true
     local namespace = namespace or "xamla/wsg_25_driver"
+    local action_name = actionname or 'gripper_control'
 
     self.gripperStatus = self.nh:subscribe(string.format("/%s/status", namespace), "wsg_50_common/Status", 10)
 
@@ -41,55 +42,52 @@ function Weiss50ModelXamla:connect(namespace)
             stateCb(self, msg, header)
         end
     )
-    while init_b and ros.ok() do
-        ros.INFO("Try to connect Ack")
-        self.gripperServices.wsgAck = nodehandle:serviceClient(string.format("/%s/ack", namespace), "std_srvs/Empty")
-        ros.INFO("Try to connect Grasp")
-        self.gripperServices.wsgGrasp =
-            nodehandle:serviceClient(string.format("/%s/grasp", namespace), "wsg_50_common/Move")
-        ros.INFO("Try to connect Homing")
-        self.gripperServices.wsgHoming =
-            nodehandle:serviceClient(string.format("/%s/homing", namespace), "std_srvs/Empty")
-        ros.INFO("Try to connect Move")
-        self.gripperServices.wsgMove =
-            nodehandle:serviceClient(string.format("/%s/move", namespace), "wsg_50_common/Move")
-        ros.INFO("Try to connect Move_incrementally")
-        self.gripperServices.wsgMove_incrementally =
-            nodehandle:serviceClient(string.format("/%s/move_incrementally", namespace), "wsg_50_common/Incr")
-        ros.INFO("Try to connect Release")
-        self.gripperServices.wsgRelease =
-            nodehandle:serviceClient(string.format("/%s/release", namespace), "wsg_50_common/Move")
-        ros.INFO("Try to connect Acceleration")
-        self.gripperServices.wsgSetAcceleration =
-            nodehandle:serviceClient(string.format("/%s/set_acceleration", namespace), "wsg_50_common/Conf")
-        ros.INFO("Try to connect SetForce")
-        self.gripperServices.wsgSetForce =
-            nodehandle:serviceClient(string.format("/%s/set_force", namespace), "wsg_50_common/Conf")
-        ros.INFO("Check connection.")
-        self.actionGripper =
-            actionlib.SimpleActionClient(
-            "wsg_50_common/WeissGripperCmd",
-            "/" .. namespace .. "/gripper_cmd",
-            nodehandle
-        )
+    while not (self.gripperStatus:getNumPublishers() > 0) and ros.ok() do
+        ros.ERROR(string.format("no connection to /%s/status", namespace))
         ros.spinOnce()
-
-        while not (self.gripperStatus:getNumPublishers() > 0) and ros.ok() do
-            ros.ERROR(string.format("no connection to /%s/status", namespace))
-            ros.spinOnce()
-        end
-        while self.seq <= 0 and ros.ok() do
-            ros.spinOnce()
-        end
-
-        if self.gripperServices.wsgAck:exists() then
-            break
-        else
-            ros.ERROR("cannot connect to services retrying ...")
-            sys.sleep(0.5)
-            return false
-        end
     end
+
+    ros.INFO("Try to connect Ack")
+    self.gripperServices.wsgAck = nodehandle:serviceClient(string.format("/%s/ack", namespace), "std_srvs/Empty")
+    ros.INFO("Try to connect Grasp")
+    self.gripperServices.wsgGrasp =
+        nodehandle:serviceClient(string.format("/%s/grasp", namespace), "wsg_50_common/Move")
+    ros.INFO("Try to connect Homing")
+    self.gripperServices.wsgHoming = nodehandle:serviceClient(string.format("/%s/homing", namespace), "std_srvs/Empty")
+    ros.INFO("Try to connect Move")
+    self.gripperServices.wsgMove = nodehandle:serviceClient(string.format("/%s/move", namespace), "wsg_50_common/Move")
+    ros.INFO("Try to connect Move_incrementally")
+    self.gripperServices.wsgMove_incrementally =
+        nodehandle:serviceClient(string.format("/%s/move_incrementally", namespace), "wsg_50_common/Incr")
+    ros.INFO("Try to connect Release")
+    self.gripperServices.wsgRelease =
+        nodehandle:serviceClient(string.format("/%s/release", namespace), "wsg_50_common/Move")
+    ros.INFO("Try to connect Acceleration")
+    self.gripperServices.wsgSetAcceleration =
+        nodehandle:serviceClient(string.format("/%s/set_acceleration", namespace), "wsg_50_common/Conf")
+    ros.INFO("Try to connect SetForce")
+    self.gripperServices.wsgSetForce =
+        nodehandle:serviceClient(string.format("/%s/set_force", namespace), "wsg_50_common/Conf")
+    ros.INFO("Check connection.")
+    local action_topic = string.format("/%s/%s", namespace, action_name)
+    self.action_gripper = actionlib.SimpleActionClient("wsg_50_common/WeissGripperCmd", action_topic, nodehandle)
+    if not self.action_gripper:waitForServer(ros.Duration(3)) then
+        ros.ERROR("no connection to server %s", action_topic)
+        return false
+    end
+    ros.spinOnce()
+
+    while self.seq <= 0 and ros.ok() do
+        ros.spinOnce()
+    end
+
+    if not self.gripperServices.wsgAck:exists() then
+        ros.ERROR("cannot connect to services retrying ...")
+        sys.sleep(0.5)
+        return false
+    end
+    print("ente enet")
+
     -- call the service
     local response = self.gripperServices.wsgAck:call()
     return true
@@ -130,17 +128,17 @@ function Weiss50ModelXamla:openViaAction(value, execute_timeout, preempt_timeout
         return self:moveViaAction(value)
     end
 
-    if not self.actionGripper:isServerConnected() then
-        ros.ERROR("no connection to server")
+    if not self.action_gripper:isServerConnected() then
+        ros.ERROR("[openViaAction] no connection to server")
         return false
     end
-    local g = self.actionGripper:createGoal()
+    local g = self.action_gripper:createGoal()
 
     g.cmd.command = 103 -- release
-    g.cmd.pos = value * 1000 -- in m
+    g.cmd.width = value --* 1000 -- in m
     g.cmd.speed = speed or 0.15
     -- in m
-    g.cmd.speed = g.cmd.speed * 1000
+    g.cmd.speed = g.cmd.speed --* 1000
     g.cmd.max_effort = force or 100.0 -- N
 
     local done = false
@@ -159,7 +157,7 @@ function Weiss50ModelXamla:openViaAction(value, execute_timeout, preempt_timeout
     local function action_feedback(feedback)
         ros.INFO("Action_feedback \n\t%s ", tostring(feedback))
     end
-    self.actionGripper:sendGoal(g, action_done, action_active, action_feedback)
+    self.action_gripper:sendGoal(g, action_done, action_active, action_feedback)
     while not done and ros.ok() do
         sys.sleep(0.1)
         ros.spinOnce()
@@ -175,17 +173,17 @@ function Weiss50ModelXamla:close(value)
 end
 
 function Weiss50ModelXamla:closeViaAction(value, execute_timeout, preempt_timeout, set_speed_and_force, speed, force)
-    value = value or 0.002
-    if not self.actionGripper:isServerConnected() then
-        ros.ERROR("no connection to server")
+    value = value or 0.001
+    if not self.action_gripper:isServerConnected() then
+        ros.ERROR("[closeViaAction] no connection to server")
         return false
     end
-    local g = self.actionGripper:createGoal()
+    local g = self.action_gripper:createGoal()
 
     g.cmd.command = 102 -- grasp
-    g.cmd.pos = value * 1000 -- in m
-    g.cmd.speed = speed or 0.15 -- in m
-    g.cmd.speed = g.cmd.speed * 1000
+    g.cmd.width = value --* 1000 -- in m
+    g.cmd.speed = speed or 0.015 -- in m
+    g.cmd.speed = g.cmd.speed --* 1000
     g.cmd.max_effort = force or 100.0 -- N
 
     local done = false
@@ -204,7 +202,7 @@ function Weiss50ModelXamla:closeViaAction(value, execute_timeout, preempt_timeou
     local function action_feedback(feedback)
         ros.INFO("Action_feedback \n\t%s ", tostring(feedback))
     end
-    self.actionGripper:sendGoal(g, action_done, action_active, action_feedback)
+    self.action_gripper:sendGoal(g, action_done, action_active, action_feedback)
     while not done and ros.ok() do
         sys.sleep(0.1)
         ros.spinOnce()
@@ -229,22 +227,21 @@ function Weiss50ModelXamla:moveViaAction(pos_goal, execute_timeout, preempt_time
     assert(pos_goal)
     if self.gripState == 4 then --holding
         ros.WARN("gripper is holding an object. Calling release.")
-
         return self:openViaAction(pos_goal, execute_timeout, preempt_timeout, set_speed_and_force, speed, force)
     end
-    if not self.actionGripper:isServerConnected() then
-        ros.ERROR("no connection to server")
+    if not self.action_gripper:isServerConnected() then
+        ros.ERROR("[moveViaAction] no connection to server")
         return false
     end
-    local g = self.actionGripper:createGoal()
+    local g = self.action_gripper:createGoal()
 
     g.cmd.command = 101 -- move
-    g.cmd.pos = pos_goal * 1000 -- in m
-    g.cmd.speed = speed or 0.15
+    g.cmd.width = pos_goal ---* 1000 -- in m
+    g.cmd.speed = speed or 0.01
     -- in m
-    g.cmd.speed = g.cmd.speed * 1000
+    g.cmd.speed = g.cmd.speed --* 1000
     g.cmd.max_effort = force or 100.0 -- N
-
+    print(g.cmd)
     local done = false
 
     local function action_done(state, result)
@@ -261,7 +258,7 @@ function Weiss50ModelXamla:moveViaAction(pos_goal, execute_timeout, preempt_time
     local function action_feedback(feedback)
         ros.INFO("Action_feedback \n\t%s ", tostring(feedback))
     end
-    self.actionGripper:sendGoal(g, action_done, action_active, action_feedback)
+    self.action_gripper:sendGoal(g, action_done, action_active, action_feedback)
     while not done and ros.ok() do
         sys.sleep(0.1)
         ros.spinOnce()
@@ -270,7 +267,7 @@ function Weiss50ModelXamla:moveViaAction(pos_goal, execute_timeout, preempt_time
 end
 
 function Weiss50ModelXamla:SetMoveSpeed(value)
-    value = value or 5.1
+    value = value or 0.05
     self.speed_value = value
     return true
 end
@@ -299,9 +296,10 @@ function Weiss50ModelXamla:sentGripperMessage(name, value)
 end
 
 function Weiss50ModelXamla:isOpen(width)
-    print("seq:" .. self.seq)
-    print("width:" .. self.width)
-    return self.width > (width or 100)
+    print("seq:", self.seq)
+    print("self width:", self.width)
+    print("should width:", width)
+    return self.width > (width or 0.1)
 end
 
 function Weiss50ModelXamla:hasError()

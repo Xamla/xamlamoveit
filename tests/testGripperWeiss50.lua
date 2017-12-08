@@ -12,8 +12,10 @@ ros.INFO("INIT")
 local weissGripper = grippers.Weiss50ModelXamla(nodehandle)
 ros.spinOnce()
 ros.INFO("connect")
-weissGripper.speed_value = 50
-while not weissGripper:connect() and ros.ok() do
+weissGripper.speed_value = 0.05
+local namespace = "/xamla/wsg50_driver/wsg50/" -- "xamla/wsg50_driver/wsg50"
+local actionname = "gripper_control"
+while not weissGripper:connect(namespace, actionname) and ros.ok() do
     ros.ERROR("cannot connect")
     ros.spinOnce()
 end
@@ -28,29 +30,30 @@ ros.spinOnce()
 --weissGripper:reset()
 --weissGripper:SetGripForce(80)
 ros.spinOnce()
-if not weissGripper:isOpen () then
+if not weissGripper:isOpen (0.05) then
     ros.INFO("gripper should be open")
-    weissGripper:openViaAction()
+    ros.spinOnce()
+    weissGripper:openViaAction(0.05)
 end
 
 ros.INFO("close")
 weissGripper:closeViaAction()
 
-
+--[[
 ros.spinOnce()
 --weissGripper:SetGripForce(80)
 ros.spinOnce()
-if not weissGripper:isOpen () then
+if not weissGripper:isOpen (0.1) then
     ros.INFO("open " .. weissGripper.seq)
     weissGripper:openViaAction()
 end
 ros.spinOnce()
 
 
-weissGripper:moveViaAction(0.0)
+weissGripper:moveViaAction(0.01)
 ros.spinOnce()
 
 sys.sleep(1.0)
-
+]]
 ros.shutdown()
 

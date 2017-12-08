@@ -25,8 +25,8 @@ local TrajectoryResultStatus = {
 local config = {}
 local node_handle, sp, worker
 local joint_monitor_collection = {}
-local function initSetup(ns)
-    ros.init(ns)
+local function initSetup(ns, param)
+    ros.init(ns, nil, param)
     node_handle = ros.NodeHandle('~')
     --service_queue = ros.CallbackQueue()
 
@@ -574,7 +574,7 @@ end
 local cmd = torch.CmdLine()
 
 local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
-initSetup(parameter['__name']) -- TODO
+initSetup(parameter['__name'], parameter) -- TODO
 
 local function init()
     ros.INFO('initActions')
