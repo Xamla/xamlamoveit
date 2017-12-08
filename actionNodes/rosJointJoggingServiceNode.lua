@@ -1,8 +1,8 @@
 #!/usr/bin/env th
-local ros = require "ros"
+local ros = require 'ros'
 local tf = ros.tf
-local moveit = require "moveit"
-local xamlamoveit = require "xamlamoveit"
+local moveit = require 'moveit'
+local xamlamoveit = require 'xamlamoveit'
 local controller = xamlamoveit.controller
 local xamla_sysmon = require 'xamla_sysmon'
 local planning = xamlamoveit.planning
@@ -19,11 +19,11 @@ local run = false
 local all_EE_parent_group_names, all_EE_parent_link_names = {}, {}
 local all_group_joint_names = {}
 
-local last_status_message_tracking = "IDLE"
+local last_status_message_tracking = 'IDLE'
 
 local function initSetup(name)
     ros.init(name)
-    node_handle = ros.NodeHandle("~")
+    node_handle = ros.NodeHandle('~')
     service_queue = ros.CallbackQueue()
     sysmon_watch = xamla_sysmon.Watch.new(node_handle, 1)
 
@@ -36,18 +36,18 @@ local function shutdownSetup()
     ros.shutdown()
 end
 
-local set_float_spec = ros.SrvSpec("xamlamoveit_msgs/SetFloat")
-local get_float_spec = ros.SrvSpec("xamlamoveit_msgs/GetFloat")
-local get_string_spec = ros.SrvSpec("xamlamoveit_msgs/GetSelected")
-local set_string_spec = ros.SrvSpec("xamlamoveit_msgs/SetString")
-local get_status_spec = ros.SrvSpec("xamlamoveit_msgs/StatusController")
-local set_bool_spec = ros.SrvSpec("std_srvs/SetBool")
+local set_float_spec = ros.SrvSpec('xamlamoveit_msgs/SetFloat')
+local get_float_spec = ros.SrvSpec('xamlamoveit_msgs/GetFloat')
+local get_string_spec = ros.SrvSpec('xamlamoveit_msgs/GetSelected')
+local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
+local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
+local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
 
 local function findString(my_string, collection)
     local index = -1
-    if torch.type(collection) == "table" then
+    if torch.type(collection) == 'table' then
         index = table.indexof(collection, my_string)
-    elseif torch.type(collection) == "std.StringVector" then
+    elseif torch.type(collection) == 'std.StringVector' then
         index = table.indexof(collection:totable(), my_string)
     else
         error('unknown type: ' .. torch.type(collection))
@@ -78,16 +78,16 @@ local function setMoveGroupHandler(request, response, header)
     stopJogging()
     if cntr.move_group:getName() == new_move_group_name then
         response.success = true
-        response.message = "Set move_group successfuly"
+        response.message = 'Set move_group successfuly'
     else
         if findString(new_move_group_name, all_group_joint_names) then
             local succ, msg = cntr:setMoveGroupInterface(new_move_group_name)
             response.success = succ
             response.message = msg
         else
-            local response_message = string.format("Unknown group name! Choose from: %s", new_move_group_name)
+            local response_message = string.format('Unknown group name! Choose from: %s', new_move_group_name)
             for i, v in ipairs(all_group_joint_names) do
-                response_message = string.format("%s %s;", response_message, v)
+                response_message = string.format('%s %s;', response_message, v)
             end
 
             response.success = false
@@ -130,54 +130,65 @@ end
 
 local function setVelocityLimitsHandler(request, response, header)
     local scaling = request.data
-    scaling = math.min(1.0,math.max(0,scaling))
-    cntr.speed_scaling = scaling
+    scaling = math.min(1.0, math.max(0, scaling))
+    cntr:setSpeedScaling(scaling)
     response.success = true
-    response.message = "Scaling set to " .. scaling
+    response.message = 'Scaling set to ' .. scaling
     return true
 end
 
 local function getStatusHandler(request, response, header)
-    ros.INFO("getStatusHandler")
+    ros.INFO('getStatusHandler')
     response.is_running = run
     response.move_group_name = cntr.move_group:getName()
     response.joint_names = cntr.joint_monitor:getJointNames()
-    response.out_topic = ""--cntr:getOutTopic()[1]
-    response.in_topic = ""--cntr:getInTopic()[1]
+    response.out_topic = ''
+     --cntr:getOutTopic()[1]
+    response.in_topic = ''
+     --cntr:getInTopic()[1]
     response.status_message_tracking = tostring(last_status_message_tracking)
     return true
 end
 
 local function joggingServer(name)
-    initSetup(name or "joggingServer")
+    initSetup(name or 'joggingServer')
     local nh = node_handle
     local ns = nh:getNamespace()
     local psi = moveit.PlanningSceneInterface()
     local dt = ros.Duration(1 / 125)
-    local robot_model_loader = moveit.RobotModelLoader("robot_description")
+    local robot_model_loader = moveit.RobotModelLoader('robot_description')
     local robot_model = robot_model_loader:getModel()
 
     all_EE_parent_group_names, all_EE_parent_link_names = robot_model:getEndEffectorParentGroups()
     all_group_joint_names = robot_model:getJointModelGroupNames()
-    local planningGroup, succ = nh:getParamString("move_group")
-    if not succ or (table.indexof(all_group_joint_names, planningGroup or "") < 0) then
+    local planningGroup, succ = nh:getParamString('move_group')
+    if not succ or (table.indexof(all_group_joint_names, planningGroup or '') < 0) then
         planningGroup = all_group_joint_names[1]
     end
     local config = nh:getParamVariable(string.format('%s/controller_list', nh:getNamespace()))
     cntr = controller.JoggingControllerOpenLoop(nh, moveit.MoveGroupInterface(planningGroup), config, dt)
+
+    local value, suc = nh:getParamDouble('command_distance_threshold')
+    if suc then
+        cntr.command_distance_threshold = value
+    end
+    value, suc = nh:getParamDouble('command_distance_threshold')
+    if suc then
+        cntr.max_speed_scaling = math.min(1.0, math.max(0.001, value))
+    end
     ---Services
     --set_limits
-    set_limits_server = nh:advertiseService("set_velocity_scaling", set_float_spec, setVelocityLimitsHandler)
-    get_limits_server = nh:advertiseService("get_velocity_scaling", get_float_spec, getVelocityLimitsHandler)
+    set_limits_server = nh:advertiseService('set_velocity_scaling', set_float_spec, setVelocityLimitsHandler)
+    get_limits_server = nh:advertiseService('get_velocity_scaling', get_float_spec, getVelocityLimitsHandler)
     --set_movegroup
-    set_movegroup_server = nh:advertiseService("set_movegroup_name", set_string_spec, setMoveGroupHandler)
-    get_movegroup_server = nh:advertiseService("get_movegroup_name", get_string_spec, getMoveGroupHandler)
+    set_movegroup_server = nh:advertiseService('set_movegroup_name', set_string_spec, setMoveGroupHandler)
+    get_movegroup_server = nh:advertiseService('get_movegroup_name', get_string_spec, getMoveGroupHandler)
 
-    start_stop_server = nh:advertiseService("start_stop_tracking", set_bool_spec, startStopHandler)
+    start_stop_server = nh:advertiseService('start_stop_tracking', set_bool_spec, startStopHandler)
     --status
-    status_server = nh:advertiseService("status", get_status_spec, getStatusHandler)
+    status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 
-    while not cntr:connect("jogging_command", "jogging_setpoint") do
+    while not cntr:connect('jogging_command', 'jogging_setpoint') do
         dt:sleep()
         ros.spinOnce()
     end
@@ -192,7 +203,7 @@ local function joggingServer(name)
             stopJogging()
         end
         if run then
-            ros.DEBUG("RUNNING")
+            ros.DEBUG('RUNNING')
             success, last_status_message_tracking = cntr:update()
             if not success then
                 ros.WARN(tostring(last_status_message_tracking))
@@ -210,4 +221,4 @@ end
 
 local result = xutils.parseRosParametersFromCommandLine(arg) or {}
 
-joggingServer(result["__name"])
+joggingServer(result['__name'])

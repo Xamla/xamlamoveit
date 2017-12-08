@@ -188,6 +188,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.max_acc = nil
     self.max_speed_scaling = 0.25 -- 25% of the max constraints allowed for jogging
     self.speed_scaling = 1.0
+    self.command_distance_threshold = 0.1 --m
     self.lastCommandJointPositions =
         createJointValues(
         self.joint_set.joint_names,
@@ -334,7 +335,6 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr) -- avoid large jumps i
             end
         else
             --ros.INFO('does not satisfy bounds')
-            --print(q_des)
             self.feedback_message.error_code = -2 --SELFCOLLISION
         end
     else
@@ -343,6 +343,12 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr) -- avoid large jumps i
     end
     --ros.WARN(string.format('Difference between q_des and q_curr diff = %f', diff))
     return diff < 2
+end
+
+function JoggingControllerOpenLoop:setSpeedScaling(value)
+    self.speed_scaling = math.max(0.001, math.min(1,value))
+    self.controller.max_vel = self.max_vel * self.speed_scaling
+    self.controller.max_acc = self.max_acc
 end
 
 function JoggingControllerOpenLoop:connect(joint_topic, pose_topic)
@@ -357,8 +363,6 @@ function JoggingControllerOpenLoop:connect(joint_topic, pose_topic)
         self.max_acc = queryJointLimits(self.nh, self.joint_monitor:getJointNames(), '/robot_description_planning')
     self.max_vel = self.max_vel * self.max_speed_scaling
     self.max_acc = self.max_acc --* self.max_speed_scaling
-    self.controller.max_vel = self.max_vel
-    self.controller.max_acc = self.max_acc
     return true
 end
 
@@ -396,7 +400,6 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
             v:shutdown()
         end
         publisherPointPositionCtrl = {}
-
         ros.ERROR('command is not valid!!!')
     end
     self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
@@ -497,7 +500,9 @@ function JoggingControllerOpenLoop:update()
 
         --q_dot = self:getStep(deltaPosition, deltaAxis, curr_time - self.start_time)
         --]]
-        if q_dot.values:norm()>1 then
+        local rel_poseAB = self.target_pose:mul(self.current_pose:inverse())
+
+        if q_dot.values:norm()>1 or rel_poseAB:getOrigin():norm()> self.command_distance_threshold then
             ros.ERROR("detected jump in IK. ")
             self.feedback_message.error_code = -1
             q_dot.values:zero()
