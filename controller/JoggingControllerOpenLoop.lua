@@ -114,7 +114,7 @@ local function sendPositionCommand(self, q_des, q_dot, names)
             end
             mPoint.positions:set(q_des)
             -- mPoint.velocities:set(q_dot) --TODO this is probably not optimal.
-            mPoint.time_from_start = ros.Duration(0.0)
+            mPoint.time_from_start = ros.Duration(0.008)
             m.points = {mPoint}
             publisherPointPositionCtrl[v.name]:publish(m)
             --ros.INFO('sendPositionCommand to: ' .. publisherPointPositionCtrl[v.name]:getTopic())
