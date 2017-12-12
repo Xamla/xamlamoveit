@@ -274,9 +274,9 @@ function JoggingControllerOpenLoop:getTwistGoal()
         twist[6] = msg.twist.angular.z
         if #msg.header.frame_id > 0 then
             local trans = lookupPose(msg.header.frame_id, 'world')
-            print('- frame id: ', msg.header.frame_id, trans:getBasis())
             twist[{{1,3}}] =  trans:getBasis()* twist[{{1,3}}]
             twist[{{4,6}}] = trans:getBasis() * twist[{{4,6}}]
+            twist:mul(self.speed_scaling)
         end
         newMessage = true
     end
