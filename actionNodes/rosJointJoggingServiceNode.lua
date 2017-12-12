@@ -193,7 +193,7 @@ local function joggingServer(name)
     --status
     status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 
-    while not cntr:connect('jogging_command', 'jogging_setpoint') do
+    while not cntr:connect('jogging_command', 'jogging_setpoint', 'jogging_twist') do
         dt:sleep()
         ros.spinOnce()
     end

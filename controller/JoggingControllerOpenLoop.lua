@@ -17,10 +17,13 @@ local joint_point_spec = ros.MsgSpec('trajectory_msgs/JointTrajectoryPoint')
 -- JointPosition --
 local joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 local cartesian_pose_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
+local cartesian_twist_spec = ros.MsgSpec('geometry_msgs/TwistStamped')
 local feedback_spec = ros.MsgSpec('xamlamoveit_msgs/ControllerState')
 
 local function lookupPose(linkName, baseLinkName)
-    return transformListener:lookupTransform(baseLinkName or 'base_link', linkName, ros.Time(0))
+    local baseLinkName = baseLinkName or 'base_link'
+    transformListener:waitForTransform(baseLinkName, linkName, ros.Time.now(), ros.Duration(0.1), true)
+    return transformListener:lookupTransform(baseLinkName, linkName, ros.Time.now())
 end
 
 local function transformVector(target_frame, frame_id, input)
@@ -129,8 +132,8 @@ local function sendFeedback(self)
     --ros.INFO('sendFeedback to: ' .. self.publisher_feedback:getTopic())
     local rel_pose = self.target_pose:mul(self.current_pose:inverse())
     local tmp = torch.zeros(6)
-    tmp[{{1,3}}]:copy(rel_pose:getOrigin())
-    tmp[{{4,6}}]:copy(rel_pose:getRotation():getAxisAngle())
+    tmp[{{1, 3}}]:copy(rel_pose:getOrigin())
+    tmp[{{4, 6}}]:copy(rel_pose:getRotation():getAxisAngle())
     self.feedback_message.cartesian_distance:set(tmp)
     self.feedback_message.converged = self.controller.converged
     self.publisher_feedback:publish(self.feedback_message)
@@ -159,7 +162,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
         ros.ERROR('joint states not ready')
     end
 
---    print(self.joint_monitor:getNextPositionsTensor())
+    --    print(self.joint_monitor:getNextPositionsTensor())
 
     if torch.type(dt) == 'number' or torch.type(dt) == 'nil' then
         self.dt = ros.Duration(dt)
@@ -184,6 +187,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.resource_lock = nil
     self.subscriber_pose_goal = nil
     self.subscriber_posture_goal = nil
+    self.subscriber_twist_goal = nil
     self.publisher_feedback = nil
     self.mode = 0
     self.singularity_threshold = 3.5
@@ -252,6 +256,36 @@ local function msg2StampedTransform(msg)
     return pose
 end
 
+function JoggingControllerOpenLoop:getTwistGoal()
+    local newMessage = false
+    local twist = nil
+    local msg = nil
+    while self.subscriber_twist_goal:hasMessage() and ros.ok() do
+        --ros.WARN('NEW POSE MESSAGE RECEIVED')
+        msg = self.subscriber_twist_goal:read()
+    end
+    if msg then
+        twist = torch.tensor(6)
+        twist[1] = msg.linear.x
+        twist[2] = msg.linear.y
+        twist[3] = msg.linear.z
+        twist[4] = msg.angular.x
+        twist[5] = msg.angular.y
+        twist[6] = msg.angular.z
+        if #msg.header.frame_id > 0 then
+            local trans = lookupPose(msg.header.frame_id, 'world')
+            twist[{{1,3}}] = trans:getBasis() * twist[{{1,3}}]
+            twist[{{4,6}}] = trans:getBasis() * twist[{{4,6}}]
+        end
+        newMessage = true
+    end
+    if newMessage then
+        ros.INFO('getPoseGoal')
+    --print(pose)
+    end
+    return newMessage, twist
+end
+
 function JoggingControllerOpenLoop:getPoseGoal()
     local newMessage = false
     local pose = nil
@@ -266,7 +300,7 @@ function JoggingControllerOpenLoop:getPoseGoal()
     end
     if newMessage then
         ros.INFO('getPoseGoal')
-        --print(pose)
+    --print(pose)
     end
     return newMessage, pose
 end
@@ -350,16 +384,19 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr) -- avoid large jumps i
 end
 
 function JoggingControllerOpenLoop:setSpeedScaling(value)
-    self.speed_scaling = math.max(0.001, math.min(1,value))
+    self.speed_scaling = math.max(0.001, math.min(1, value))
     self.controller.max_vel = self.max_vel * self.speed_scaling
     self.controller.max_acc = self.max_acc
 end
 
-function JoggingControllerOpenLoop:connect(joint_topic, pose_topic)
+function JoggingControllerOpenLoop:connect(joint_topic, pose_topic, twist_topic)
     local pose_topic = pose_topic or 'goal_pose'
     local joint_topic = joint_topic or 'goal_posture'
+    local twist_topic = twist_topic or 'goal_twist'
+
     self.subscriber_pose_goal = self.nh:subscribe(pose_topic, cartesian_pose_spec, 1)
     self.subscriber_posture_goal = self.nh:subscribe(joint_topic, joint_pos_spec, 1)
+    self.subscriber_twist_goal = self.nh:subscribe(twist_topic, cartesian_twist_spec, 1)
     self.publisher_feedback = self.nh:advertise('feedback', feedback_spec, 1)
     self.feedback_message = self.publisher_feedback:createMessage()
     self:getNewRobotState()
@@ -373,6 +410,8 @@ end
 function JoggingControllerOpenLoop:shutdown()
     self.subscriber_pose_goal:shutdown()
     self.subscriber_posture_goal:shutdown()
+    self.subscriber_twist_goal:shutdown()
+    self.publisher_feedback:shutdown()
 end
 
 local function scaleJointVelocity(vel, max_vel)
@@ -479,6 +518,9 @@ function JoggingControllerOpenLoop:update()
     local new_pose_message, pose_goal = self:getPoseGoal()
 
     local new_posture_message, posture_goal = self:getPostureGoal()
+
+    local new_twist_message, twist_goal = self:getTwistGoal()
+
     -- Decide which goal is valid
     if self.mode < 2 and new_pose_message then
         --self:getNewRobotState()
@@ -489,7 +531,8 @@ function JoggingControllerOpenLoop:update()
         self.target_pose = pose_goal:clone()
         local state = self.state:clone()
         state:setFromIK(self.move_group:getName(), pose_goal:toTransform())
-        q_dot = createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(q_dot:getNames())
+        q_dot =
+            createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(q_dot:getNames())
         q_dot:sub(self.lastCommandJointPositions)
         --[[local tmp = self.target_pose:toTransform()
         local rel_pose = self.current_pose:inverse():mul(self.target_pose:toTransform())
@@ -506,8 +549,8 @@ function JoggingControllerOpenLoop:update()
         --]]
         local rel_poseAB = self.target_pose:mul(self.current_pose:inverse())
 
-        if q_dot.values:norm()>1 or rel_poseAB:getOrigin():norm()> self.command_distance_threshold then
-            ros.ERROR("detected jump in IK. ")
+        if q_dot.values:norm() > 1 or rel_poseAB:getOrigin():norm() > self.command_distance_threshold then
+            ros.ERROR('detected jump in IK. ')
             self.feedback_message.error_code = -1
             q_dot.values:zero()
         end
@@ -519,6 +562,17 @@ function JoggingControllerOpenLoop:update()
         --print('posture_goal ', posture_goal:getNames(), posture_goal.values)
         q_dot = posture_goal:clone()
         q_dot:sub(self.lastCommandJointPositions)
+        self.controller.converged = false
+    elseif (self.mode == 0 or self.mode == 3) and new_twist_message then
+        self.mode = 3
+        self.start_time = ros.Time.now()
+
+        q_dot =
+            createJointValues(
+            state:getVariableNames():totable(),
+            self:getStep(twist_goal[{{1, 3}}], twist_goal[{{4, 6}}], curr_time - self.start_time)
+        )
+
         self.controller.converged = false
     end
 
@@ -551,7 +605,6 @@ function JoggingControllerOpenLoop:update()
             ros.WARN('could not lock resources')
             self.resource_lock = nil
         end
-
     else
         self.mode = 0
         self:tracking(self.lastCommandJointPositions:clone())
@@ -559,7 +612,6 @@ function JoggingControllerOpenLoop:update()
     sendFeedback(self)
     return true, status_msg
 end
-
 
 function JoggingControllerOpenLoop:reset(timeout)
     self.state = self.move_group:getCurrentState()
