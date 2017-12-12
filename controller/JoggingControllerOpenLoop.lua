@@ -22,8 +22,8 @@ local feedback_spec = ros.MsgSpec('xamlamoveit_msgs/ControllerState')
 
 local function lookupPose(linkName, baseLinkName)
     local baseLinkName = baseLinkName or 'base_link'
-    transformListener:waitForTransform(baseLinkName, linkName, ros.Time.now(), ros.Duration(0.1), true)
-    return transformListener:lookupTransform(baseLinkName, linkName, ros.Time.now())
+    transformListener:waitForTransform(baseLinkName, linkName, ros.Time(0), ros.Duration(0.1), true)
+    return transformListener:lookupTransform(baseLinkName, linkName, ros.Time(0))
 end
 
 local function transformVector(target_frame, frame_id, input)
@@ -265,16 +265,17 @@ function JoggingControllerOpenLoop:getTwistGoal()
         msg = self.subscriber_twist_goal:read()
     end
     if msg then
-        twist = torch.tensor(6)
-        twist[1] = msg.linear.x
-        twist[2] = msg.linear.y
-        twist[3] = msg.linear.z
-        twist[4] = msg.angular.x
-        twist[5] = msg.angular.y
-        twist[6] = msg.angular.z
+        twist = torch.Tensor(6)
+        twist[1] = msg.twist.linear.x
+        twist[2] = msg.twist.linear.y
+        twist[3] = msg.twist.linear.z
+        twist[4] = msg.twist.angular.x
+        twist[5] = msg.twist.angular.y
+        twist[6] = msg.twist.angular.z
         if #msg.header.frame_id > 0 then
             local trans = lookupPose(msg.header.frame_id, 'world')
-            twist[{{1,3}}] = trans:getBasis() * twist[{{1,3}}]
+            print('- frame id: ', msg.header.frame_id, trans:getBasis())
+            twist[{{1,3}}] =  trans:getBasis()* twist[{{1,3}}]
             twist[{{4,6}}] = trans:getBasis() * twist[{{4,6}}]
         end
         newMessage = true
@@ -567,11 +568,16 @@ function JoggingControllerOpenLoop:update()
         self.mode = 3
         self.start_time = ros.Time.now()
 
-        q_dot =
-            createJointValues(
-            state:getVariableNames():totable(),
-            self:getStep(twist_goal[{{1, 3}}], twist_goal[{{4, 6}}], curr_time - self.start_time)
+        self.lastCommandJointPositions.values:copy(self.controller.state.pos)
+        self.state:setVariablePositions(
+            self.lastCommandJointPositions.values,
+            self.lastCommandJointPositions:getNames()
         )
+        self.state:update()
+        self.current_pose = self:getCurrentPose()
+        local state = self.state:clone()
+
+        q_dot = self:getStep(twist_goal[{{1, 3}}], twist_goal[{{4, 6}}], curr_time - self.start_time)
 
         self.controller.converged = false
     end
