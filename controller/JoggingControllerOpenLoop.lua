@@ -281,7 +281,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
         newMessage = true
     end
     if newMessage then
-        ros.INFO('getPoseGoal')
+        ros.INFO('getTwistGoal')
     --print(pose)
     end
     return newMessage, twist
