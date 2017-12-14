@@ -51,6 +51,7 @@ function TrajectoryExecutionRequest:__init(goal_handle)
     self.goal = goal_handle:getGoal()
     self.error_codes = errorCodes
     self.check_collision = self.goal_handle.goal.goal.check_collision
+    self.position_deviation_threshold = 50.3
 end
 
 function TrajectoryExecutionRequest:accept()
@@ -132,7 +133,7 @@ function TrajectoryExecutionRequest:proceed()
                 self.status = errorCodes.CONTROL_FAILED
                 return false
             end
-            if delta:gt(50.3):sum() > 0 then
+            if delta:gt(self.position_deviation_threshold):sum() > 0 then
                 ros.ERROR('[TrajectoryExecutionRequest] joint tracking error is too big!!')
                 self.status = errorCodes.CONTROL_FAILED
                 return false
