@@ -100,13 +100,25 @@ local function queryJointLimits(joint_names, namespace)
     namespace = namespace or node_handle:getNamespace()
     local max_vel = torch.zeros(#joint_names)
     local max_acc = torch.zeros(#joint_names)
+    local max_min_pos = torch.zeros(#joint_names, 2)
     local nh = node_handle
     local root_path = string.format('%s/joint_limits', namespace) -- robot_description_planning
     for i, name in ipairs(joint_names) do
+        local has_pos_param = string.format('/%s/%s/has_position_limits', root_path, name)
+        local get_max_pos_param = string.format('/%s/%s/max_position', root_path, name)
+        local get_min_pos_param = string.format('/%s/%s/min_position', root_path, name)
         local has_vel_param = string.format('/%s/%s/has_velocity_limits', root_path, name)
         local get_vel_param = string.format('/%s/%s/max_velocity', root_path, name)
         local has_acc_param = string.format('/%s/%s/has_acceleration_limits', root_path, name)
         local get_acc_param = string.format('/%s/%s/max_acceleration', root_path, name)
+
+        if nh:getParamVariable(has_pos_param) then
+            max_min_pos[i][1] = nh:getParamVariable(get_max_pos_param)
+            max_min_pos[i][2] = nh:getParamVariable(get_min_pos_param)
+        else
+            ros.WARN('Joint: %s has no position limit', name)
+        end
+
         if nh:getParamVariable(has_vel_param) then
             max_vel[i] = nh:getParamVariable(get_vel_param)
         else
@@ -119,7 +131,7 @@ local function queryJointLimits(joint_names, namespace)
             ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
         end
     end
-    return max_vel, max_acc
+    return max_vel, max_acc, max_min_pos
 end
 
 local function initControllers(delay, dt)
@@ -167,7 +179,13 @@ local function initControllers(delay, dt)
     for i = 1, offset + 1 do
         feedback_buffer_pos:add(last_command_joint_position)
     end
-    controller.max_vel, controller.max_acc = queryJointLimits(joint_name_collection, node_handle:getNamespace())
+    local max_min_positions
+    controller.max_vel,
+        controller.max_acc,
+        max_min_positions = queryJointLimits(joint_name_collection, node_handle:getNamespace())
+
+    last_command_joint_position =
+        xutils.clamp(last_command_joint_position, max_min_positions[{{}, 2}], max_min_positions[{{}, 1}])
     controller.state.pos:copy(last_command_joint_position)
     subscriber = node_handle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
     subscriber:registerCallback(jointCommandCb)
@@ -180,7 +198,7 @@ cmd:option('-delay', 0.150, 'Feedback delay time in s')
 cmd:option('-frequency', 0.008, 'Node cycle time in s')
 
 local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
-initSetup( parameter['__name'], parameter ) -- TODO
+initSetup(parameter['__name'], parameter) -- TODO
 
 local joint_state_publisher
 local sim_seq = 1
@@ -239,7 +257,6 @@ local function simulation(delay, dt)
 
     -- main simulation loop
     while ros.ok() do
-
         -- check if we are running with an acceptable rate
         if not timeout_error and dt:expectedCycleTime():toSec() * 2 <= dt:cycleTime():toSec() then
             local err =
@@ -251,19 +268,20 @@ local function simulation(delay, dt)
             )
             if timeout_recovery_counter >= 200 then
                 ros.WARN(err)
-                --heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, err)
+            --heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, err)
             end
             timeout_recovery_counter = 0
             timeout_error = true
         end
         if timeout_error == true and timeout_recovery_counter >= 200 then
             timeout_error = false
-            --heartbeat:updateStatus(heartbeat.GO, '')
+        --heartbeat:updateStatus(heartbeat.GO, '')
         end
 
         global_state_summary = sysmon_watch:getGlobalStateSummary()
         dependencies_are_no_go = global_state_summary.no_go and not global_state_summary.only_secondary_error
-        error_state = dependencies_are_no_go and
+        error_state =
+            dependencies_are_no_go and
             (heartbeat:getStatus() == heartbeat.GO or heartbeat:getStatus() == heartbeat.SECONDARY_ERROR)
         if error_state == false then
             if initialized == false then
@@ -271,7 +289,7 @@ local function simulation(delay, dt)
                 xutils.tic('Initialize')
                 ros.INFO('Reinitializing...')
                 heartbeat:updateStatus(heartbeat.GO, '')
-                last_command_joint_position:copy(controller.state.pos)      -- begin with current controller state
+                last_command_joint_position:copy(controller.state.pos) -- begin with current controller state
                 --controller.state.pos:copy(last_command_joint_position)
                 initialized = true
                 xutils.toc('Initialize')
