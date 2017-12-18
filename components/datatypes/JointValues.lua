@@ -22,12 +22,21 @@ function JointValues:getValue(name)
 end
 
 function JointValues:setValue(name, value)
-    self.values[self.joint_set:getIndexOf(name)] = value
+    local suc, j = self.joint_set:tryGetIndexOf(name)
+    if suc then
+        self.values[j] = value
+    else
+        print('could not set value with name:', name)
+    end
 end
 
 function JointValues:setValues(names, values)
+    assert(
+        #names == values:size(1),
+        string.format('Count of name and size of value should match: %dx%d', #names, values:size(1))
+    )
     for i, v in ipairs(names) do
-        self.values[self.joint_set:getIndexOf(v)] = values[i]
+        self:setValue(v, values[i])
     end
 end
 
@@ -38,7 +47,7 @@ end
 function JointValues:add(other)
     if other.joint_set:count() < self.joint_set:count() then
         for i, v in ipairs(other:getNames()) do
-            self:setValue(v,self:getValue(v) + other.values[i])
+            self:setValue(v, self:getValue(v) + other.values[i])
         end
     else
         for i, v in ipairs(self:getNames()) do
@@ -57,7 +66,7 @@ end
 function JointValues:select(names)
     local tmp_jointset = js.new(names)
     local values = torch.zeros(#names)
-    for i,v in ipairs(names) do
+    for i, v in ipairs(names) do
         values[i] = self:getValue(v)
     end
     return JointValues.new(tmp_jointset, values)

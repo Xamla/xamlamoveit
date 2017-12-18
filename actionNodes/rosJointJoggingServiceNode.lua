@@ -75,8 +75,8 @@ end
 
 local function setMoveGroupHandler(request, response, header)
     local new_move_group_name = request.data
-    stopJogging()
-    if cntr.move_group:getName() == new_move_group_name then
+    --stopJogging()
+    if cntr:getCurrentMoveGroup():getName() == new_move_group_name then
         response.success = true
         response.message = 'Set move_group successfuly'
     else
@@ -87,6 +87,7 @@ local function setMoveGroupHandler(request, response, header)
             if not succ then
                 ros.ERROR(msg)
             end
+            ros.INFO(msg)
         else
             local response_message = string.format('Unknown group name! Choose from: %s', new_move_group_name)
             for i, v in ipairs(all_group_joint_names) do
@@ -102,9 +103,8 @@ end
 
 local function getMoveGroupHandler(request, response, header)
     response.success = true
-    response.selected = cntr.move_group:getName()
+    response.selected = cntr:getCurrentMoveGroup():getName()
     response.collection = all_group_joint_names
-    print(response)
     return true
 end
 
@@ -143,7 +143,7 @@ end
 local function getStatusHandler(request, response, header)
     ros.DEBUG('getStatusHandler')
     response.is_running = run
-    response.move_group_name = cntr.move_group:getName()
+    response.move_group_name = cntr:getCurrentMoveGroup():getName()
     response.joint_names = cntr.joint_monitor:getJointNames()
     response.out_topic = ''
     --cntr:getOutTopic()[1]
@@ -213,31 +213,41 @@ local function joggingServer(name)
     end
 
     local success = true
-    ros.INFO('Running!')
+    local print_idle_once = false
+    local print_running_once = false
+
     while ros.ok() do
         ros.spinOnce()
+        --collectgarbage()
         local sys_state = sysmon_watch:getGlobalStateSummary()
         if sys_state.no_go == true and run == true then
             ros.WARN('Jogging stopped because system state is NOGO. ' .. sys_state.error_message)
             stopJogging()
         end
         if run then
-            ros.DEBUG('RUNNING')
+            if not print_running_once then
+                ros.INFO('Running!')
+                print_running_once = true
+                print_idle_once = false
+            end
             success, last_status_message_tracking = cntr:update()
             if not success then
                 ros.WARN(tostring(last_status_message_tracking))
                 success = true -- one warning should be fine
             end
         else
+            if not print_idle_once then
+                ros.INFO('IDLE')
+                print_idle_once = true
+                print_running_once = false
+            end
             cntr:releaseResources()
             idle_dt:sleep()
         end
         dt:sleep()
-        collectgarbage()
     end
     shutdownSetup()
 end
 
 local result = xutils.parseRosParametersFromCommandLine(arg) or {}
-
 joggingServer(result['__name'])

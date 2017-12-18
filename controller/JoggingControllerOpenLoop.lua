@@ -87,17 +87,6 @@ local function isSimilar(A, B)
     return true
 end
 
-local function calculateTwist(start_pose, end_pose)
-    local inv_end_pose = end_pose:inverse()
-    local tmp = torch.inverse(start_pose:getBasis()) * end_pose:getBasis()
-    local quat_temp = tf.Transform():setBasis(tmp):getRotation()
-    local delta_rot = inv_end_pose:getBasis() * (start_pose:getBasis() * quat_temp:getAxisAngle())
-    local delta_pos =
-        inv_end_pose:getBasis() * (end_pose:getOrigin() - start_pose:getOrigin()) +
-        torch.cross(inv_end_pose:getOrigin(), delta_rot)
-    return delta_pos, delta_rot
-end
-
 ---
 --@param desired joint angle position
 local function sendPositionCommand(self, q_des, q_dot, names)
@@ -111,12 +100,12 @@ local function sendPositionCommand(self, q_des, q_dot, names)
                 if publisherPointPositionCtrl[v.name]:getNumSubscribers() == 0 then
                     publisherPointPositionCtrl[v.name]:shutdown()
                     publisherPointPositionCtrl[v.name] = nil
-                    ros.WARN('Special case detected. Subscriber on %s is not available. Searching in namespace for alternatives.', myTopic)
+                    --ros.WARN('Special case detected. Subscriber on %s is not available. Searching in namespace for alternatives.', myTopic)
                     local ns = string.split(v.name, '/')
                     myTopic = string.format('/%s/joint_command', ns[1])
                     publisherPointPositionCtrl[ns[1]] = self.nh:advertise(myTopic, joint_pos_spec)
                     if publisherPointPositionCtrl[ns[1]]:getNumSubscribers() >= 0 then
-                        ros.INFO('found alternative topic at: %s', myTopic)
+                        --ros.INFO('found alternative topic at: %s', myTopic)
                         current_id = ns[1]
                     else
                         publisherPointPositionCtrl[ns[1]]:shutdown()
@@ -126,7 +115,6 @@ local function sendPositionCommand(self, q_des, q_dot, names)
                         current_id = v.name
                     end
                 end
-
             end
 
             local m = ros.Message(joint_pos_spec)
@@ -137,11 +125,10 @@ local function sendPositionCommand(self, q_des, q_dot, names)
                 m.joint_names[ii] = names[ii]
             end
             mPoint.positions:set(q_des)
-            -- mPoint.velocities:set(q_dot) --TODO this is probably not optimal.
-            mPoint.time_from_start = ros.Duration(0.008)
+            mPoint.time_from_start = self.dt
             m.points = {mPoint}
             publisherPointPositionCtrl[current_id]:publish(m)
-            ros.INFO('sendPositionCommand to: ' .. publisherPointPositionCtrl[current_id]:getTopic())
+            ros.DEBUG('sendPositionCommand to: ' .. publisherPointPositionCtrl[current_id]:getTopic())
             return
         end
     end
@@ -149,8 +136,10 @@ local function sendPositionCommand(self, q_des, q_dot, names)
 end
 
 local function sendFeedback(self)
-    --ros.INFO('sendFeedback to: ' .. self.publisher_feedback:getTopic())
+    ros.DEBUG('sendFeedback to: ' .. self.publisher_feedback:getTopic())
+
     local rel_pose = self.target_pose:mul(self.current_pose:inverse())
+
     local tmp = torch.zeros(6)
     tmp[{{1, 3}}]:copy(rel_pose:getOrigin())
     tmp[{{4, 6}}]:copy(rel_pose:getRotation():getAxisAngle())
@@ -170,11 +159,18 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.FIRSTPOINT = true
     self.dt_monitor = core.MonitorBuffer(100, 1)
     self.nh = node_handle
-    self.move_group = move_group or error('move_group should not be nil')
+    self.move_groups = {}
+    self.curr_move_group_name = nil
+    if move_group then
+        self.move_groups[move_group:getName()] = move_group
+        self.curr_move_group_name = move_group:getName()
+    else
+        error('move_group should not be nil')
+    end
     self.state = move_group:getCurrentState()
     self.time_last = ros.Time.now()
     self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
-    self.joint_monitor = core.JointMonitor(self.joint_set.joint_names)
+    self.joint_monitor = core.JointMonitor(self.state:getVariableNames():totable())
     local ready = false
     while not ready and ros.ok() do
         ready = self.joint_monitor:waitReady(0.01)
@@ -221,7 +217,8 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.max_speed_scaling = 0.25 -- 25% of the max constraints allowed for jogging
     self.speed_scaling = 1.0
     self.command_distance_threshold = 0.1 --m
-    local link_name = self.move_group:getEndEffectorLink()
+    self.joint_step_width = 0.01
+    local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
     if #link_name > 0 then
         self.current_pose = self.state:getGlobalLinkTransform(link_name)
         self.target_pose = self.state:getGlobalLinkTransform(link_name)
@@ -286,7 +283,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
     local twist = nil
     local msg = nil
     while self.subscriber_twist_goal:hasMessage() and ros.ok() do
-        --ros.WARN('NEW POSE MESSAGE RECEIVED')
+        ros.WARN('NEW POSE MESSAGE RECEIVED')
         msg = self.subscriber_twist_goal:read()
     end
     if msg then
@@ -317,7 +314,7 @@ function JoggingControllerOpenLoop:getPoseGoal()
     local pose = nil
     local msg = nil
     while self.subscriber_pose_goal:hasMessage() and ros.ok() do
-        --ros.WARN('NEW POSE MESSAGE RECEIVED')
+        ros.WARN('NEW POSE MESSAGE RECEIVED')
         msg = self.subscriber_pose_goal:read()
     end
     if msg then
@@ -349,7 +346,7 @@ function JoggingControllerOpenLoop:getPostureGoal()
         elseif msg.points[1].velocities:nElement() > 0 then
             local vel = msg.points[1].velocities
             for i, v in ipairs(joint_set.joint_names) do
-                vel[i] = math.sign(vel[i]) * 0.01 * self.speed_scaling
+                vel[i] = math.sign(vel[i]) * self.joint_step_width * self.speed_scaling
             end
             local q_dot = datatypes.JointValues(joint_set, vel)
             joint_posture:add(q_dot)
@@ -359,7 +356,7 @@ function JoggingControllerOpenLoop:getPostureGoal()
 end
 
 function JoggingControllerOpenLoop:getCurrentPose()
-    local link_name = self.move_group:getEndEffectorLink()
+    local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
     if #link_name > 0 then
         return self.state:getGlobalLinkTransform(link_name)
     else
@@ -368,9 +365,9 @@ function JoggingControllerOpenLoop:getCurrentPose()
     end
 end
 
-local function satisfiesBounds(self, positions)
+local function satisfiesBounds(self, positions, joint_names)
     local state = self.state:clone()
-    state:setVariablePositions(positions, self.joint_monitor:getJointNames())
+    state:setVariablePositions(positions, joint_names)
     state:update()
     local collisions = self.planning_scene:checkSelfCollision(state)
     if state:satisfiesBounds(0.0) then
@@ -385,7 +382,7 @@ local function satisfiesBounds(self, positions)
         collisions = self.planning_scene:checkSelfCollision(state)
         if not collisions then
             ros.WARN('Target position is out of bounds!!')
-            return true, 'Target position is out of bounds!!'
+            return false, 'Target position is out of bounds!!'
         else
             return false, 'Self Collision detected!!'
         end
@@ -394,17 +391,17 @@ local function satisfiesBounds(self, positions)
 end
 
 --@param desired joint angle position
-function JoggingControllerOpenLoop:isValid(q_des, q_curr) -- avoid large jumps in posture values and check if q_des tensor is valid
+function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid large jumps in posture values and check if q_des tensor is valid
     local diff = 2
     if q_des:nDimension() > 0 then
-        --ros.INFO('q_des checked')
-        if satisfiesBounds(self, q_des) then
-            --ros.INFO('satisfiesBounds')
+        ros.DEBUG('q_des checked')
+        if satisfiesBounds(self, q_des, joint_names) then
+            ros.DEBUG('satisfiesBounds')
             if q_curr then
                 diff = torch.norm(q_curr - q_des)
             end
         else
-            --ros.INFO('does not satisfy bounds')
+            ros.INFO('does not satisfy bounds')
             self.feedback_message.error_code = -2 --SELFCOLLISION
         end
     else
@@ -433,7 +430,8 @@ function JoggingControllerOpenLoop:connect(joint_topic, pose_topic, twist_topic)
     self.feedback_message = self.publisher_feedback:createMessage()
     self:getNewRobotState()
     self.max_vel,
-        self.max_acc = queryJointLimits(self.nh, self.joint_monitor:getJointNames(), '/robot_description_planning')
+        self.max_acc =
+        queryJointLimits(self.nh, self.lastCommandJointPositions:getNames(), '/robot_description_planning')
     self.max_vel = self.max_vel * self.max_speed_scaling
     self.max_acc = self.max_acc --* self.max_speed_scaling
     return true
@@ -466,7 +464,7 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
     local state = self.state:clone()
     --scaleJointVelocity(q_dot, self.max_vel)
 
-    if self:isValid(q_des.values, self.lastCommandJointPositions.values) then
+    if self:isValid(q_des.values, self.lastCommandJointPositions.values, self.lastCommandJointPositions:getNames()) then
         assert(
             self.controller.state.pos:size(1) == q_des.values:size(1),
             string.format('inconsistent size: %dx%d', self.controller.state.pos:size(1), q_des.values:size(1))
@@ -475,7 +473,7 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
         sendPositionCommand(self, self.controller.state.pos, self.controller.state.vel, q_des:getNames(), duration)
         self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
     else
-        for i, v in ipairs(publisherPointPositionCtrl) do
+        for i, v in pairs(publisherPointPositionCtrl) do
             v:shutdown()
             v = nil
         end
@@ -510,35 +508,43 @@ function JoggingControllerOpenLoop:getStep(D_force, D_torques, timespan)
 end
 
 function JoggingControllerOpenLoop:getQdot(vel6D)
-    local jac = self.state:getJacobian(self.move_group:getName())
-    local joint_names = self.state:getVariableNames():totable()
+    local jac = self.state:getJacobian(self:getCurrentMoveGroup():getName())
+    local joint_names = self:getCurrentMoveGroup():getActiveJoints():totable() --self.state:getVariableNames():totable()
     local inv_jac = pseudoInverse(jac)
-    local valid, cn = checkConditionNumber(inv_jac, self.singularity_threshold)
+
     local q_dot = createJointValues(joint_names, inv_jac * vel6D)
+    --[[local valid, cn = checkConditionNumber(inv_jac, self.singularity_threshold)
     if not valid then
         ros.DEBUG('detected ill-conditioned Jacobian. Robot is close to singularity slowing down. CN: %f', cn)
         q_dot = createJointValues(joint_names, (inv_jac * vel6D))
     end
+    ]]
     return q_dot, jac
 end
 
 function JoggingControllerOpenLoop:getNewRobotState()
-    local p, l = self.joint_monitor:getNextPositionsTensor()
-    self.state:setVariablePositions(p, self.joint_monitor:getJointNames())
+    local names = self.lastCommandJointPositions:getNames()
+    local p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.1), names)
+    if #names ~= p:size(1) then
+        ros.ERROR('Miss match: ')
+        print(names, p)
+        return
+    end
+    self.state:setVariablePositions(p, names)
     self.state:update()
-    self.lastCommandJointPositions:setValues(self.joint_monitor:getJointNames(), p)
+    self.lastCommandJointPositions:setValues(names, p)
     self.current_pose = self:getCurrentPose()
 end
 
 local function tryLock(self)
     if self.resource_lock == nil then
-        --ros.INFO('lock resources')
+        ros.INFO('lock resources')
         self.resource_lock = self.lock_client:lock(self.state:getVariableNames():totable())
+        ros.INFO('locked resources')
     else
         local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
         if dur > (self.resource_lock.expiration - ros.Time.now()) then
-            self.resource_lock =
-                self.lock_client:lock(self.state:getVariableNames():totable(), self.resource_lock.id)
+            self.resource_lock = self.lock_client:lock(self.state:getVariableNames():totable(), self.resource_lock.id)
         end
     end
 
@@ -583,13 +589,13 @@ function JoggingControllerOpenLoop:update()
     if self.mode < 2 and new_pose_message then
         --self:getNewRobotState()
         local world_link_name = 'world'
-        local link_name = self.move_group:getEndEffectorLink()
+        local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
         if #link_name > 0 then
             self.mode = 1
             self.start_time = ros.Time.now()
             self.target_pose = pose_goal:clone()
             local state = self.state:clone()
-            state:setFromIK(self.move_group:getName(), pose_goal:toTransform())
+            state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), pose_goal:toTransform())
             q_dot =
                 createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(
                 q_dot:getNames()
@@ -628,7 +634,7 @@ function JoggingControllerOpenLoop:update()
         self.current_pose = self:getCurrentPose()
         local state = self.state:clone()
 
-        q_dot = self:getStep(twist_goal[{{1, 3}}], twist_goal[{{4, 6}}], curr_time - self.start_time)
+        q_dot = self:getStep(-twist_goal[{{1, 3}}], -twist_goal[{{4, 6}}], curr_time - self.start_time)
 
         self.controller.converged = false
     end
@@ -640,7 +646,7 @@ function JoggingControllerOpenLoop:update()
         self.controller.state.acc:zero()
         q_dot.values:zero()
         timeout_b = true
-        ros.INFO('timeout')
+        ros.DEBUG('timeout')
     end
 
     local q_des = self.lastCommandJointPositions:clone()
@@ -649,55 +655,58 @@ function JoggingControllerOpenLoop:update()
     else
         self.mode = 0
     end
+    ros.DEBUG('Locking')
     if tryLock(self) then
         self:tracking(q_des)
     end
+    ros.DEBUG('Feedback')
     sendFeedback(self)
     return true, status_msg
 end
 
-function JoggingControllerOpenLoop:reset(timeout)
-    ros.INFO('resetting ....')
+function JoggingControllerOpenLoop:reset()
+    ros.DEBUG('resetting ....')
     if publisherPointPositionCtrl then
-        for i, v in ipairs(publisherPointPositionCtrl) do
+        for i, v in pairs(publisherPointPositionCtrl) do
+            ros.INFO('shutting down publisher for topic: %s', v:getTopic())
             v:shutdown()
             v = nil
         end
     end
     publisherPointPositionCtrl = {}
-    self.state = self.move_group:getCurrentState()
-    self.joint_monitor:shutdown()
+    local move_group = self:getCurrentMoveGroup()
+    --self.state = move_group:getCurrentState()
     self.time_last = ros.Time.now()
-    self.joint_set = datatypes.JointSet(self.move_group:getActiveJoints():totable())
-    self.joint_monitor = core.JointMonitor(self.joint_set.joint_names)
-    local link_name = self.move_group:getEndEffectorLink()
+    self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
+    ros.INFO('Start Joint Monitor with %d joint names', #self.joint_set.joint_names)
+    local link_name = move_group:getEndEffectorLink()
     if #link_name > 0 then
+        ros.INFO('Found link_name: %s', link_name)
         self.current_pose = self.state:getGlobalLinkTransform(link_name)
         self.target_pose = self.state:getGlobalLinkTransform(link_name)
     else
+        ros.WARN('no end effector')
         self.current_pose = tf.Transform()
         self.target_pose = tf.Transform()
     end
-    if self.joint_monitor:waitReady(timeout or ros.Duration(0.1)) then
-        self.max_vel,
-            self.max_acc = queryJointLimits(self.nh, self.joint_monitor:getJointNames(), '/robot_description_planning')
-        self.max_vel = self.max_vel * self.max_speed_scaling
-        self.max_acc = self.max_acc --* self.max_speed_scaling
-        self.lastCommandJointPositions =
-            createJointValues(
-            self.joint_set.joint_names,
-            self.joint_monitor:getNextPositionsOrderedTensor(timeout or ros.Duration(0.1), self.joint_set.joint_names)
-        )
-        self.mode = 0
-        self.controller = tvpController.new(#self.joint_set.joint_names)
-        self.controller.max_vel = self.max_vel
-        self.controller.max_acc = self.max_acc
-        self.controller.state.pos:copy(self.lastCommandJointPositions.values)
-        ros.INFO('resetting finished successfully')
-        return true
-    end
-    ros.INFO('resetting finished unuccessfully')
-    return false
+
+    self.lastCommandJointPositions =
+        createJointValues(
+        self.joint_set.joint_names,
+        self.joint_monitor:getPositionsOrderedTensor(self.joint_set.joint_names)
+    )
+    self.max_vel,
+        self.max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
+    self.max_vel = self.max_vel * self.max_speed_scaling
+    self.max_acc = self.max_acc --* self.max_speed_scaling
+
+    self.mode = 0
+    self.controller = tvpController.new(#self.joint_set.joint_names)
+    self.controller.max_vel = self.max_vel
+    self.controller.max_acc = self.max_acc
+    self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+    ros.INFO('resetting finished successfully')
+    return true
 end
 
 function JoggingControllerOpenLoop:releaseResources()
@@ -708,23 +717,26 @@ function JoggingControllerOpenLoop:releaseResources()
 end
 
 function JoggingControllerOpenLoop:setMoveGroupInterface(name)
-    local tmp_move_group = moveit.MoveGroupInterface(name)
-    local ready = self:reset(ros.Duration(0.5))
-    local move_group_name = tmp_move_group:getName()
-    if ready and (move_group_name == name) then
-        self.move_group = tmp_move_group
-        self:releaseResources()
-        ros.INFO('Trigger reset with movegroup name: %s', self.move_group:getName())
-        self:reset()
-        return true, 'Successfully changed movegroup.'
-    else
-        if move_group_name ~= name then
-            return false, string.Format('Could not set moveGroup with name: %s. ', name)
-        end
-        if not ready then
-            return false, 'joint state is not available in time.'
-        end
+    if not self.move_groups[name] then
+        local tmp_move_group = moveit.MoveGroupInterface(name)
+        self.move_groups[tmp_move_group:getName()] = tmp_move_group
     end
+    local last_move_group_name = self.curr_move_group_name
+    self.curr_move_group_name = name
+    local ready = self:reset()
+    if ready then
+        --self:releaseResources()
+        ros.INFO('Triggered reset with movegroup name: %s', self.move_groups[self.curr_move_group_name]:getName())
+        return true, string.format('Successfully changed movegroup to %s', self.curr_move_group_name)
+    else
+        self.curr_move_group_name = last_move_group_name
+        return false, string.format('Could not set moveGroup with name: %s. ', name)
+    end
+    return false, 'joint state is not available in time.'
+end
+
+function JoggingControllerOpenLoop:getCurrentMoveGroup()
+    return self.move_groups[self.curr_move_group_name]
 end
 
 return JoggingControllerOpenLoop
