@@ -172,10 +172,15 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
     self.joint_monitor = core.JointMonitor(self.state:getVariableNames():totable())
     local ready = false
+    local once = true
     while not ready and ros.ok() do
         ready = self.joint_monitor:waitReady(0.01)
-        ros.ERROR('joint states not ready')
+        if once then
+            ros.ERROR('joint states not ready')
+            once = false
+        end
     end
+    ros.INFO("joint states ready")
     self.lastCommandJointPositions =
         createJointValues(
         self.joint_set.joint_names,
