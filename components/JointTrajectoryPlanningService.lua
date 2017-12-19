@@ -9,7 +9,7 @@ local function generateSimpleTvpTrajectory(waypoints, max_velocities, max_accele
     local dim = goal:size(1)
     print('dim', dim)
     print('goal', goal)
-    local controller = require 'xamlamoveit.controller'.TvpController(dim)
+    local controller = require 'xamlamoveit.controller'.MultiAxisTvpController(dim)
     controller.max_vel:copy(max_velocities)
     controller.max_acc:copy(max_accelerations)
     local result = controller:generateOfflineTrajectory(start, goal, dt)
