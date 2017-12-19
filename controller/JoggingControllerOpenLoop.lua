@@ -4,7 +4,7 @@ local tf = ros.tf
 local planning = require 'xamlamoveit.planning'
 local core = require 'xamlamoveit.core'
 local datatypes = require 'xamlamoveit.components.datatypes'
-local tvpController = require 'xamlamoveit.controller.TvpController'
+local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController'
 local transformListener
 function math.sign(x)
     assert(type(x) == 'number')
@@ -647,8 +647,8 @@ function JoggingControllerOpenLoop:update()
     local timeout_b = false
     if self.timeout:toSec() < (ros.Time.now() - self.start_time):toSec() then
         self.lastCommandJointPositions.values:copy(self.controller.state.pos)
-        self.controller.state.vel:zero()
-        self.controller.state.acc:zero()
+        self.controller:reset()
+        self.controller.state.pos:copy(self.lastCommandJointPositions.values)
         q_dot.values:zero()
         timeout_b = true
         ros.DEBUG('timeout')
