@@ -21,6 +21,17 @@ local all_group_joint_names = {}
 
 local last_status_message_tracking = 'IDLE'
 
+local function printSplash()
+    print([[
+     _  __                __
+    | |/ /___ _____ ___  / /___ _     "I like to move it move it"
+    |   / __ `/ __ `__ \/ / __ `/
+   /   / /_/ / / / / / / / /_/ /
+  /_/|_\__,_/_/ /_/ /_/_/\__,_/
+  Xamla Jogging Node v1.0
+  ]])
+end
+
 local function initSetup(name)
     ros.init(name)
     node_handle = ros.NodeHandle('~')
@@ -154,6 +165,7 @@ local function getStatusHandler(request, response, header)
 end
 
 local function joggingServer(name)
+    printSplash()
     initSetup(name or 'joggingServer')
     local nh = node_handle
     local ns = nh:getNamespace()
@@ -198,7 +210,7 @@ local function joggingServer(name)
 
     value, suc = nh:getParamDouble('timeout')
     if suc then
-        cntr.timeout = ros.Duration(value)
+        cntr:setTimeout(value)
     end
     ---Services
     --set_limits

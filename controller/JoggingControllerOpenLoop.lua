@@ -243,6 +243,20 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.feedback_message = nil
 end
 
+function JoggingControllerOpenLoop:setTimeout(value)
+    if type(value) == 'number' then
+        if value < 0 then
+            error('Invalid argument: positive Number expected')
+        else
+            self.timeout = ros.Duration(value)
+        end
+    elseif not torch.isTypeOf(value, ros.Duration) then
+        error('Invalid argument: Instance of ros.Duration expected')
+    else
+        self.timeout = value
+    end
+end
+
 function JoggingControllerOpenLoop:getInTopic()
     return self.subscriber_pose_goal:getTopic()
     -- self.subscriber_posture_goal:getTopic()
@@ -295,7 +309,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
     local msg = nil
     local success = true
     while self.subscriber_twist_goal:hasMessage() and ros.ok() do
-        ros.WARN('NEW POSE MESSAGE RECEIVED')
+        ros.DEBUG('NEW TWIST MESSAGE RECEIVED')
         msg = self.subscriber_twist_goal:read()
     end
     if msg then
@@ -318,11 +332,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
         end
         newMessage = true
     end
-    if newMessage then
-        ros.INFO('getTwistGoal')
-    --print(pose)
-    end
-    return newMessage, twist, success
+    return newMessage, twist
 end
 
 function JoggingControllerOpenLoop:getPoseGoal()
@@ -330,16 +340,12 @@ function JoggingControllerOpenLoop:getPoseGoal()
     local pose = nil
     local msg = nil
     while self.subscriber_pose_goal:hasMessage() and ros.ok() do
-        ros.WARN('NEW POSE MESSAGE RECEIVED')
+        ros.DEBUG('NEW POSE MESSAGE RECEIVED')
         msg = self.subscriber_pose_goal:read()
     end
     if msg then
         pose = msg2StampedTransform(msg)
         newMessage = true
-    end
-    if newMessage then
-        ros.INFO('getPoseGoal')
-    --print(pose)
     end
     return newMessage, pose
 end
@@ -350,7 +356,7 @@ function JoggingControllerOpenLoop:getPostureGoal()
     local joint_names = {}
     local joint_posture = self.lastCommandJointPositions:clone()
     while self.subscriber_posture_goal:hasMessage() and ros.ok() do
-        ros.WARN('NEW POSTURE MESSAGE RECEIVED')
+        ros.DEBUG('NEW POSTURE MESSAGE RECEIVED')
         msg = self.subscriber_posture_goal:read()
     end
     if msg then
@@ -554,9 +560,9 @@ end
 
 local function tryLock(self)
     if self.resource_lock == nil then
-        ros.INFO('lock resources')
+        ros.DEBUG('lock resources')
         self.resource_lock = self.lock_client:lock(self.state:getVariableNames():totable())
-        ros.INFO('locked resources')
+        ros.DEBUG('locked resources')
     else
         local dur = ros.Duration((self.resource_lock.expiration:toSec() - self.resource_lock.created:toSec()) / 2)
         if dur > (self.resource_lock.expiration - ros.Time.now()) then
