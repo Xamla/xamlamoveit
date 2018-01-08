@@ -487,7 +487,6 @@ function MotionService:planMoveJoint(path, parameters)
     local res =
         queryJointTrajectory(
         self,
-        parameters.move_group_name,
         parameters.joint_names,
         path,
         parameters.max_velocity * self.global_veloctiy_scaling,
