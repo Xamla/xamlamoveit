@@ -276,7 +276,7 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints)
 end
 
 -- get Trajectory from service
-local function queryJointTrajectory(self, move_group_name, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
+local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
     ros.INFO("queryJointTrajectory")
     local generate_trajectory_interface =
         self.node_handle:serviceClient(
@@ -285,7 +285,6 @@ local function queryJointTrajectory(self, move_group_name, joint_names, waypoint
     )
     local request = generate_trajectory_interface:createRequest()
     request.max_deviation = max_deviation
-    request.group_name = move_group_name
     request.joint_names = joint_names
     request.dt = dt > 1.0 and 1 / dt or dt
     request.max_velocity = max_vel
