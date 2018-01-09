@@ -48,11 +48,12 @@ local function initializeMoveGroup(self, group_id, velocity_scaling)
 end
 
 local function getMoveitPath(self, group_name, joint_names, waypoints)
+    ros.INFO("getMoveitPath")
     local manipulator = initializeMoveGroup(self, group_name)
     local num_steps = waypoints:size(1)
     local plannedwaypoints = {}
     local robot_state = manipulator:getCurrentState()
-    for i = 1, num_steps - 1 do
+    for i = 1, num_steps do
         local k = math.min(i + 1, num_steps)
         if i < k then
             robot_state:setVariablePositions(waypoints[i], joint_names)
@@ -74,6 +75,8 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
     for i, v in ipairs(plannedwaypoints) do
         table_concat(result, v)
     end
+    -- make sure to have the goal exact in plan
+    result[#result + 1 ] = waypoints[num_steps]
     return true, result, robot_state:getVariableNames():totable()
 end
 
