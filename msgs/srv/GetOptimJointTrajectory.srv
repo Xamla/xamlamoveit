@@ -1,5 +1,4 @@
-# Mandatory name of group to compute the path for
-string group_name
+# Mandatory joint_names to compute the path for
 string[] joint_names
 
 # A sequence of waypoints to be followed

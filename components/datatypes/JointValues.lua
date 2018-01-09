@@ -56,11 +56,43 @@ function JointValues:add(other)
     end
 end
 
+function JointValues.__add(a, b)
+    local result = a:clone()
+    return result:add(b)
+end
+
 function JointValues:sub(other)
     assert(other.joint_set:count() == self.joint_set:count())
     for i, v in ipairs(self:getNames()) do
         self.values[i] = self.values[i] - other:getValue(v)
     end
+end
+
+function JointValues.__sub(a, b)
+    local result = a:clone()
+    return result:sub(b)
+end
+
+function JointValues.__mul(a, b)
+    local result
+    if torch.type(a) == 'xamlamoveit.components.datatypes.JointValues' then
+        result = a:clone()
+        if torch.type(b) == 'number' then
+            result.values:mul(b)
+        else
+            error(string.format('invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double', torch.type(a), torch.type(b)))
+        end
+    elseif torch.type(b) == 'xamlamoveit.components.datatypes.JointValues' then
+        result = b:clone()
+        if torch.type(a) == 'number' then
+            result.values:mul(a)
+        else
+            error(string.format('invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double', torch.type(a), torch.type(b)))
+        end
+    else
+        error(string.format('invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double', torch.type(a), torch.type(b)))
+    end
+    return result
 end
 
 function JointValues:select(names)

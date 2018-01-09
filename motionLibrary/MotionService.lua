@@ -16,6 +16,16 @@ function MotionService:__init(node_handle)
     self.global_acceleration_scaling = 1.0
     local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
     self.compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
+    self.execution_action_client = nil
+end
+
+function MotionService:shutdown()
+    if  self.execution_action_client ~= nil then
+        self.execution_action_client:shutdown()
+    end
+
+    self.compute_ik_interface:shutdown()
+    self.node_handle:shutdown()
 end
 
 local function poses2MsgArray(points)
@@ -266,7 +276,7 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints)
 end
 
 -- get Trajectory from service
-local function queryJointTrajectory(self, move_group_name, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
+local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
     ros.INFO("queryJointTrajectory")
     local generate_trajectory_interface =
         self.node_handle:serviceClient(
@@ -275,7 +285,6 @@ local function queryJointTrajectory(self, move_group_name, joint_names, waypoint
     )
     local request = generate_trajectory_interface:createRequest()
     request.max_deviation = max_deviation
-    request.group_name = move_group_name
     request.joint_names = joint_names
     request.dt = dt > 1.0 and 1 / dt or dt
     request.max_velocity = max_vel
@@ -297,7 +306,12 @@ local function queryJointTrajectory(self, move_group_name, joint_names, waypoint
 end
 
 function MotionService:executeJointTrajectoryAsync(traj, check_collision, cancelToken)
-    local action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+    if  self.execution_action_client ~= nil then
+        self.execution_action_client:shutdown()
+        self.execution_action_client = nil
+    end
+    self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+    local action_client =  self.execution_action_client
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
@@ -319,10 +333,10 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, cancel
     end
 
     ros.spinOnce()
-    action_client:waitForServer(ros.Duration(1.5))
+    action_client:waitForServer(ros.Duration(2.5))
     if action_client:isServerConnected() then
         action_client:sendGoal(g, action_done, action_active, action_feedback)
-        return true
+        return true, action_client
     else
         ros.ERROR('could not reach moveJ_action')
         return false
@@ -339,7 +353,6 @@ function MotionService:executeJointTrajectory(traj, check_collision)
         end
         return true
     else
-        ros.ERROR('could not reach moveJ_action')
         return false
     end
 end
@@ -474,7 +487,6 @@ function MotionService:planMoveJoint(path, parameters)
     local res =
         queryJointTrajectory(
         self,
-        parameters.move_group_name,
         parameters.joint_names,
         path,
         parameters.max_velocity * self.global_veloctiy_scaling,

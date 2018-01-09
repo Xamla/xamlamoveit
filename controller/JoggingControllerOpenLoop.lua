@@ -125,6 +125,7 @@ local function sendPositionCommand(self, q_des, q_dot, names)
                 m.joint_names[ii] = names[ii]
             end
             mPoint.positions:set(q_des)
+            mPoint.velocities:set(q_dot)
             mPoint.time_from_start = self.dt
             m.points = {mPoint}
             publisherPointPositionCtrl[current_id]:publish(m)

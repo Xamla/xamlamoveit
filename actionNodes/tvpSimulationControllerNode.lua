@@ -96,36 +96,60 @@ end
 
 local error_state = false
 
+
+local function checkParameterForAvailability(topic, wait_duration, max_counter)
+    wait_duration = wait_duration or ros.Duration(1.0)
+    max_counter = max_counter or 10
+    local counter = 0
+    local value
+    while value == nil and counter < max_counter do
+        if counter > 0 then
+            ros.WARN('%s not available trying again in 1 sec', topic)
+        end
+        wait_duration:sleep()
+        value = node_handle:getParamVariable(topic)
+        counter = counter + 1
+        ros.spinOnce()
+    end
+    if counter >= max_counter then
+        ros.ERROR(string.format('could not initialize!! %s', topic))
+        return false
+    end
+    return true, value
+end
+
 local function queryJointLimits(joint_names, namespace)
     namespace = namespace or node_handle:getNamespace()
+    local nh = node_handle
+    local root_path = string.format('%s/joint_limits', namespace) -- robot_description_planning
+    local suc, value = checkParameterForAvailability( root_path )
+    if suc == false then
+        return
+    end
+
     local max_vel = torch.zeros(#joint_names)
     local max_acc = torch.zeros(#joint_names)
     local max_min_pos = torch.zeros(#joint_names, 2)
-    local nh = node_handle
-    local root_path = string.format('%s/joint_limits', namespace) -- robot_description_planning
-    for i, name in ipairs(joint_names) do
-        local has_pos_param = string.format('/%s/%s/has_position_limits', root_path, name)
-        local get_max_pos_param = string.format('/%s/%s/max_position', root_path, name)
-        local get_min_pos_param = string.format('/%s/%s/min_position', root_path, name)
-        local has_vel_param = string.format('/%s/%s/has_velocity_limits', root_path, name)
-        local get_vel_param = string.format('/%s/%s/max_velocity', root_path, name)
-        local has_acc_param = string.format('/%s/%s/has_acceleration_limits', root_path, name)
-        local get_acc_param = string.format('/%s/%s/max_acceleration', root_path, name)
 
-        if nh:getParamVariable(has_pos_param) then
-            max_min_pos[i][1] = nh:getParamVariable(get_max_pos_param)
-            max_min_pos[i][2] = nh:getParamVariable(get_min_pos_param)
+    for i, name in ipairs(joint_names) do
+        local has_pos_param = value[name].has_position_limits
+        local has_vel_param = value[name].has_velocity_limits
+        local has_acc_param = value[name].has_acceleration_limits
+
+        if has_pos_param then
+            max_min_pos[i][1] = value[name].max_position
+            max_min_pos[i][2] = value[name].min_position
         else
             ros.WARN('Joint: %s has no position limit', name)
         end
 
-        if nh:getParamVariable(has_vel_param) then
-            max_vel[i] = nh:getParamVariable(get_vel_param)
+        if has_vel_param then
+            max_vel[i] = value[name].max_velocity
         else
             ros.WARN('Joint: %s has no velocity limit', name)
         end
-        if nh:getParamVariable(has_acc_param) then
-            max_acc[i] = nh:getParamVariable(get_acc_param)
+        if has_acc_param then
+            max_acc[i] = value[name].max_acceleration
         else
             max_acc[i] = max_vel[i] * 0.5
             ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
@@ -183,9 +207,11 @@ local function initControllers(delay, dt)
     controller.max_vel,
         controller.max_acc,
         max_min_positions = queryJointLimits(joint_name_collection, node_handle:getNamespace())
-
+    local soft_max_vel, soft_max_acc, soft_max_min_positions = queryJointLimits(joint_name_collection, '/robot_description_planning')
     last_command_joint_position =
         xutils.clamp(last_command_joint_position, max_min_positions[{{}, 2}], max_min_positions[{{}, 1}])
+    last_command_joint_position =
+        xutils.clamp(last_command_joint_position, soft_max_min_positions[{{}, 2}], soft_max_min_positions[{{}, 1}])
     controller.state.pos:copy(last_command_joint_position)
     subscriber = node_handle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
     subscriber:registerCallback(jointCommandCb)
@@ -198,7 +224,7 @@ cmd:option('-delay', 0.150, 'Feedback delay time in s')
 cmd:option('-frequency', 0.008, 'Node cycle time in s')
 
 local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
-initSetup(parameter['__name'], parameter) -- TODO
+initSetup(parameter['__name'], parameter)
 
 local joint_state_publisher
 local sim_seq = 1
@@ -241,7 +267,7 @@ end
 local function simulation(delay, dt)
     sim_seq = 1
     local heartbeat = xamla_sysmon.Heartbeat.new()
-    heartbeat:start(node_handle, 1) --[Hz]
+    heartbeat:start(node_handle, 1) --1 [Hz]
     heartbeat:updateStatus(heartbeat.GO, '')
     heartbeat:publish()
     local sysmon_watch = xamla_sysmon.Watch.new(node_handle, 3.0)
