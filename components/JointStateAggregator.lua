@@ -99,8 +99,14 @@ function JointStateAggregator:onStart()
 end
 
 function JointStateAggregator:onProcess()
-    self.last_joint_state:copy(self.joint_monitor:getPositionsTensor())
-    sendJointState(self, self.last_joint_state, self.joint_names)
+    if self.last_joint_state then
+        self.last_joint_state:copy(self.joint_monitor:getPositionsTensor())
+    else
+        self.last_joint_state = self.joint_monitor:getPositionsTensor()
+    end
+    if self.last_joint_state then
+        sendJointState(self, self.last_joint_state, self.joint_names)
+    end
 end
 
 function JointStateAggregator:onStop()
