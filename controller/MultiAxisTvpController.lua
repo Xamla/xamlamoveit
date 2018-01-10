@@ -26,82 +26,105 @@ function MultiAxisTvpController:__init(dim)
     self.norm_max_acc = torch.ones(dim) * math.pi / 2
     self.axis_scale = torch.ones(dim)
     self.longest_axis = nil
+    self.last_longest_axis_index = 1
     self.slowest_axis = nil
     self.last_goal = nil
-    self.convergence_threshold = 1e-4
+    self.convergence_threshold = 1e-5
     self.converged = true
+    self.max_update_steps = 2000
+end
+
+local function getVelocity(self, goal, to_go, dt)
+    local function p2(t,x0,v0,a)
+        return x0 + torch.cmul(v0, t) + 0.5 * torch.cmul(a, torch.cmul(t, t))
+    end
+
+    -- early stopping point and duration
+    local t_stop = torch.cdiv(torch.abs(self.state.vel),self.max_acc)
+    local x_stop = p2(t_stop, self.state.pos, self.state.vel, torch.cmul(torch.sign(-self.state.vel),self.max_acc))
+
+    local d = torch.sign(goal - x_stop)
+
+    local v = torch.cmul(d, self.max_vel)
+    local a_acc = torch.cmul(d, self.max_acc)
+    local a_dec = -a_acc:clone()
+
+    -- acceleration phase
+    local delta_t1 = torch.abs(torch.cdiv(v - self.state.vel, a_acc))
+    local delta_x1 = p2(delta_t1, torch.zeros(self.dim), self.state.vel, a_acc)
+
+    -- decceleration phase
+    local delta_t3 = torch.abs(torch.cdiv(v, a_dec))
+    local delta_x3 = p2(delta_t3, torch.zeros(self.dim), v, a_dec)
+
+    -- cruising phase
+    local delta_t2 = torch.cdiv(goal - (self.state.pos + delta_x1 + delta_x3), v)
+
+    local T = delta_t2:clone()
+    T:apply(
+        function(x)
+            if 0 < x then
+                return x
+            else
+                return 0
+            end
+        end
+    )
+
+    T = T + torch.abs(delta_t1) + torch.abs(delta_t3) -- duration of motion
+
+    for i = 1, self.dim do
+        if delta_t2[i] < 0 then
+            v[i] = d[i] * math.sqrt(d[i] * self.max_acc[i] * to_go[i] + 0.5 * self.state.vel[i] * self.state.vel[i])
+            T[i] = ((d[i] * math.abs(v[i]) - self.state.vel[i]) / a_acc[i])
+             + (d[i] * math.abs(v[i]) / a_dec[i])
+        end
+    end
+    local value, plan_joint_index = T:max(1)
+
+    local max_T = torch.ones(T:size()):fill(value[1]) -- set max duration of motion for all joints
+
+    max_T:apply(
+        function(x)
+            if x ~= x then
+                return 0
+            else
+                return x
+            end
+        end
+    )
+
+    -- find sync velocity
+    local duration = max_T - t_stop
+    local vc = v:clone()
+
+    for i = 1, self.dim do
+        if duration[i] > 0 then
+            vc[i] = (goal[i] - x_stop[i]) / duration[i]
+        end
+    end
+    v:copy(vc)
+    return v, max_T
 end
 
 function MultiAxisTvpController:update(goal, dt)
+    self.state.pos = self.state.pos + self.state.vel * dt + self.state.acc * dt * dt / 2
     self.state.vel = self.state.vel + self.state.acc * dt
-    self.state.pos = self.state.pos + self.state.vel * dt
 
     local to_go = goal - self.state.pos
-    self.converged = to_go:norm() < self.convergence_threshold
-    if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
-        self.last_goal = goal:clone()
-        self.norm_max_vel = self.max_vel:clone()
-        self.norm_max_acc = self.max_acc:clone()
-        -- find longest axis
-        local _
-        _, self.longest_axis = torch.abs(to_go):max(1)
+    self.converged = to_go:gt(self.convergence_threshold):sum() > 1
+    local v, T = getVelocity(self, goal, to_go, dt)
 
-        if math.abs(to_go[self.longest_axis[1]]) > 0 then
-            self.axis_scale:copy((goal - self.state.pos) / to_go[self.longest_axis[1]])
-        else
-            self.axis_scale:fill(1)
-        end
-        -- find slowest axis to reach goal
-        local slowest_vel_time = torch.cdiv(torch.abs(goal - self.state.pos), self.max_vel)
-        _, self.slowest_vel_axis = torch.max(slowest_vel_time, 1)
-
-        if slowest_vel_time[self.slowest_vel_axis[1]] > 1 then
-            for i = 1, self.dim do
-                self.norm_max_vel[i] =
-                    self.max_vel[i] * slowest_vel_time[i] / slowest_vel_time[self.slowest_vel_axis[1]]
-            end
-        end
-
-        -- find slowest axis to reach norm_max_vel
-        local slowest_acc_time = torch.abs(torch.cdiv(self.norm_max_vel, self.max_acc))
-        local _, slowest_acc_axis = torch.max(slowest_acc_time, 1)
-        if slowest_acc_time[slowest_acc_axis[1]] > 1 then
-            for i = 1, self.dim do
-                self.norm_max_acc[i] = self.max_acc[i] * slowest_acc_time[i] / slowest_acc_time[slowest_acc_axis[1]]
-            end
+    local real_time_to_target = (torch.ceil(T / dt)) * dt
+    for i = 1, self.dim do
+        if math.abs(to_go[i]) < self.convergence_threshold then
+        --if math.abs(real_time_to_target[i]) < dt then
+            v[i] = 0
         end
     end
 
-    -- plan with longest axis with max_vel and max_acc scaled by the slowest axis
-    local p0 = 0 -- current position normalized
-    local p1 = to_go[self.longest_axis[1]] or 0 -- goal position
-    local v0 = self.state.vel[self.longest_axis[1]] or 0 -- current velocity
-    local a0  -- current acceleration
-    local vmax, amax  -- max velocity
-    if self.longest_axis[1] then
-        vmax = self.norm_max_vel[self.longest_axis[1]] -- max velocity
-        amax = self.norm_max_acc[self.longest_axis[1]] -- max acceleration
-    else
-        vmax = self.norm_max_vel:min()
-        amax = self.norm_max_acc:min()
-    end
+    a0 = (v - self.state.vel) / dt
 
-    local v
-    local eta
-    local correct_amax
-
-    eta = math.sqrt(2 * (math.abs(p1 - p0)) / amax) -- time to goal
-
-    correct_amax = 2 * torch.abs(p1 - p0) / (eta * eta) -- correct amax
-    if eta < dt * 0.5 then
-        correct_amax = 0
-    end
-
-    v = math.sign(p1 - p0) * correct_amax * eta -- max velocity to stop on goal, decelerating
-    v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
-    v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
-
-    a0 = (self.axis_scale * v - self.state.vel) / dt
     -- test nan
     a0:apply(
         function(x)
@@ -111,8 +134,6 @@ function MultiAxisTvpController:update(goal, dt)
         end
     )
     self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))
-
-    return math.abs(p1) > (correct_amax * dt * dt / 2)
 end
 
 function MultiAxisTvpController:reset()
@@ -136,8 +157,8 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt)
     local counter = 1
     self:reset()
     self.state.pos:copy(start)
-    local max_counter = 2000
-    while (goal - self.state.pos):norm() > 1e-4 and max_counter > counter do
+    local max_counter = self.max_update_steps
+    while (goal - self.state.pos):norm() > self.convergence_threshold and max_counter > counter do
         self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
         counter = counter + 1
