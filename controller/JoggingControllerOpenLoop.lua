@@ -22,8 +22,12 @@ local feedback_spec = ros.MsgSpec('xamlamoveit_msgs/ControllerState')
 
 local function lookupPose(link_name, base_link_name)
     local base_link_name = base_link_name or 'base_link'
-    transformListener:waitForTransform(base_link_name, link_name, ros.Time(0), ros.Duration(0.1), true)
-    return transformListener:lookupTransform(base_link_name, link_name, ros.Time(0))
+    if transformListener:frameExists(base_link_name) and transformListener:frameExists(link_name) then
+        transformListener:waitForTransform(base_link_name, link_name, ros.Time(0), ros.Duration(0.1), true)
+        return transformListener:lookupTransform(base_link_name, link_name, ros.Time(0))
+    else
+        return tf.StampedTransform()
+    end
 end
 
 local function transformVector(target_frame, frame_id, input)
@@ -181,7 +185,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
             once = false
         end
     end
-    ros.INFO("joint states ready")
+    ros.INFO('joint states ready')
     self.lastCommandJointPositions =
         createJointValues(
         self.joint_set.joint_names,
@@ -701,8 +705,7 @@ function JoggingControllerOpenLoop:reset()
         self.joint_set.joint_names,
         self.joint_monitor:getPositionsOrderedTensor(self.joint_set.joint_names)
     )
-    self.max_vel,
-        self.max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
+    self.max_vel, self.max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
     self.max_vel = self.max_vel * self.max_speed_scaling
     self.max_acc = self.max_acc --* self.max_speed_scaling
 
