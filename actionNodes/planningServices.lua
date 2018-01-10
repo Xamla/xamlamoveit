@@ -59,6 +59,7 @@ while ros.ok() and not emerg_stop_flag do
             emerg_stop_flag = true
         end
         if status == false then
+            print(err)
             heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
         end
     end

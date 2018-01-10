@@ -43,6 +43,7 @@ function TvpController:update(target, dt)
     acc = clamp(acc, -self.max_acc, self.max_acc)
 
     self.state.acc = acc
+    return real_time_to_target:gt(dt * 0.5):sum() < 1
 end
 
 function TvpController:reset()
@@ -65,16 +66,13 @@ function TvpController:generateOfflineTrajectory(start, goal, dt)
     local counter = 1
     self:reset()
     self.state.pos:copy(start)
-    local max_counter = 20000
-    while (goal - self.state.pos):norm() > 1e-6 and max_counter > counter do
-        self:update(goal, dt)
+    local converged = false
+    while (goal - self.state.pos):norm() > 1e-5 and not converged do
+        converged = self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
         counter = counter + 1
     end
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
-    if max_counter <= counter then
-        print('not converged')
-    end
     return result
 end
 
