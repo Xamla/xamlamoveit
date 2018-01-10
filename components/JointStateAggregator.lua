@@ -85,13 +85,18 @@ end
 function JointStateAggregator:onInitialize()
     getControllerConfig(self)
     self.joint_monitor = JointMonitor.new(self.joint_names, self.timeout:toSec())
-    local ready = self.joint_monitor:waitReady(2.1)
-    if ready then
-        self.last_joint_state = self.joint_monitor:getPositionsTensor()
-        self.joint_names = self.joint_monitor:getJointNames()
-    else
-        ros.ERROR('joint states not ready')
+    local ready = self.joint_monitor:waitReady(20.0)
+    local once = true
+    while not ready and ros.ok() do
+        if once then
+            ros.ERROR('joint states not ready')
+            once = false
+        end
+        ready = self.joint_monitor:waitReady(20.0)
     end
+    ros.INFO('joint states  ready')
+    self.last_joint_state = self.joint_monitor:getPositionsTensor()
+    self.joint_names = self.joint_monitor:getJointNames()
 end
 
 function JointStateAggregator:onStart()

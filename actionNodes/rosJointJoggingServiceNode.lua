@@ -170,6 +170,22 @@ local function joggingServer(name)
         planningGroup = all_group_joint_names[1]
     end
 
+
+    ros.INFO('Connect controller.')
+    local idle_dt = ros.Rate(10)
+    local sub = nh:subscribe('/execute_trajectory/status', 'actionlib_msgs/GoalStatusArray')
+    while ros.ok and sub:getNumPublishers() == 0 do
+        ros.spinOnce()
+        idle_dt:sleep()
+    end
+    sub:shutdown()
+    local config = nh:getParamVariable(string.format('%s/controller_list', nh:getNamespace()))
+    cntr = controller.JoggingControllerOpenLoop(nh, moveit.MoveGroupInterface(planningGroup), config, dt)
+    while not cntr:connect('jogging_command', 'jogging_setpoint', 'jogging_twist') do
+        dt:sleep()
+        ros.spinOnce()
+    end
+
     ros.INFO('Get node parameters.')
     local value, suc = nh:getParamDouble('command_distance_threshold')
     if suc then
@@ -197,20 +213,6 @@ local function joggingServer(name)
     --status
     status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 
-    ros.INFO('Connect controller.')
-    local idle_dt = ros.Rate(10)
-    local sub = nh:subscribe('/execute_trajectory/status', 'actionlib_msgs/GoalStatusArray')
-    while ros.ok and sub:getNumPublishers() == 0 do
-        ros.spinOnce()
-        idle_dt:sleep()
-    end
-    sub:shutdown()
-    local config = nh:getParamVariable(string.format('%s/controller_list', nh:getNamespace()))
-    cntr = controller.JoggingControllerOpenLoop(nh, moveit.MoveGroupInterface(planningGroup), config, dt)
-    while not cntr:connect('jogging_command', 'jogging_setpoint', 'jogging_twist') do
-        dt:sleep()
-        ros.spinOnce()
-    end
 
     local success = true
     local print_idle_once = false

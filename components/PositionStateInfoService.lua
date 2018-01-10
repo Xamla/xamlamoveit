@@ -209,17 +209,17 @@ function PositionStateInfoService:onInitialize()
     self.joint_monitor = core.JointMonitor(self.robot_model:getVariableNames():totable())
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
 
-    local ready = self.joint_monitor:waitReady(2.1)
-
-    if ready then
+    local ready = self.joint_monitor:waitReady(2.0) -- it is not important to have the joint monitor ready at start up
+    if not ready then
+        ros.WARN('joint states not ready')
+    else
         self.robot_state:setVariablePositions(
             self.joint_monitor:getNextPositionsTensor(),
             self.joint_monitor:getJointNames()
         )
         self.robot_state:update()
-    else
-        ros.ERROR('joint states not ready')
     end
+
     self.ik_service_client = self.node_handle:serviceClient('/compute_ik', 'moveit_msgs/GetPositionIK')
 end
 
@@ -260,11 +260,13 @@ function PositionStateInfoService:onProcess()
     if not (state_info_call or ik_info_call or fk_info_call) then
         return
     end
-    self.robot_state:setVariablePositions(
-        self.joint_monitor:getNextPositionsTensor(),
-        self.joint_monitor:getJointNames()
-    )
-    self.robot_state:update()
+    if self.joint_monitor:isReady() then
+        self.robot_state:setVariablePositions(
+            self.joint_monitor:getNextPositionsTensor(),
+            self.joint_monitor:getJointNames()
+        )
+        self.robot_state:update()
+    end
     if state_info_call then
         ros.INFO('[!] incoming PositionStateInfoService call')
         self.callback_queue:callAvailable()

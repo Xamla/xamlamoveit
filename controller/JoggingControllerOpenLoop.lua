@@ -20,10 +20,10 @@ local cartesian_pose_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
 local cartesian_twist_spec = ros.MsgSpec('geometry_msgs/TwistStamped')
 local feedback_spec = ros.MsgSpec('xamlamoveit_msgs/ControllerState')
 
-local function lookupPose(linkName, baseLinkName)
-    local baseLinkName = baseLinkName or 'base_link'
-    transformListener:waitForTransform(baseLinkName, linkName, ros.Time(0), ros.Duration(0.1), true)
-    return transformListener:lookupTransform(baseLinkName, linkName, ros.Time(0))
+local function lookupPose(link_name, base_link_name)
+    local base_link_name = base_link_name or 'base_link'
+    transformListener:waitForTransform(base_link_name, link_name, ros.Time(0), ros.Duration(0.1), true)
+    return transformListener:lookupTransform(base_link_name, link_name, ros.Time(0))
 end
 
 local function transformVector(target_frame, frame_id, input)
@@ -175,7 +175,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     local ready = false
     local once = true
     while not ready and ros.ok() do
-        ready = self.joint_monitor:waitReady(0.01)
+        ready = self.joint_monitor:waitReady(20.0)
         if once then
             ros.ERROR('joint states not ready')
             once = false
