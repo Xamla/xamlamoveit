@@ -24,15 +24,16 @@ local function lookupPose(link_name, base_link_name)
     local base_link_name = base_link_name or 'base_link'
     if transformListener:frameExists(base_link_name) and transformListener:frameExists(link_name) then
         transformListener:waitForTransform(base_link_name, link_name, ros.Time(0), ros.Duration(0.1), true)
-        return transformListener:lookupTransform(base_link_name, link_name, ros.Time(0))
+        return true, transformListener:lookupTransform(base_link_name, link_name, ros.Time(0))
     else
-        return tf.StampedTransform()
+        return false, tf.StampedTransform()
     end
 end
 
 local function transformVector(target_frame, frame_id, input)
     local transform = tf.StampedTransform()
-    transform = lookupPose(target_frame, frame_id)
+    local success = true
+    success, transform = lookupPose(target_frame, frame_id)
     local end_vector = torch.ones(4, 1)
     end_vector[{{1, 3}, 1}]:copy(input)
     local origin = torch.zeros(4, 1)
@@ -292,6 +293,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
     local newMessage = false
     local twist = nil
     local msg = nil
+    local success = true
     while self.subscriber_twist_goal:hasMessage() and ros.ok() do
         ros.WARN('NEW POSE MESSAGE RECEIVED')
         msg = self.subscriber_twist_goal:read()
@@ -305,10 +307,14 @@ function JoggingControllerOpenLoop:getTwistGoal()
         twist[5] = msg.twist.angular.y
         twist[6] = msg.twist.angular.z
         if #msg.header.frame_id > 0 then
-            local trans = lookupPose(msg.header.frame_id, 'world')
-            twist[{{1, 3}}] = trans:getBasis() * twist[{{1, 3}}]
-            twist[{{4, 6}}] = trans:getBasis() * twist[{{4, 6}}]
-            twist:mul(self.speed_scaling)
+            success, trans = lookupPose(msg.header.frame_id, 'world')
+            if success then
+                twist[{{1, 3}}] = trans:getBasis() * twist[{{1, 3}}]
+                twist[{{4, 6}}] = trans:getBasis() * twist[{{4, 6}}]
+                twist:mul(self.speed_scaling)
+            else
+                twist:zero()
+            end
         end
         newMessage = true
     end
@@ -316,7 +322,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
         ros.INFO('getTwistGoal')
     --print(pose)
     end
-    return newMessage, twist
+    return newMessage, twist, success
 end
 
 function JoggingControllerOpenLoop:getPoseGoal()
@@ -593,7 +599,7 @@ function JoggingControllerOpenLoop:update()
 
     local new_posture_message, posture_goal = self:getPostureGoal()
 
-    local new_twist_message, twist_goal = self:getTwistGoal()
+    local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
 
     -- Decide which goal is valid
     if self.mode < 2 and new_pose_message then
@@ -645,6 +651,10 @@ function JoggingControllerOpenLoop:update()
         local state = self.state:clone()
 
         q_dot = self:getStep(-twist_goal[{{1, 3}}], -twist_goal[{{4, 6}}], curr_time - self.start_time)
+
+        if transformed_successful == false then
+            self.feedback_message.error_code = -18 --INVALID_LINK_NAME
+        end
 
         self.controller.converged = false
     end
