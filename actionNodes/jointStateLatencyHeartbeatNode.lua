@@ -62,8 +62,9 @@ end
 
 local dt = ros.Rate(frequency)
 heartbeat:updateStatus(heartbeat.GO, 'Running ...')
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 while ros.ok() do
-  local status, err = pcall(spin)
+  local status, err = xpcall(spin, error_msg_func)
   if status == false then
       heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(monitor) .. ' ' .. tostring(err))
   end

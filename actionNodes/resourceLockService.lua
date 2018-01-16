@@ -42,14 +42,15 @@ heartbeat:publish()
 
 local emerg_stop_flag = false
 local dt = ros.Rate(100)
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 while ros.ok() and not emerg_stop_flag do
     for i, v in pairs(services) do
         local status,
             err =
-            pcall(
+            xpcall(
             function()
                 v:spin()
-            end
+            end, error_msg_func
         )
         if v.current_state == 5 then
             emerg_stop_flag = true

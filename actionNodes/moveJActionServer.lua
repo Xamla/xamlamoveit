@@ -43,13 +43,14 @@ heartbeat:publish()
 local global_state_summary = sysmon_watch:getGlobalStateSummary()
 error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
 local reinitialize = false
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 while ros.ok() and mj_action_server.current_state ~= mj_action_server.all_states.FINISHED do
 
     local status, err =
-        pcall(
+        xpcall(
         function()
             mj_action_server:spin()
-        end
+        end, error_msg_func
     )
     if status == false then
         ros.ERROR(tostring(err))

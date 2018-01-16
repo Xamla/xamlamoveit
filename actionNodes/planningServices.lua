@@ -44,22 +44,16 @@ end
 heartbeat:updateStatus(heartbeat.GO, 'Working ...')
 heartbeat:publish()
 
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 local emerg_stop_flag = false
 local dt = ros.Rate(20)
 while ros.ok() and not emerg_stop_flag do
     for i, v in pairs(services) do
-        local status,
-            err =
-            pcall(
-            function()
-                v:spin()
-            end
-        )
+        local status, err = xpcall( function() v:spin() end, error_msg_func )
         if v.current_state == 5 then
             emerg_stop_flag = true
         end
         if status == false then
-            print(err)
             heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
         end
     end
