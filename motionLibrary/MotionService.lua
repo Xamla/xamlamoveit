@@ -87,8 +87,8 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     request.group_name = parameters.move_group_name
     request.joint_names = parameters.joint_names
     request.end_effector_link = end_effector_link or ''
-    request.attempts = attempts or 5
-    request.timeout = timeout or ros.Duration(0.5)
+    request.attempts = attempts or 1
+    request.timeout = timeout or ros.Duration(0.1)
     request.points = poses2MsgArray(pose)
     request.const_seed = false
     if seed_joint_values then

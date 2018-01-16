@@ -61,10 +61,10 @@ local function queryIKServiceHandler(self, request, response, header)
     ros.DEBUG('query Group EndEffector Names for: ' .. request.group_name)
 
     local target_link = request.end_effector_link
-    local attempts = request.attempts or 5
-    local timeout = request.timeout or ros.Duration(0.2)
+    local attempts = request.attempts or 1
+    local timeout = request.timeout or ros.Duration(0.1)
     if timeout == ros.Duration(0) then
-        timeout = ros.Duration(0.2)
+        timeout = ros.Duration(0.1)
     end
     for point_index = 1, #request.points do
         local ik_req =
