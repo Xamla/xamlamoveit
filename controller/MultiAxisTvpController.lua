@@ -143,7 +143,6 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt)
         counter = counter + 1
     end
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
-
     return result
 end
 
