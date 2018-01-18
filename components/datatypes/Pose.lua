@@ -3,27 +3,27 @@ local tf = require 'ros'.tf
 local Pose = torch.class('xamlamoveit.components.datatypes.Pose',datatypes)
 
 function Pose:__init()
-  self.transform = tf.StampedTransform()
+  self.stampedTransform = tf.StampedTransform()
 end
 
 function Pose:setTranslation(trans)
-  self.transform:setOrigin(trans)
+  self.stampedTransform:setOrigin(trans)
 end
 
 function Pose:setTranslation(trans)
-  self.transform:setOrigin(trans)
+  self.stampedTransform:setOrigin(trans)
 end
 
 function Pose:setRotation(quaternion)
-  self.transform:setRotation(quaternion)
+  self.stampedTransform:setRotation(quaternion)
 end
 
 function Pose:setFrame(name)
-  self.transform:set_frame_id(name)
+  self.stampedTransform:set_frame_id(name)
 end
 
 function Pose:copy(other)
-  self.transform:copy(other)
+  self.stampedTransform = other.stampedTransform:clone()
 end
 
 function Pose:clone()
@@ -33,18 +33,18 @@ function Pose:clone()
 end
 
 function Pose:toStampedPoseMsg()
-  return self.transform:toStampedPoseMsg()
+  return self.stampedTransform:toStampedPoseMsg()
 end
 
 function Pose.__mul(a, b)
   local result = a:clone()
-  result.transform = a.transform * b.transform
+  result.stampedTransform:setData(a.stampedTransform:toTransform():mul(b.stampedTransform:toTransform()))
   return result
 end
 
 function Pose:__tostring()
   local res = 'Pose:'
-  res = string.format('%s\n %s', tostring(self.transform:toTensor()))
+  res = string.format('%s\n %s',res, tostring(self.stampedTransform:toTensor()))
   return res
 end
 
