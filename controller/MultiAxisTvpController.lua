@@ -37,7 +37,7 @@ function MultiAxisTvpController:update(goal, dt)
     self.state.pos = self.state.pos + self.state.vel * dt
 
     local to_go = goal - self.state.pos
-    self.converged = to_go:norm() < self.convergence_threshold
+
     if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
         self.last_goal = goal:clone()
         self.norm_max_vel = self.max_vel:clone()
@@ -111,7 +111,7 @@ function MultiAxisTvpController:update(goal, dt)
         end
     )
     self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))
-
+    self.converged = eta < dt/2--to_go:norm() < self.convergence_threshold
     return eta
 end
 
