@@ -60,13 +60,13 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
     ros.INFO('generateTrajectory from waypoints with max dev: %08f, dt %08f', max_deviation, time_step)
     local path = {}
     path[1] = optimplan.Path(waypoints, max_deviation)
-    local suc, split, scip = path[1]:analyse()
+    local suc, split, skip = path[1]:analyse()
     waypoints = path[1].waypoints:clone()
 
-    if not suc and #scip > 0 then
-        ros.INFO('scipping %d points split %d ', #scip, #split)
+    if not suc and #skip > 0 then
+        ros.INFO('skipping %d points split %d ', #skip, #split)
         local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
-        for i, v in ipairs(scip) do
+        for i, v in ipairs(skip) do
             indeces[v] = 0
         end
         local newIndeces = {}
@@ -79,8 +79,8 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
         waypoints = waypoints:index(1, torch.LongTensor(newIndeces)):clone()
         path[1] = optimplan.Path(waypoints, max_deviation)
         waypoints = path[1].waypoints:clone()
-        suc, split, scip = path[1]:analyse()
-        if (#scip > 0) then
+        suc, split, skip = path[1]:analyse()
+        if (#skip > 0) then
             ros.WARN('check max deviation parameter... can propably be reduced')
         end
     end
