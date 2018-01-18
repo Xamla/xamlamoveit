@@ -30,18 +30,6 @@ local function lookupPose(link_name, base_link_name)
     end
 end
 
-local function transformVector(target_frame, frame_id, input)
-    local transform = tf.StampedTransform()
-    local success = true
-    success, transform = lookupPose(target_frame, frame_id)
-    local end_vector = torch.ones(4, 1)
-    end_vector[{{1, 3}, 1}]:copy(input)
-    local origin = torch.zeros(4, 1)
-    origin[4] = 1
-    local output = (transform:toTensor() * end_vector) - (transform:toTensor() * origin)
-    return target_frame, output[{{1, 3}, 1}]:squeeze()
-end
-
 local function createJointValues(names, values)
     local joint_set = datatypes.JointSet(names)
     local joint_values = datatypes.JointValues(joint_set, values)
@@ -222,12 +210,13 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.publisher_feedback = nil
     self.mode = 0
     self.singularity_threshold = 3.5
-    self.opt = {stiffness = 1.0, damping = 0.2}
+    self.opt = {stiffness = 10.0, damping = 2.0}
     self.max_vel = nil
     self.max_acc = nil
     self.max_speed_scaling = 0.25 -- 25% of the max constraints allowed for jogging
     self.speed_scaling = 1.0
-    self.command_distance_threshold = 0.1 --m
+    self.command_distance_threshold = 0.05 --m
+    self.command_rotation_threshold = math.rad(3)
     self.joint_step_width = 0.01
     local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
     if #link_name > 0 then
@@ -237,7 +226,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
         self.current_pose = tf.Transform()
         self.target_pose = tf.Transform()
     end
-    self.timeout = ros.Duration(0.5)
+    self.timeout = ros.Duration(1.0)
 
     transformListener = tf.TransformListener()
     self.feedback_message = nil
@@ -333,7 +322,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
         end
         newMessage = true
     end
-    return newMessage, twist
+    return newMessage, twist, success
 end
 
 function JoggingControllerOpenLoop:getPoseGoal()
@@ -511,12 +500,10 @@ function JoggingControllerOpenLoop:getStep(D_force, D_torques, timespan)
 
     local K, D = self.opt.stiffness, self.opt.damping
     --stiffness and damping
-    local s = timespan or ros.Duration(1.0)
+    local s = timespan or ros.Duration(0.0)
     local offset = -D_force / (K + D * s:toSec())
     local x_rot_des = (-D_torques / (K + D * s:toSec())) -- want this in EE KO
     local suc
-
-    --offset, x_rot_des = targetTransformation(self.current_pose, offset, x_rot_des)
 
     local vel6D = torch.DoubleTensor(6)
     vel6D[{{1, 3}}]:copy(offset)
@@ -580,6 +567,23 @@ local function tryLock(self)
     end
 end
 
+local function transformPose2PostureTarget(self, pose_goal, joint_names)
+    local world_link_name = 'world'
+    local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
+    local posture_goal
+    if #link_name > 0 then
+        self.start_time = ros.Time.now()
+        self.target_pose = pose_goal:clone()
+        local state = self.state:clone()
+        state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), pose_goal:toTransform())
+        posture_goal =
+            createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(joint_names)
+    else
+        ros.WARN("Cannot uses this move group: '%s' since it has no EndEffector Link. ")
+    end
+    return posture_goal
+end
+
 function JoggingControllerOpenLoop:update()
     -- Handle feedback
     self.feedback_message.error_code = 1
@@ -611,26 +615,23 @@ function JoggingControllerOpenLoop:update()
     -- Decide which goal is valid
     if self.mode < 2 and new_pose_message then
         --self:getNewRobotState()
-        local world_link_name = 'world'
-        local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
-        if #link_name > 0 then
+        local rel_poseAB = pose_goal:clone()
+        rel_poseAB = rel_poseAB:mul(self.current_pose:inverse())
+        if rel_poseAB:getOrigin():norm() > self.command_distance_threshold then
+            local off = rel_poseAB:getOrigin()
+            off:div(off:norm()):mul(self.command_distance_threshold)
+            rel_poseAB:setOrigin(off)
+        end
+        local tmp = tf.StampedTransform(rel_poseAB:mul(self.current_pose))
+        local posture_tmp_goal = transformPose2PostureTarget(self,tmp , q_dot:getNames())
+        if posture_tmp_goal and self.lastCommandJointPositions then
+            q_dot = posture_tmp_goal - self.lastCommandJointPositions
             self.mode = 1
-            self.start_time = ros.Time.now()
-            self.target_pose = pose_goal:clone()
-            local state = self.state:clone()
-            state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), pose_goal:toTransform())
-            q_dot =
-                createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(
-                q_dot:getNames()
-            )
-            q_dot:sub(self.lastCommandJointPositions)
         else
-            ros.WARN("Cannot uses this move grou: '%s' since it has no EndEffector Link. ")
+            ros.ERROR('transformation from pose to posture failed')
         end
 
-        local rel_poseAB = self.target_pose:mul(self.current_pose:inverse())
-
-        if q_dot.values:norm() > 1 or rel_poseAB:getOrigin():norm() > self.command_distance_threshold then
+        if q_dot.values:norm() > 1 then
             ros.ERROR('detected jump in IK. ')
             self.feedback_message.error_code = -1
             q_dot.values:zero()
@@ -645,19 +646,42 @@ function JoggingControllerOpenLoop:update()
         q_dot:sub(self.lastCommandJointPositions)
         self.controller.converged = false
     elseif (self.mode == 0 or self.mode == 3) and new_twist_message then
-        self.mode = 3
-        self.start_time = ros.Time.now()
+        local rel_tmp_pose = tf.StampedTransform()
+        local dt = self.dt:toSec()
 
-        self.lastCommandJointPositions.values:copy(self.controller.state.pos)
-        self.state:setVariablePositions(
-            self.lastCommandJointPositions.values,
-            self.lastCommandJointPositions:getNames()
-        )
-        self.state:update()
-        self.current_pose = self:getCurrentPose()
-        local state = self.state:clone()
+        local quaternion = rel_tmp_pose:getRotation()
+        if (twist_goal[{{4, 6}}]):norm() > 0 then
+            quaternion:setRotation(twist_goal[{{4, 6}}] * dt, (twist_goal[{{4, 6}}] * dt):norm())
+        end
+        rel_tmp_pose:setRotation(quaternion)
+        rel_tmp_pose:setOrigin(twist_goal[{{1, 3}}])
 
-        q_dot = self:getStep(-twist_goal[{{1, 3}}], -twist_goal[{{4, 6}}], curr_time - self.start_time)
+        local rel_poseAB = rel_tmp_pose:clone()
+        if rel_poseAB:getOrigin():norm() > self.command_distance_threshold * dt * 2 then
+            print(rel_poseAB:toTensor())
+            local off = rel_poseAB:getOrigin()
+            off:div(off:norm()):mul(self.command_distance_threshold * dt * 2 )
+            rel_poseAB:setOrigin(off)
+        end
+        local tmp = tf.StampedTransform(rel_poseAB:mul(self.current_pose))
+        tmp:setOrigin(rel_poseAB:getOrigin() + self.current_pose:getOrigin() )
+        tmp:setRotation(rel_poseAB:getRotation() * self.current_pose:getRotation())
+        local posture_tmp_goal = transformPose2PostureTarget(self, tmp, q_dot:getNames())
+
+        if posture_tmp_goal and self.lastCommandJointPositions then
+            q_dot = posture_tmp_goal - self.lastCommandJointPositions
+            self.mode = 3
+        else
+            ros.ERROR('transformation from pose to posture failed')
+        end
+
+        local rel_poseAB = self.target_pose:mul(self.current_pose:inverse())
+        print(self.lastCommandJointPositions)
+        if q_dot.values:norm() > 1 or rel_poseAB:getOrigin():norm() > self.command_distance_threshold then
+            ros.ERROR('detected jump in IK. ')
+            self.feedback_message.error_code = -1
+            q_dot.values:zero()
+        end
 
         if transformed_successful == false then
             self.feedback_message.error_code = -18 --INVALID_LINK_NAME
