@@ -33,7 +33,7 @@ function TvpController:update(target, dt)
     -- calc new acceleration to stop on target
     local acc = torch.cdiv(distance_to_go * 2, torch.pow(real_time_to_target, 2))
 
-    acc[time_to_target:lt(dt * 0.9)] = 0 -- target reached
+    acc[time_to_target:lt(dt *0.5)] = 0 -- target reached
 
     local vel = torch.cmul(acc, torch.cmax(real_time_to_target - dt, 0)) -- max next velocity to stop on target
 
@@ -43,7 +43,7 @@ function TvpController:update(target, dt)
     acc = clamp(acc, -self.max_acc, self.max_acc)
 
     self.state.acc = acc
-    return time_to_target:gt(dt * 0.9):sum() < 1
+    return time_to_target:gt(dt / 2):sum() < 1
 end
 
 function TvpController:reset()
