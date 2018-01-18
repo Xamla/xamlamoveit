@@ -99,7 +99,7 @@ function TrajectoryExecutionRequest:proceed()
             local index = 1
             local dist_to_start = (traj.points[index].positions - p):norm()
             if dist_to_start <= epsilon then
-                ros.INFO('Set starttime to now')
+                ros.DEBUG('Set starttime to now')
                 self.starttime = now
             else
                 self.starttime_debug = now

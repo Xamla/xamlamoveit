@@ -9,7 +9,7 @@ local printf = xutils.printf
 local xtable = xutils.Xtable
 
 local xamlacontroller = xamlamoveit.controller
-local Controller = xamlacontroller.MultiAxisTvpController
+local Controller = xamlacontroller.TvpController
 
 local jointtrajmsg_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 local joint_sensor_spec = ros.MsgSpec('sensor_msgs/JointState')
