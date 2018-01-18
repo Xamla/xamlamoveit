@@ -25,12 +25,9 @@ function PlanParameters:__init(
 end
 
 function PlanParameters:setFromTable(t)
-    assert(t ~= nil, 'Source table argument must not be nil.')
+    assert(type(t) == 'table', 'Source table argument must not be nil.')
     for k, v in pairs(t) do
-        local f = self[k] -- check if field or index exists
-        if f ~= nil then
-            self[k] = v
-        end
+        self[k] = v
     end
 end
 
@@ -44,6 +41,34 @@ function PlanParameters:toTable()
         max_acceleration = self.max_acceleration,
         dt = self.dt
     }
+end
+
+function PlanParameters:clone()
+    local result = PlanParameters.new()
+    result:setFromTable(self:toTable())
+    return result
+end
+
+function PlanParameters:__tostring()
+    local res = 'PlanParameters:\n'
+    for k, v in pairs(self:toTable()) do
+        if type(v) == 'table'then
+            local str_table = ''
+            for ii,vv in ipairs(v) do
+                str_table = string.format('%s %s', str_table, tostring(vv))
+            end
+            res = string.format('%s\t %s:\t %s\n', res, k, str_table)
+        elseif torch.isTypeOf(v, torch.DoubleTensor) then
+            local str = ''
+            for ii = 1, v:size(1) do
+                str = string.format('%s %s', str, tostring(v[ii]))
+            end
+            res = string.format('%s\t %s:\t %s\n', res, k, str)
+        else
+            res = string.format('%s\t %s:\t %s\n', res, k, tostring(v))
+        end
+    end
+    return res
 end
 
 return PlanParameters

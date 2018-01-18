@@ -70,6 +70,13 @@ function JointSet:count()
   return #self.joint_names
 end
 
+function JointSet:getNames()
+  local result = {}
+  for i,v in ipairs(self.joint_names) do
+    result[i] = v
+  end
+  return result
+end
 
 function JointSet:clone()
   return JointSet.new(self.joint_names)
@@ -77,7 +84,7 @@ end
 
 function JointSet:__tostring()
   local res = 'JointSet: '
-    for i, v in self.joint_names do
+    for i, v in ipairs(self.joint_names) do
       res = string.format("%s %s", res, v)
     end
   return res

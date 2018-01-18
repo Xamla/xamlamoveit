@@ -5,20 +5,25 @@ local JointValues = torch.class('xamlamoveit.components.datatypes.JointValues', 
 
 function JointValues:__init(joint_set, values)
     assert(
-        torch.type(joint_set) == 'xamlamoveit.components.datatypes.JointSet',
+        torch.isTypeOf(joint_set, datatypes.JointSet),
         'Should be xamlamoveit.components.datatypes.JointSet but is:' .. torch.type(joint_set)
     )
     self.joint_set = joint_set
-    if torch.type(values) == 'torch.DoubleTensor' then
+    if torch.isTypeOf(values, torch.DoubleTensor) then
         self.values = values
-    elseif torch.typ(values) == 'number' then
-        self.values = torch.Tensor(self.joint_set:count()):fill(number)
+    elseif torch.type(values) == 'number' then
+        self.values = torch.Tensor(self.joint_set:count()):fill(values)
     end
-    assert(values:size(1) == self.joint_set:count())
+    assert(self.values:size(1) == self.joint_set:count())
 end
 
 function JointValues:getValue(name)
     return self.values[self.joint_set:getIndexOf(name)]
+end
+
+function JointValues:getValues(names)
+    local result = torch.zeros(#names)
+    return self.values:clone()
 end
 
 function JointValues:setValue(name, value)
@@ -58,11 +63,12 @@ end
 
 function JointValues.__add(a, b)
     local result = a:clone()
-    return result:add(b)
+    result:add(b)
+    return result
 end
 
 function JointValues:sub(other)
-    assert(other.joint_set:count() == self.joint_set:count())
+    assert(other.joint_set:count() == self.joint_set:count(), 'JointSet are not similar.')
     for i, v in ipairs(self:getNames()) do
         self.values[i] = self.values[i] - other:getValue(v)
     end
@@ -70,7 +76,8 @@ end
 
 function JointValues.__sub(a, b)
     local result = a:clone()
-    return result:sub(b)
+    result:sub(b)
+    return result
 end
 
 function JointValues.__mul(a, b)
@@ -80,17 +87,35 @@ function JointValues.__mul(a, b)
         if torch.type(b) == 'number' then
             result.values:mul(b)
         else
-            error(string.format('invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double', torch.type(a), torch.type(b)))
+            error(
+                string.format(
+                    'invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double',
+                    torch.type(a),
+                    torch.type(b)
+                )
+            )
         end
     elseif torch.type(b) == 'xamlamoveit.components.datatypes.JointValues' then
         result = b:clone()
         if torch.type(a) == 'number' then
             result.values:mul(a)
         else
-            error(string.format('invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double', torch.type(a), torch.type(b)))
+            error(
+                string.format(
+                    'invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double',
+                    torch.type(a),
+                    torch.type(b)
+                )
+            )
         end
     else
-        error(string.format('invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double', torch.type(a), torch.type(b)))
+        error(
+            string.format(
+                'invalid arguments: %s %s \n expected arguments: *JointValues* [JointValues] double',
+                torch.type(a),
+                torch.type(b)
+            )
+        )
     end
     return result
 end
@@ -106,6 +131,14 @@ end
 
 function JointValues:clone()
     return JointValues.new(self.joint_set:clone(), self.values:clone())
+end
+
+function JointValues:__tostring()
+    local res = 'JointValues:'
+    for i, v in ipairs(self.joint_set:getNames()) do
+        res = string.format('%s\n %s: %04f', res, v, self.values[i])
+    end
+    return res
 end
 
 return JointValues
