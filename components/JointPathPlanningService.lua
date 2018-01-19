@@ -1,6 +1,5 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
-local optimplan = require 'optimplan'
 --require 'xamlamoveit.components.RosComponent'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetMoveItJointPath')
 

@@ -414,10 +414,12 @@ local function dispatchTrajectory(self)
                     status = self.errorCodes.SUCCESSFUL
                 elseif self.execution_duration_monitoring == true then
                     if d > (traj.duration * self.allowed_execution_duration_scaling + self.allowed_goal_duration_margin) then
+                        ros.ERROR('trajecotry duration timeout reached')
                         status = self.errorCodes.ABORT
                     end
                 else
                     if d > traj.duration + self.allowed_goal_duration_margin then
+                        ros.ERROR('trajecotry duration timeout reached')
                         status = self.errorCodes.ABORT
                     end
                 end
