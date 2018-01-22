@@ -93,10 +93,10 @@ function TrajectoryExecutionRequest:proceed()
             return false
         elseif self.joint_monitor then
             local now = ros.Time.now()
-            local p, l = self.joint_monitor:getNextPositionsTensor()
-
             local traj = self.goal.goal.trajectory
             local index = 1
+            local joint_names = traj.joint_names
+            local p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.01), joint_names)
             local dist_to_start = (traj.points[index].positions - p):norm()
             if dist_to_start <= epsilon and traj.points[index].velocities:norm() > 1e-10 then
                 ros.DEBUG('Set starttime to now')
@@ -160,21 +160,14 @@ function TrajectoryExecutionRequest:abort(msg, code)
     ros.WARN(tostring(msg))
     ros.WARN(tostring(code))
     self.goal_handle:setAborted(r, msg or 'Error')
-    if self.joint_monitor then
-        self.joint_monitor:shutdown()
-        self.joint_monitor = nil
-    end
+    collectgarbage()
 end
 
 function TrajectoryExecutionRequest:completed()
     local r = self.goal_handle:createResult()
     r.result = errorCodes.SUCCESS
-    print(r)
     self.goal_handle:setSucceeded(r, 'Completed')
-    if self.joint_monitor then
-        self.joint_monitor:shutdown()
-        self.joint_monitor = nil
-    end
+    collectgarbage()
 end
 
 return TrajectoryExecutionRequest

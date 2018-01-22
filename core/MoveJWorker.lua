@@ -50,20 +50,18 @@ local function checkConvergence(cq, target, jointNames)
     end
 end
 
-local function checkParameterForAvailability(self, topic, wait_duration, max_counter)
+local function checkParameterForAvailability(self, topic, wait_duration)
     wait_duration = wait_duration or ros.Duration(1.0)
-    max_counter = max_counter or 10
     local counter = 0
     local value
-    while value == nil and counter < max_counter do
-        ros.WARN('/move_group/trajectory_execution not available trying again in 1 sec')
+    while value == nil and ros.ok() do
+        if counter % 10 == 1 then
+            ros.WARN('%s not available trying again in 1 sec', topic)
+        end
         wait_duration:sleep()
         value = self.nodehandle:getParamVariable(topic)
         counter = counter + 1
         ros.spinOnce()
-    end
-    if counter >= max_counter then
-        error('could not initialize!! ' .. topic)
     end
     return value
 end
@@ -113,7 +111,16 @@ function MoveJWorker:__init(nh)
     self.robot_model = self.robot_model_loader:getModel()
     self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
     self.plan_scene:syncPlanningScene()
-
+    self.joint_monitor = core.JointMonitor(self.robot_model:getVariableNames():totable())
+    local once = true
+    local ready = false
+    while not ready and ros.ok() do
+        if once then
+            ros.ERROR('joint states not ready')
+            once = false
+        end
+        ready = self.joint_monitor:waitReady(20.0)
+    end
     self.query_resource_lock_service =
         self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
     self.action_client =
@@ -335,7 +342,8 @@ local function handleMoveJTrajectory(self, traj)
     if not manipulator then
         status = self.errorCodes.INVALID_GOAL
     else
-        traj.joint_monitor = core.JointMonitor(manipulator:getActiveJoints():totable())
+        traj.manipulator = manipulator
+        traj.joint_monitor = self.joint_monitor
         traj.joint_monitor:waitReady(ros.Duration(0.1))
         tic('generateRobotTrajectory')
         rest,
