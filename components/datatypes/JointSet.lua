@@ -1,6 +1,7 @@
 
 
 local datatypes = require 'xamlamoveit.components.datatypes.env'
+local xutils = require 'xamlamoveit.xutils'
 
 local function switchKeyValue(t)
   local result = {}
@@ -10,7 +11,7 @@ local function switchKeyValue(t)
   return result
 end
 
-local JointSet = torch.class('xamlamoveit.components.datatypes.JointSet',datatypes)
+local JointSet = torch.class('xamlamoveit.components.datatypes.JointSet', datatypes)
 function JointSet:__init(names)
   self.joint_names = {}
 
@@ -37,12 +38,12 @@ function JointSet:addPrefix(prefix)
 end
 
 function JointSet:isSubset(other)
-  assert(torch.type(other) == 'JointSet')
+  assert(torch.isTypeOf(other, datatypes.JointSet))
   return table.isSubset(self.joint_names, other.joint_names)
 end
 
 function JointSet:isSimilar(other)
-  assert(torch.type(other) == 'JointSet')
+  assert(torch.isTypeOf(other, datatypes.JointSet))
   return table.isSimilar(self.joint_names, other.joint_names)
 end
 
@@ -89,5 +90,28 @@ function JointSet:__tostring()
     end
   return res
 end
+
+function JointSet.__eq(a, b)
+  assert(torch.isTypeOf(a, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(a)))
+  assert(torch.isTypeOf(b, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(b)))
+  return a:isSimilar(b)
+end
+
+function JointSet.__lt(a, b)
+  assert(torch.isTypeOf(a, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(a)))
+  assert(torch.isTypeOf(b, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(b)))
+  return not a:isSimilar(b) and a:isSubset(b)
+end
+
+function JointSet.__add(a, b)
+  assert(torch.isTypeOf(a, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(a)))
+  assert(torch.isTypeOf(b, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(b)))
+  local result = a:clone()
+  for k,v in pairs(b:getNames()) do
+    table.insert(result.joint_names, v)
+  end
+  return result
+end
+
 
 return JointSet
