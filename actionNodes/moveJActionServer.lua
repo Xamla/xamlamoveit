@@ -61,6 +61,7 @@ while ros.ok() and mj_action_server.current_state ~= mj_action_server.all_states
     heartbeat:publish()
     ros.spinOnce()
     if mj_action_server:hasTrajectoryActive() then
+        collectgarbage()
         dt:sleep()
     else
         idle_dt:sleep()

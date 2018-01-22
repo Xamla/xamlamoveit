@@ -57,9 +57,9 @@ while ros.ok() and not emerg_stop_flag do
             heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. " " .. tostring(err))
         end
     end
-
     heartbeat:publish()
     ros.spinOnce()
+    collectgarbage()
     dt:sleep()
 end
 

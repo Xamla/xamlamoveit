@@ -97,23 +97,18 @@ end
 local error_state = false
 
 
-local function checkParameterForAvailability(topic, wait_duration, max_counter)
+local function checkParameterForAvailability(topic, wait_duration)
     wait_duration = wait_duration or ros.Duration(1.0)
-    max_counter = max_counter or 10
-    local counter = 0
     local value
-    while value == nil and counter < max_counter do
-        if counter > 0 then
+    local counter = 0
+    while value == nil and ros.ok() do
+        if counter % 10 == 1 then
             ros.WARN('%s not available trying again in 1 sec', topic)
         end
         wait_duration:sleep()
         value = node_handle:getParamVariable(topic)
-        counter = counter + 1
         ros.spinOnce()
-    end
-    if counter >= max_counter then
-        ros.ERROR(string.format('could not initialize!! %s', topic))
-        return false
+        counter = 1 + counter
     end
     return true, value
 end
