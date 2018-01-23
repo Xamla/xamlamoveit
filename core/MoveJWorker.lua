@@ -420,12 +420,16 @@ local function dispatchTrajectory(self)
                             status = self.errorCodes.ABORT
                         end
                     else
-                        if d > traj.duration + self.allowed_goal_duration_margin then-- + 1 then
+                        if d > traj.duration + self.allowed_goal_duration_margin + 1 then
                             ros.ERROR('trajecotry duration timeout reached')
                             print((d - traj.duration + self.allowed_goal_duration_margin), status)
                             status = self.errorCodes.ABORT
                         end
                     end
+                end
+                if d > traj.duration then
+                    ros.WARN('Execution duration exceeds planed trajecotry duration')
+                    print(d-traj.duration)
                 end
             end
             --if checkConvergence(traj.manipulator:getCurrentState(), traj.target, traj.jointNames) then
