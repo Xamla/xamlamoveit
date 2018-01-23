@@ -39,24 +39,6 @@ local function shutdownSetup()
     ros.shutdown()
 end
 
-local function isSubset(A, B)
-    for ia, a in ipairs(A) do
-        if table.indexof(B, a) == -1 then
-            return false
-        end
-    end
-    return true
-end
-
-local function isSimilar(A, B)
-    if #A == #B then
-        return isSubset(A, B)
-    else
-        return false
-    end
-    return true
-end
-
 local new_message = false
 local seq = 1
 local joint_name_collection = {}

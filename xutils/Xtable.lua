@@ -112,3 +112,11 @@ function table.isSimilar(A, B)
     end
     return true
 end
+
+function table.swapKeyValue(t)
+    local result = {}
+    for k,v in pairs(t) do
+        result[v] = k
+    end
+    return result
+  end

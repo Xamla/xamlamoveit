@@ -1,6 +1,6 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
---require 'xamlamoveit.components.RosComponent'
+local xutils = require 'xamlamoveit.xutils'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetMoveItJointPath')
 
 local function table_concat(dst, src)
@@ -61,6 +61,7 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
                 ros.ERROR('Setting joint value target failed.\n waypoint %d, Joints: %s',k, waypoints[k])
                 return false, nil, robot_state:getVariableNames():totable()
             end
+            xutils.tic('moveit plan request')
             local s, p = manipulator:plan()
             if s == 0 then
                 ros.ERROR('Moveit Planning failed')
@@ -68,6 +69,8 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
             end
             local positions, velocities, accelerations, efforts = p:convertTrajectoyMsgToTable(p:getTrajectoryMsg())
             plannedwaypoints[i] = positions
+            xutils.toc('moveit plan request')
+            print('#waypoints', #waypoints)
         end
     end
     local result = {}

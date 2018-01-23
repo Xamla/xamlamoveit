@@ -6,7 +6,7 @@ ros.init('TestPlanningService')
 local nh = ros.NodeHandle()
 local sp = ros.AsyncSpinner() -- background job
 sp:start()
-local datatypes = require 'xamlamoveit.components.datatypes'
+local datatypes = require 'xamlamoveit.datatypes'
 local mc = require 'xamlamoveit.motionLibrary'.MotionService(nh) -- motion client
 local move_group_names, move_group_details = mc:queryAvailableMovegroups()
 local move_group = move_group_names[1]

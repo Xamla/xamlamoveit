@@ -3,8 +3,9 @@ local moveit = require 'moveit'
 local tf = ros.tf
 local planning = require 'xamlamoveit.planning'
 local core = require 'xamlamoveit.core'
-local datatypes = require 'xamlamoveit.components.datatypes'
+local datatypes = require 'xamlamoveit.datatypes'
 local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController'
+local xutils = require 'xamlamoveit.xutils'
 local transformListener
 function math.sign(x)
     assert(type(x) == 'number')
@@ -62,29 +63,11 @@ local function queryJointLimits(node_handle, joint_names, namespace)
     return max_vel, max_acc
 end
 
-local function isSubset(A, B)
-    for ia, a in ipairs(A) do
-        if table.indexof(B, a) == -1 then
-            return false
-        end
-    end
-    return true
-end
-
-local function isSimilar(A, B)
-    if #A == #B then
-        return isSubset(A, B)
-    else
-        return false
-    end
-    return true
-end
-
 ---
 --@param desired joint angle position
 local function sendPositionCommand(self, q_des, q_dot, names)
     for i, v in ipairs(self.controller_list) do
-        if isSimilar(names, v.joints) then
+        if table.isSimilar(names, v.joints) then
             local current_id = v.name
             local myTopic = string.format('/%s/joint_command', v.name)
             --ros.WARN(myTopic)

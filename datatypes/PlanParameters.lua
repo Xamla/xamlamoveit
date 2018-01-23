@@ -1,7 +1,7 @@
 local torch = require 'torch'
 
-local components = require 'xamlamoveit.components.env'
-local PlanParameters = torch.class('PlanParameters', components)
+local datatypes = require 'xamlamoveit.datatypes.env'
+local PlanParameters = torch.class('PlanParameters', datatypes)
 
 function PlanParameters:__init(
     move_group_name,

@@ -1,12 +1,12 @@
-local datatypes = require 'xamlamoveit.components.datatypes.env'
-local js = require 'xamlamoveit.components.datatypes.JointSet'
+local datatypes = require 'xamlamoveit.datatypes.env'
+local js = require 'xamlamoveit.datatypes.JointSet'
 
-local JointValues = torch.class('xamlamoveit.components.datatypes.JointValues', datatypes)
+local JointValues = torch.class('xamlamoveit.datatypes.JointValues', datatypes)
 
 function JointValues:__init(joint_set, values)
     assert(
         torch.isTypeOf(joint_set, datatypes.JointSet),
-        'Should be xamlamoveit.components.datatypes.JointSet but is:' .. torch.type(joint_set)
+        'Should be xamlamoveit.datatypes.JointSet but is:' .. torch.type(joint_set)
     )
     self.joint_set = joint_set
     if torch.isTypeOf(values, torch.DoubleTensor) then
@@ -82,7 +82,7 @@ end
 
 function JointValues.__mul(a, b)
     local result
-    if torch.type(a) == 'xamlamoveit.components.datatypes.JointValues' then
+    if torch.type(a) == 'xamlamoveit.datatypes.JointValues' then
         result = a:clone()
         if torch.type(b) == 'number' then
             result.values:mul(b)
@@ -95,7 +95,7 @@ function JointValues.__mul(a, b)
                 )
             )
         end
-    elseif torch.type(b) == 'xamlamoveit.components.datatypes.JointValues' then
+    elseif torch.type(b) == 'xamlamoveit.datatypes.JointValues' then
         result = b:clone()
         if torch.type(a) == 'number' then
             result.values:mul(a)

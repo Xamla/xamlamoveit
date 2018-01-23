@@ -1,7 +1,8 @@
 local torch = require 'torch'
 local ros = require 'ros'
-local PlanParameters = require 'xamlamoveit.components.PlanParameters'
-local datatypes = require 'xamlamoveit.components.datatypes'
+
+local datatypes = require 'xamlamoveit.datatypes'
+local PlanParameters = datatypes.PlanParameters
 
 local ac
 local actionlib = ros.actionlib
@@ -39,26 +40,12 @@ local function poses2MsgArray(points)
                 torch.type(v)
             )
             local msg = ros.Message(pose_msg_spec)
-            msg.pose.position.x = v.translation[1]
-            msg.pose.position.y = v.translation[2]
-            msg.pose.position.z = v.translation[3]
-            msg.pose.orientation.x = v.rotation[1]
-            msg.pose.orientation.y = v.rotation[2]
-            msg.pose.orientation.z = v.rotation[3]
-            msg.pose.orientation.w = v.rotation[4]
-            msg.header.frame_id = v.frame
+            msg = v:toStampedPoseMsg()
             table.insert(result, msg)
         end
     elseif torch.isTypeOf(points, datatypes.Pose) then
         local msg = ros.Message(pose_msg_spec)
-        msg.pose.position.x = points.translation[1]
-        msg.pose.position.y = points.translation[2]
-        msg.pose.position.z = points.translation[3]
-        msg.pose.orientation.x = points.rotation[1]
-        msg.pose.orientation.y = points.rotation[2]
-        msg.pose.orientation.z = points.rotation[3]
-        msg.pose.orientation.w = points.rotation[4]
-        msg.header.frame_id = points.frame or ''
+        msg = points:toStampedPoseMsg()
         table.insert(result, msg)
     else
         error('[poses2MsgArray] unknown type of points parameter: ' .. torch.type(points))
@@ -305,23 +292,27 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
     return response
 end
 
-function MotionService:executeJointTrajectoryAsync(traj, check_collision, cancelToken)
-    if  self.execution_action_client ~= nil then
+function MotionService:executeJointTrajectoryAsync(traj, check_collision, result_storage)
+    if  self.execution_action_client == nil then
+        self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+        self.execution_action_client:waitForServer(ros.Duration(2.5))
+    elseif not self.execution_action_client:isServerConnected() then
         self.execution_action_client:shutdown()
         self.execution_action_client = nil
+        self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+        self.execution_action_client:waitForServer(ros.Duration(2.5))
     end
-    self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
     local action_client =  self.execution_action_client
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
     g.check_collision = check_collision or false
-    cancelToken.done = false
+    result_storage.done = false
     local function action_done(state, result)
         ros.INFO('actionDone')
         ros.INFO('Finished with states: %s (%d)', SimpleClientGoalState[state], state)
         ros.INFO('Result:\n%s', result)
-        cancelToken.done = true
+        result_storage.done = true
     end
 
     local function action_active()
@@ -344,16 +335,33 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, cancel
 end
 
 function MotionService:executeJointTrajectory(traj, check_collision)
-    local cancelToken = {done = false}
-    local dt = ros.Rate(25)
-    if self:executeJointTrajectoryAsync(traj, check_collision, cancelToken) then
-        while ros.ok() and cancelToken.done == false do
-            ros.spinOnce()
-            dt:sleep()
+    if  self.execution_action_client == nil then
+        self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+        self.execution_action_client:waitForServer(ros.Duration(2.5))
+    elseif not self.execution_action_client:isServerConnected() then
+        self.execution_action_client:shutdown()
+        self.execution_action_client = nil
+        self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+        self.execution_action_client:waitForServer(ros.Duration(2.5))
+    end
+    local action_client =  self.execution_action_client
+    local g = action_client:createGoal()
+    g.trajectory.joint_names = traj.joint_names
+    g.trajectory.points = traj.points
+    g.check_collision = check_collision or false
+
+
+    if action_client:isServerConnected() then
+        local state, state_msg = action_client:sendGoalAndWait(g)
+        if not state == SimpleClientGoalState.SUCCEEDED then
+            return true, state_msg
+        else
+            ros.ERROR('moveJ_action returned: %s', state_msg)
+            return false, state_msg
         end
-        return true
     else
-        return false
+        ros.ERROR('could not reach moveJ_action')
+        return false, 'could not reach moveJ_action'
     end
 end
 

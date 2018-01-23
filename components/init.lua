@@ -1,7 +1,6 @@
 local components = require 'xamlamoveit.components.env'
 require 'xamlamoveit.components.RosComponent'
 require 'xamlamoveit.components.TrajectoryExecutionRequest'
-require 'xamlamoveit.components.PlanParameters'
 require 'xamlamoveit.components.PositionStateInfoService'
 require 'xamlamoveit.components.MoveJActionServer'
 require 'xamlamoveit.components.LeaseBasedLockService'

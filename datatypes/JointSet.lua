@@ -1,17 +1,9 @@
 
 
-local datatypes = require 'xamlamoveit.components.datatypes.env'
+local datatypes = require 'xamlamoveit.datatypes.env'
 local xutils = require 'xamlamoveit.xutils'
 
-local function switchKeyValue(t)
-  local result = {}
-  for k,v in pairs(t) do
-      result[v] = k
-  end
-  return result
-end
-
-local JointSet = torch.class('xamlamoveit.components.datatypes.JointSet', datatypes)
+local JointSet = torch.class('xamlamoveit.datatypes.JointSet', datatypes)
 function JointSet:__init(names)
   self.joint_names = {}
 
@@ -27,7 +19,7 @@ function JointSet:__init(names)
   if #self.joint_names <1 then
     error("At least one Joint name needs to be specified.")
   end
-  self.index_joint_names = switchKeyValue(self.joint_names)
+  self.index_joint_names = table.swapKeyValue(self.joint_names)
 end
 
 function JointSet:addPrefix(prefix)

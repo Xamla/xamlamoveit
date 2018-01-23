@@ -1,7 +1,6 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
 local xutils = require 'xamlamoveit.xutils'
-local xtable = xutils.Xtable
 local core = require 'xamlamoveit.core'
 local LeasedBaseLockClient = core.LeasedBaseLockClient
 local ms = require 'xamlamoveit.motionLibrary.MotionService'

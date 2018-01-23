@@ -1,5 +1,5 @@
 #!/usr/bin/env th
-local js = require 'xamlamoveit.components.datatypes'.JointSet
+local js = require 'xamlamoveit.datatypes'.JointSet
 local luaunit = require 'luaunit'
 TestJointSet = {}
 

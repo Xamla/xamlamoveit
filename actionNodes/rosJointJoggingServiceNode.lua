@@ -157,9 +157,7 @@ local function getStatusHandler(request, response, header)
     response.move_group_name = cntr:getCurrentMoveGroup():getName()
     response.joint_names = cntr.joint_monitor:getJointNames()
     response.out_topic = ''
-    --cntr:getOutTopic()[1]
     response.in_topic = ''
-    --cntr:getInTopic()[1]
     response.status_message_tracking = tostring(last_status_message_tracking)
     return true
 end
@@ -191,8 +189,11 @@ local function joggingServer(name)
         idle_dt:sleep()
     end
     sub:shutdown()
+    sub = nil
     local config = nh:getParamVariable(string.format('%s/controller_list', nh:getNamespace()))
-    cntr = controller.JoggingControllerOpenLoop(nh, moveit.MoveGroupInterface(planningGroup), config, dt)
+    ros.INFO('get move group interface')
+    local move_group = moveit.MoveGroupInterface(planningGroup)
+    cntr = controller.JoggingControllerOpenLoop(nh, move_group, config, dt)
     while not cntr:connect('jogging_command', 'jogging_setpoint', 'jogging_twist') do
         dt:sleep()
         ros.spinOnce()

@@ -86,7 +86,6 @@ function Weiss50ModelXamla:connect(namespace, actionname)
         sys.sleep(0.5)
         return false
     end
-    print("ente enet")
 
     -- call the service
     local response = self.gripperServices.wsgAck:call()

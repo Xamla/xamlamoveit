@@ -1,5 +1,6 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
+local xutils = require 'xamlamoveit.xutils'
 
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/QueryJointStateCollisions')
 
@@ -23,26 +24,9 @@ local function checkMoveGroupName(self, name)
     return false
 end
 
-local function isSubset(A, B)
-    for ia, a in ipairs(A) do
-        if table.indexof(B, a) == -1 then
-            return false
-        end
-    end
-    return true
-end
-
-local function isSimilar(A, B)
-    if #A == #B then
-        return isSubset(A, B)
-    else
-        return false
-    end
-end
-
 local function checkJointNames(self, move_group_name, joint_names)
     local ori_joint_names = self.robot_model:getGroupJointNames(move_group_name)
-    return isSimilar(ori_joint_names, joint_names)
+    return table.isSimilar(ori_joint_names, joint_names)
 end
 
 local function queryCollisionCheckServiceHandler(self, request, response, header)
