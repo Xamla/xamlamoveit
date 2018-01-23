@@ -90,7 +90,7 @@ end
 local function moveJAction_serverGoal(global_state_summary, goal_handle, joint_monitor, target_joint_names)
     ros.INFO('moveJAction_serverGoal')
     local g = goal_handle:getGoal()
-    if not isSubset(g.goal.trajectory.joint_names, target_joint_names) then
+    if not table.isSubset(g.goal.trajectory.joint_names, target_joint_names) then
         ros.ERROR('not correct set of joints for this group')
         goal_handle:setRejected(nil, 'not correct set of joints for this group')
         return false
