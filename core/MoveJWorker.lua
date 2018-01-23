@@ -12,6 +12,7 @@ errorCodes.INVALID_GOAL = -1
 errorCodes.ABORT = -2
 errorCodes.NO_IK_FOUND = -3
 errorCodes.INVALID_LINK_NAME = -4
+errorCodes.SIGNAL_LOST = -9999
 
 local MoveJWorker = torch.class('MoveJWorker')
 
@@ -42,10 +43,9 @@ local function checkConvergence(cq, target, jointNames)
         end
     end
     if sum / #jointNames < 1e-3 then
-        ros.INFO('Converged')
+        ros.INFO('[checkConvergence] Converged')
         return true
     else
-        ros.WARN('Not Converged')
         return false
     end
 end
@@ -64,10 +64,6 @@ local function checkParameterForAvailability(self, topic, wait_duration)
         ros.spinOnce()
     end
     return value
-end
-
-local function setVelocityScalingInMoveGroup(self, manipulator, velocity_scaling)
-    manipulator:setMaxVelocityScalingFactor(velocity_scaling)
 end
 
 local function initializeMoveGroup(self, group_id, velocity_scaling)
@@ -101,7 +97,10 @@ function MoveJWorker:__init(nh)
     self.allowed_goal_duration_margin =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_goal_duration_margin')
     self.allowed_start_tolerance =
-        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_start_tolerance')
+        math.max(
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_start_tolerance') or 0,
+        0.01
+    )
     self.execution_duration_monitoring =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_duration_monitoring')
     self.execution_velocity_scaling =
@@ -157,12 +156,13 @@ function MoveJWorker:sync()
 end
 
 function MoveJWorker:cancelCurrentPlan(abortMsg)
+    ros.INFO('MoveJWorker:cancelCurrentPlan %s', abortMsg)
     if self.currentPlan ~= nil then
         if callAbortCallback then
             local traj = self.currentPlan.traj
             if traj.abort ~= nil then
                 if traj.manipulator ~= nil then
-                    traj.manipulator:stop()
+                --traj.manipulator:stop()
                 end
                 traj:abort(abortMsg or 'Canceled') -- abort callback
             end
@@ -193,18 +193,24 @@ local function releaseResource(self, id_resources, id_lock)
     return queryLock(self, id_resources, id_lock, true)
 end
 
-local function executeAsync(self, plan)
+local function executeAsync(self, traj, plan)
     if not self.action_client:isServerConnected() then
         return false
     end
     local g = self.action_client:createGoal()
     g.trajectory = plan:getTrajectoryMsg()
+    traj.status = 0
 
     local function action_done(state, result)
         ros.INFO('actionDone')
         ros.INFO('Finished with states: %s (%d)', SimpleClientGoalState[state], state)
         ros.INFO('Result:\n%s', result)
-        self.status = result.error_code.val
+        if result then
+            traj.status = result.error_code.val
+        else
+            traj.status = errorCodes.SIGNAL_LOST -- SIGNAL LOST
+        end
+        print("the trajecory status: ", traj.status)
     end
 
     local function action_active()
@@ -226,7 +232,7 @@ local function executePlan(self, plan, manipulator, traj)
         local suc, id_lock, creation, expiration = lockResource(self, jointNames, nil)
         if suc then
             ros.WARN('executeAsync')
-            if executeAsync(self, plan) then
+            if executeAsync(self, traj, plan) then
                 local viaPoints = trajectory.joint_trajectory.points
                 traj.duration = viaPoints[#viaPoints].time_from_start
                 traj.manipulator = manipulator
@@ -235,6 +241,8 @@ local function executePlan(self, plan, manipulator, traj)
                 traj.id_lock = id_lock
                 traj.expiration_date = expiration
                 traj.creation_date = creation
+                ros.WARN("trajectory status: ")
+                print(traj.status)
             end
         else
             ros.ERROR('could not aquire Lock!')
@@ -297,27 +305,9 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     return traj, start_state, suc
 end
 
-local function isSubset(A, B)
-    for ia, a in ipairs(A) do
-        if table.indexof(B, a) == -1 then
-            return false
-        end
-    end
-    return true
-end
-
-local function isSimilar(A, B)
-    if #A == #B then
-        return isSubset(A, B)
-    else
-        return false
-    end
-    return true
-end
-
 local function checkJointNames(self, move_group_name, joint_names)
     local ori_joint_names = self.robot_model:getGroupJointNames(move_group_name)
-    return isSimilar(ori_joint_names, joint_names)
+    return table.isSimilar(ori_joint_names, joint_names)
 end
 
 local function findGroupNameFromJointNames(self, joint_names)
@@ -344,7 +334,6 @@ local function handleMoveJTrajectory(self, traj)
     else
         traj.manipulator = manipulator
         traj.joint_monitor = self.joint_monitor
-        traj.joint_monitor:waitReady(ros.Duration(0.1))
         tic('generateRobotTrajectory')
         rest,
             start_state,
@@ -365,6 +354,7 @@ local function handleMoveJTrajectory(self, traj)
         traj.starttime = ros.Time.now()
         traj = executePlan(self, plan, manipulator, traj)
     end
+    traj.status = status
     return suc, msg, traj, status
 end
 
@@ -376,12 +366,6 @@ local function dispatchTrajectory(self)
                 --print('#self.trajectoryQueue ' .. #self.trajectoryQueue)
                 local traj = table.remove(self.trajectoryQueue, 1)
                 if traj.accept == nil or traj:accept() then -- call optional accept callback
-                    if traj.flush ~= nil then
-                        flush = traj.flush
-                    end
-                    if traj.waitCovergence ~= nil then
-                        waitCovergence = traj.waitCovergence
-                    end
                     suc, msg, traj, status = handleMoveJTrajectory(self, traj)
 
                     self.currentPlan = {
@@ -400,10 +384,10 @@ local function dispatchTrajectory(self)
         local suc, id_lock, creation, expiration
         local traj = self.currentPlan.traj
         local d = ros.Time.now() - traj.starttime
-        status = self.currentPlan.status
-        if status >= 0 then
+        status = traj.status
+        if status == 0 then
             if traj.expiration_date then
-                ros.DEBUG("Expiration data: " .. tostring(traj.expiration_date))
+                ros.DEBUG('Expiration data: ' .. tostring(traj.expiration_date))
                 local dur = ros.Duration((traj.expiration_date:toSec() - traj.creation_date:toSec()) / 2)
                 if dur > (traj.expiration_date - ros.Time.now()) then
                     suc, id_lock, creation, expiration = lockResource(self, traj.jointNames, traj.id_lock)
@@ -417,41 +401,49 @@ local function dispatchTrajectory(self)
                 error('Trajectory duration field must not be nil.')
             end
 
-            if d > traj.duration then
-                if checkConvergence(traj.manipulator:getCurrentState(), traj.target, traj.jointNames) then
-                    status = self.errorCodes.SUCCESSFUL
-                elseif self.execution_duration_monitoring == true then
-                    if d > (traj.duration * self.allowed_execution_duration_scaling + self.allowed_goal_duration_margin) then
-                        ros.ERROR('trajecotry duration timeout reached')
-                        status = self.errorCodes.ABORT
-                    end
-                else
-                    if d > traj.duration + self.allowed_goal_duration_margin then
-                        ros.ERROR('trajecotry duration timeout reached')
-                        status = self.errorCodes.ABORT
-                    end
-                end
-            end
-
-            if suc == false then
-                status = self.errorCodes.ABORT
-                ros.ERROR('Stop plan execution. Lock failed.')
-                self:cancelCurrentPlan('Stop plan execution. Lock failed.')
-            end
-
             -- check if trajectory execution is still desired (e.g. not canceled)
             if traj:proceed() == false then
                 -- robot not ready or proceed callback returned false
                 status = self.errorCodes.ABORT
                 ros.ERROR('Stop plan execution. proceed method returned false')
                 self:cancelCurrentPlan('Stop plan execution.')
+            else
+                status = traj.status
+                if status < 1 then
+                    if self.execution_duration_monitoring == true then
+                        if
+                            d >
+                                (traj.duration * self.allowed_execution_duration_scaling +
+                                    self.allowed_goal_duration_margin)
+                         then
+                            ros.ERROR('trajecotry duration timeout reached')
+                            status = self.errorCodes.ABORT
+                        end
+                    else
+                        if d > traj.duration + self.allowed_goal_duration_margin then-- + 1 then
+                            ros.ERROR('trajecotry duration timeout reached')
+                            print((d - traj.duration + self.allowed_goal_duration_margin), status)
+                            status = self.errorCodes.ABORT
+                        end
+                    end
+                end
+            end
+            --if checkConvergence(traj.manipulator:getCurrentState(), traj.target, traj.jointNames) then
+            --    status = self.errorCodes.SUCCESSFUL
+            --else
+
+            if suc == false then
+                status = self.errorCodes.ABORT
+                ros.ERROR('Stop plan execution. Lock failed.')
+                self:cancelCurrentPlan('Stop plan execution. Lock failed.')
             end
         end
         -- execute main update call
         if status < 0 then -- error
             if traj.abort ~= nil then
                 if traj.manipulator ~= nil then
-                    traj.manipulator:stop()
+                    ros.WARN('MoveJWorker: execute main update call abort')
+                --traj.manipulator:stop()
                 end
                 ros.ERROR('status: ' .. status)
                 traj:abort('status: ' .. status, status) -- abort callback
@@ -461,6 +453,10 @@ local function dispatchTrajectory(self)
             end
             self.currentPlan = nil
         elseif status == self.errorCodes.SUCCESSFUL then
+            if traj.manipulator ~= nil then
+                ros.WARN('errorCodes.SUCCESSFUL')
+            --traj.manipulator:stop()
+            end
             if traj.completed ~= nil then
                 traj:completed() -- completed callback
             end
@@ -475,7 +471,8 @@ function MoveJWorker:reset()
         local traj = self.currentPlan.traj
         if traj.abort ~= nil then
             if traj.manipulator ~= nil then
-                traj.manipulator:stop()
+                ros.INFO('MoveJWorker:reset()')
+            --traj.manipulator:stop()
             end
             ros.ERROR('currentPlan failed')
             traj:abort()
@@ -496,7 +493,10 @@ function MoveJWorker:reset()
     self.allowed_goal_duration_margin =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_goal_duration_margin')
     self.allowed_start_tolerance =
-        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_start_tolerance')
+        math.max(
+        checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_start_tolerance') or 0,
+        0.01
+    )
     self.execution_duration_monitoring =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_duration_monitoring')
     self.execution_velocity_scaling =
@@ -520,7 +520,8 @@ function MoveJWorker:spin()
         local traj = self.currentPlan.traj
         if traj.abort ~= nil then
             if traj.manipulator ~= nil then
-                traj.manipulator:stop()
+                ros.ERROR('MoveJWorker:spin() Abort')
+            --traj.manipulator:stop()
             end
             ros.ERROR('currentPlan failed')
             traj:abort()

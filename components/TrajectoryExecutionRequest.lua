@@ -1,7 +1,7 @@
 local ros = require 'ros'
 local components = require 'xamlamoveit.components.env'
 local GoalStatus = require 'ros.actionlib.GoalStatus'
-local epsilon = 1e-3;
+local epsilon = 1e-2;
 
 local TrajectoryExecutionRequest = torch.class('xamlamoveit.components.TrajectoryExecutionRequest', components)
 
@@ -51,7 +51,7 @@ function TrajectoryExecutionRequest:__init(goal_handle)
     self.goal = goal_handle:getGoal()
     self.error_codes = errorCodes
     self.check_collision = self.goal_handle.goal.goal.check_collision
-    self.position_deviation_threshold = 50.3
+    self.position_deviation_threshold = 2.3
 end
 
 function TrajectoryExecutionRequest:accept()
@@ -98,8 +98,7 @@ function TrajectoryExecutionRequest:proceed()
             local joint_names = traj.joint_names
             local p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.01), joint_names)
             local dist_to_start = (traj.points[index].positions - p):norm()
-            if dist_to_start <= epsilon and traj.points[index].velocities:norm() > 1e-10 then
-                ros.DEBUG('Set starttime to now')
+            if dist_to_start <= epsilon and traj.points[index].velocities:norm() > 1e-12 then
                 self.starttime = now
             else
                 self.starttime_debug = now
@@ -137,7 +136,9 @@ function TrajectoryExecutionRequest:proceed()
                 self.status = errorCodes.CONTROL_FAILED
                 return false
             end
+
             if delta:gt(1e-6):sum() == 0 then
+                ros.INFO("goal error is small: succeded")
                 self.status = errorCodes.SUCCESS
             end
         end
