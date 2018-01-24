@@ -24,8 +24,9 @@ function TvpController:update(target, dt)
 
     -- calc time to reach target with max acceleration in decelerating phase
     local distance_to_go = target - self.state.pos
-    local time_to_target = torch.sqrt(torch.abs(distance_to_go):cdiv(self.max_acc)) * 2  -- solve s=1/2 * a * t^2 for t
-    self.converged = distance_to_go:norm() < 1e-3
+    local time_to_target = 2 * torch.sqrt(torch.abs(distance_to_go):cdiv(self.max_acc))  -- solve s=1/2 * a * t^2 for t
+    --time_to_target:fill(time_to_target:max())
+
     ---print("distance_to_go:norm()", distance_to_go:norm())
     -- scale to discrete timesteps
     local real_time_to_target = torch.ceil(time_to_target / dt) * dt
@@ -33,8 +34,7 @@ function TvpController:update(target, dt)
     -- calc new acceleration to stop on target
     local acc = torch.cdiv(distance_to_go * 2, torch.pow(real_time_to_target, 2))
 
-    acc[time_to_target:lt(dt *0.5)] = 0 -- target reached
-
+    acc[time_to_target:lt(dt * 0.5)] = 0 -- target reached
     local vel = torch.cmul(acc, torch.cmax(real_time_to_target - dt, 0)) -- max next velocity to stop on target
 
     vel = clamp(vel, -self.max_vel, self.max_vel) -- limit to max velocity
@@ -43,7 +43,8 @@ function TvpController:update(target, dt)
     acc = clamp(acc, -self.max_acc, self.max_acc)
 
     self.state.acc = acc
-    return time_to_target:gt(dt / 2):sum() < 1
+    self.converged = time_to_target:gt(dt / 2):sum() < 1
+    return self.converged
 end
 
 function TvpController:reset()
