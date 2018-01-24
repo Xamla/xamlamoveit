@@ -29,19 +29,20 @@ end
 
 function xutils.saveTerminalAttributes()
   savedTerminalAttributes = p.tcgetattr(STDIN)
-  return p.tcsetattr(STDIN, 0, savedTerminalAttributes)
+  return savedTerminalAttributes
 end
 
 
 function xutils.restoreTerminalAttributes(attributes)
   attributes = attributes or savedTerminalAttributes
-  p.tcsetattr(STDIN, 0, savedTerminalAttributes)
+  local ok, errmsg = p.tcsetattr(STDIN, 0, attributes)
+  assert(ok, errmsg)
 end
 
 
-function xutils.kbhit()
+function xutils.kbhit(timeout)
   fds[STDIN].revents = {}
-  p.poll(fds, 0)
+  p.poll(fds, timeout or 0)
   if fds[STDIN].revents.IN then
     return true
   else
@@ -50,9 +51,9 @@ function xutils.kbhit()
 end
 
 
-function xutils.waitKey(spinFunc)
+function xutils.waitKey(spinFunc, poll_timeout)
   while true do
-    if xutils.kbhit() == true then
+    if xutils.kbhit(poll_timeout) == true then
       local d, err = p.read(STDIN, 1)   -- Svn client version: 1.8
       if not d then
         return nil, err
