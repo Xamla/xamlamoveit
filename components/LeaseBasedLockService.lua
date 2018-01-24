@@ -63,9 +63,8 @@ local function spin()
 end
 
 local function queryLockResourceServiceHandler(request, response, header)
-    ros.WARN('queryLockResourceServiceHandler')
+    ros.DEBUG('queryLockResourceServiceHandler')
     if request.release then
-        ros.WARN('release resources')
         response.success = release(request.id_resources, request.id_lock)
         response.id_resources = request.id_resources
         if response.success then
@@ -114,7 +113,7 @@ end
 
 function LeaseBasedLockService:onProcess()
     if not self.callback_queue:isEmpty() then
-        ros.INFO('[!] incoming LeaseBasedLockService call')
+        ros.DEBUG('[!] incoming LeaseBasedLockService call')
         self.callback_queue:callAvailable()
     end
     spin()

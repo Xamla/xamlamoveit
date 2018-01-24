@@ -126,7 +126,7 @@ end
 
 function MoveGroupInfoNodeService:onProcess()
     if not self.callback_queue:isEmpty() then
-        ros.INFO("[!] incoming service call")
+        ros.DEBUG("[!] incoming service call")
         self.callback_queue:callAvailable()
     end
 end

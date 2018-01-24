@@ -172,7 +172,7 @@ function MoveJWorker:cancelCurrentPlan(abortMsg)
 end
 
 local function queryLock(self, id_resources, id_lock, release_flag)
-    ros.WARN('queryLock')
+    ros.DEBUG('queryLock')
     local request = self.query_resource_lock_service:createRequest()
     request.release = release_flag or false
     request.id_resources = id_resources
@@ -241,8 +241,6 @@ local function executePlan(self, plan, manipulator, traj)
                 traj.id_lock = id_lock
                 traj.expiration_date = expiration
                 traj.creation_date = creation
-                ros.WARN("trajectory status: ")
-                print(traj.status)
             end
         else
             ros.ERROR('could not aquire Lock!')
@@ -258,10 +256,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     tic('getCurrentState')
     local start_state = manipulator:getCurrentState()
     toc('getCurrentState')
-    --local dstNames = start_state:getVariableNames()
     local ori_start_state = start_state:clone()
-    --print(trajectory)
-    tic('generateTrajectory')
     local dt = trajectory.points[1].time_from_start:toSec()
     start_state:setVariablePositions(trajectory.points[1].positions, trajectory.joint_names)
     start_state:setVariableVelocities(trajectory.points[1].velocities, trajectory.joint_names)
@@ -287,7 +282,6 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
         p:update()
         traj:addSuffixWayPoint(p, dt)
     end
-    toc('generateTrajectory')
 
     if check_collision == true then
         tic('checkCollision')
@@ -363,7 +357,6 @@ local function dispatchTrajectory(self)
     if self.currentPlan == nil then
         if #self.trajectoryQueue > 0 then -- check if new trajectory is available
             while #self.trajectoryQueue > 0 do
-                --print('#self.trajectoryQueue ' .. #self.trajectoryQueue)
                 local traj = table.remove(self.trajectoryQueue, 1)
                 if traj.accept == nil or traj:accept() then -- call optional accept callback
                     suc, msg, traj, status = handleMoveJTrajectory(self, traj)
@@ -427,14 +420,7 @@ local function dispatchTrajectory(self)
                         end
                     end
                 end
-                if d > traj.duration then
-                    ros.WARN('Execution duration exceeds planed trajecotry duration')
-                    print(d-traj.duration)
-                end
             end
-            --if checkConvergence(traj.manipulator:getCurrentState(), traj.target, traj.jointNames) then
-            --    status = self.errorCodes.SUCCESSFUL
-            --else
 
             if suc == false then
                 status = self.errorCodes.ABORT
@@ -445,10 +431,6 @@ local function dispatchTrajectory(self)
         -- execute main update call
         if status < 0 then -- error
             if traj.abort ~= nil then
-                if traj.manipulator ~= nil then
-                    ros.WARN('MoveJWorker: execute main update call abort')
-                --traj.manipulator:stop()
-                end
                 ros.ERROR('status: ' .. status)
                 traj:abort('status: ' .. status, status) -- abort callback
             end
@@ -457,10 +439,6 @@ local function dispatchTrajectory(self)
             end
             self.currentPlan = nil
         elseif status == self.errorCodes.SUCCESSFUL then
-            if traj.manipulator ~= nil then
-                ros.WARN('errorCodes.SUCCESSFUL')
-            --traj.manipulator:stop()
-            end
             if traj.completed ~= nil then
                 traj:completed() -- completed callback
             end
@@ -474,18 +452,13 @@ function MoveJWorker:reset()
     if self.currentPlan then
         local traj = self.currentPlan.traj
         if traj.abort ~= nil then
-            if traj.manipulator ~= nil then
-                ros.INFO('MoveJWorker:reset()')
-            --traj.manipulator:stop()
-            end
-            ros.ERROR('currentPlan failed')
+            ros.ERROR('currentPlan failed (reset was triggered)')
             traj:abort()
         end
         self.currentPlan = nil
     end
     if #self.trajectoryQueue > 0 then -- check if new trajectory is available
         while #self.trajectoryQueue > 0 do
-            --print('#self.trajectoryQueue ' .. #self.trajectoryQueue)
             local traj = table.remove(self.trajectoryQueue, 1)
             if traj.abort ~= nil then
                 traj:abort()
@@ -515,19 +488,14 @@ local function MoveJWorkerCore(self)
     dispatchTrajectory(self)
 end
 
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 function MoveJWorker:spin()
-    --local ok, err = pcall(function() MoveJWorkerCore(self) end)
-    local ok = true
-    MoveJWorkerCore(self)
+    local ok, err = xpcall(function() MoveJWorkerCore(self) end, error_msg_func)
     -- abort current trajectory
     if (not ok) and self.currentPlan then
         local traj = self.currentPlan.traj
         if traj.abort ~= nil then
-            if traj.manipulator ~= nil then
-                ros.ERROR('MoveJWorker:spin() Abort')
-            --traj.manipulator:stop()
-            end
-            ros.ERROR('currentPlan failed')
+            ros.ERROR('currentPlan failed because of internal error')
             traj:abort()
         end
         self.currentPlan = nil

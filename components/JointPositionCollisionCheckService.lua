@@ -134,7 +134,7 @@ end
 
 function JointPositionCollisionCheckService:onProcess()
     if not self.callback_queue:isEmpty() then
-        ros.INFO('[!] incoming JointPositionCollisionCheckService call')
+        ros.DEBUG('[!] incoming JointPositionCollisionCheckService call')
         self.callback_queue:callAvailable()
     end
 end

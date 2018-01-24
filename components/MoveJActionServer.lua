@@ -19,14 +19,13 @@ end
 
 local function GoalCallBack(self, goal_handle)
     ros.INFO('Received new moveJ Goal')
-    print(goal_handle)
     local traj = TrajectoryExecutionRequest.new(goal_handle)
     self:doTrajectoryAsync(traj) -- queue for processing
 end
 
 local function CancelCallBack(goal_handle)
-    ros.INFO('moveJActionServerCancel')
-    goal_handle:setPreempted(nil, msg or 'Error')
+    ros.INFO('Cancel moveJ Goal')
+    goal_handle:setCanceled(nil, msg or 'Error')
 end
 
 function MoveJActionServer:onInitialize()

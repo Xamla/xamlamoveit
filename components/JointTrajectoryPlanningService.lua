@@ -211,7 +211,7 @@ end
 
 function JointTrajectoryPlanningService:onProcess()
     if not self.callback_queue:isEmpty() then
-        ros.INFO('[!] incoming JointTrajectoryPlanningService call')
+        ros.DEBUG('[!] incoming JointTrajectoryPlanningService call')
         self.callback_queue:callAvailable()
     end
 end

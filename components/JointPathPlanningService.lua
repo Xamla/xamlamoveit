@@ -70,7 +70,6 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
             local positions, velocities, accelerations, efforts = p:convertTrajectoyMsgToTable(p:getTrajectoryMsg())
             plannedwaypoints[i] = positions
             xutils.toc('moveit plan request')
-            print('#waypoints', #waypoints)
         end
     end
     local result = {}
@@ -164,7 +163,7 @@ end
 
 function JointPathPlanningService:onProcess()
     if not self.callback_queue:isEmpty() then
-        ros.INFO('[!] incoming JointPathPlanningService call')
+        ros.DEBUG('[!] incoming JointPathPlanningService call')
         self.callback_queue:callAvailable()
     end
 end
