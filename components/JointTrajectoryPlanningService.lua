@@ -95,6 +95,7 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
         print(start_index, waypoints:size(1))
         path[#path + 1] = optimplan.Path(waypoints[{{start_index, waypoints:size(1)}, {}}], max_deviation)
     end
+
     local trajectory = {}
     local valid = true
 
@@ -103,7 +104,7 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
     for i = 1, #path do
         ros.INFO('generating trajectory from %d%s path segments', i, str[math.min(i, 3)])
         trajectory[i] = optimplan.Trajectory(path[i], max_velocities, max_accelerations, time_step)
-        trajectory[i]:outputPhasePlaneTrajectory()
+        --trajectory[i]:outputPhasePlaneTrajectory() -- writes trajectory in file
         if not trajectory[i]:isValid() then
             valid = false
         else
