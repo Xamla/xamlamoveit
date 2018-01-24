@@ -21,7 +21,7 @@ function MotionService:__init(node_handle)
 end
 
 function MotionService:shutdown()
-    if  self.execution_action_client ~= nil then
+    if self.execution_action_client ~= nil then
         self.execution_action_client:shutdown()
     end
 
@@ -61,15 +61,12 @@ function MotionService:queryCartesianPath(waypoints, sample_resolution)
     )
     local request = compute_cartesian_path_interface:createRequest()
     request.waypoints = poses2MsgArray(waypoints)
-    --print(request.points)
     request.num_steps = sample_resolution
     local response = compute_cartesian_path_interface:call(request)
     return response
 end
 
 function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector_link, attempts, timeout)
-    --local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
-    --local compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
     local request = self.compute_ik_interface:createRequest()
     request.group_name = parameters.move_group_name
     request.joint_names = parameters.joint_names
@@ -81,7 +78,7 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     if seed_joint_values then
         request.seed.positions = seed_joint_values
     end
-    request.collision_check = true -- gemeint ist hier die self collision die sollte immer on sein
+    request.collision_check = true -- this is recomended to be true in all cases
     local response = self.compute_ik_interface:call(request)
     return response.error_codes, response.solutions
 end
@@ -94,17 +91,21 @@ function MotionService:queryAvailableMovegroups()
         'xamlamoveit_msgs/QueryMoveGroupInterfaces'
     )
     local response = move_group_interface:call()
-    local details = {}
-    local names = {}
-    for i, v in ipairs(response.move_group_interfaces) do
-        details[v.name] = {
-            sub_move_group_ids = v.sub_move_group_ids,
-            joint_names = v.joint_names,
-            end_effector_names = v.end_effector_names
-        }
-        names[i] = v.name
+    if response then
+        local details = {}
+        local names = {}
+        for i, v in ipairs(response.move_group_interfaces) do
+            details[v.name] = {
+                sub_move_group_ids = v.sub_move_group_ids,
+                joint_names = v.joint_names,
+                end_effector_names = v.end_effector_names
+            }
+            names[i] = v.name
+        end
+        return names, details
+    else
+        return {}, {}
     end
-    return names, details
 end
 
 function MotionService:queryJointLimits(joint_names)
@@ -200,7 +201,11 @@ function MotionService:queryJointState(joint_names)
     end
     local response = move_group_position_interface:call(request)
     --check order of joint names
-    return response.current_joint_position.position
+    if response then
+        return response.current_joint_position.position
+    else
+        return torch.Tensor()
+    end
 end
 
 function MotionService:queryStateCollision(move_group_name, joint_names, points)
@@ -264,7 +269,7 @@ end
 
 -- get Trajectory from service
 local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
-    ros.INFO("queryJointTrajectory")
+    ros.INFO('queryJointTrajectory')
     local generate_trajectory_interface =
         self.node_handle:serviceClient(
         'xamlaPlanningServices/query_joint_trajectory',
@@ -293,16 +298,18 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
 end
 
 function MotionService:executeJointTrajectoryAsync(traj, check_collision, result_storage)
-    if  self.execution_action_client == nil then
-        self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+    if self.execution_action_client == nil then
+        self.execution_action_client =
+            actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
         self.execution_action_client:waitForServer(ros.Duration(2.5))
     elseif not self.execution_action_client:isServerConnected() then
         self.execution_action_client:shutdown()
         self.execution_action_client = nil
-        self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+        self.execution_action_client =
+            actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
         self.execution_action_client:waitForServer(ros.Duration(2.5))
     end
-    local action_client =  self.execution_action_client
+    local action_client = self.execution_action_client
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
@@ -335,28 +342,29 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, result
 end
 
 function MotionService:executeJointTrajectory(traj, check_collision)
-    if  self.execution_action_client == nil then
-        self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+    if self.execution_action_client == nil then
+        self.execution_action_client =
+            actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
         self.execution_action_client:waitForServer(ros.Duration(2.5))
     elseif not self.execution_action_client:isServerConnected() then
         self.execution_action_client:shutdown()
         self.execution_action_client = nil
-        self.execution_action_client = actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
+        self.execution_action_client =
+            actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
         self.execution_action_client:waitForServer(ros.Duration(2.5))
     end
-    local action_client =  self.execution_action_client
+    local action_client = self.execution_action_client
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
     g.check_collision = check_collision or false
-
 
     if action_client:isServerConnected() then
         local state, state_msg = action_client:sendGoalAndWait(g)
         if not state == SimpleClientGoalState.SUCCEEDED then
             return true, state_msg
         else
-            ros.ERROR('moveJ_action returned: %s', state_msg)
+            ros.INFO('moveJ_action returned: %s', state_msg)
             return false, state_msg
         end
     else
@@ -366,11 +374,11 @@ function MotionService:executeJointTrajectory(traj, check_collision)
 end
 
 local function planMoveCartesian_1(self, start, goal, parameters)
-    ros.INFO("planMoveCartesian_1")
+    ros.INFO('planMoveCartesian_1')
     assert(torch.isTypeOf(start, datatypes.Pose))
     assert(torch.isTypeOf(goal, datatypes.Pose))
     assert(
-        torch.type(parameters) == 'PlanParameters',
+        torch.isTypeOf(parameters, datatypes.PlanParameters),
         'Wrong data type should be PlanParameters but is: ' .. torch.type(parameters)
     )
     local seed = self:queryJointState(parameters.joint_names)
@@ -384,14 +392,14 @@ local function planMoveCartesian_1(self, start, goal, parameters)
         print('goal suc ', suc.error_code.val)
         return false
     end
-    return self:planMoveJoint(torch.cat(start[1].positions, goal[1].positions,2):t(), parameters)
+    return self:planMoveJoint(torch.cat(start[1].positions, goal[1].positions, 2):t(), parameters)
 end
 
 local function planMoveCartesian_2(self, waypoints, parameters)
-    ros.INFO("planMoveCartesian_2")
+    ros.INFO('planMoveCartesian_2')
     assert(torch.type(waypoints) == 'table')
     assert(
-        torch.type(parameters) == 'PlanParameters',
+        torch.isTypeOf(parameters, datatypes.PlanParameters),
         'Wrong data type should be PlanParameters but is: ' .. torch.type(parameters)
     )
     local result = {}
@@ -405,11 +413,11 @@ local function planMoveCartesian_2(self, waypoints, parameters)
         table.insert(result, start[1].positions)
         seed = start[1].positions
     end
-    return self:planMoveJoint(torch.cat(result,2):t(), parameters)
+    return self:planMoveJoint(torch.cat(result, 2):t(), parameters)
 end
 
 function MotionService:planMoveCartesian(_1, _2, _3)
-    ros.INFO("planMoveCartesian")
+    ros.INFO('planMoveCartesian')
     if torch.isTypeOf(_1, datatypes.Pose) then
         return planMoveCartesian_1(self, _1, _2, _3)
     elseif torch.type(_1) == 'table' then
@@ -422,25 +430,15 @@ end
 local function planJointPath_1(self, start, goal, parameters)
     assert(torch.isTypeOf(start, torch.DoubleTensor))
     assert(torch.isTypeOf(goal, torch.DoubleTensor))
-    assert(torch.type(parameters) == 'PlanParameters')
+    assert(torch.isTypeOf(parameters, datatypes.PlanParameters))
     assert(start:size(1) == goal:size(1))
-    return queryJointPath(
-        self,
-        parameters.move_group_name,
-        parameters.joint_names,
-        torch.cat({start, goal}, 2)
-    )
+    return queryJointPath(self, parameters.move_group_name, parameters.joint_names, torch.cat({start, goal}, 2))
 end
 
 local function planJointPath_2(self, waypoints, parameters)
     assert(torch.type(waypoints) == 'table')
-    assert(torch.type(parameters) == 'PlanParameters')
-    return queryJointPath(
-        self,
-        parameters.move_group_name,
-        parameters.joint_names,
-        torch.cat(waypoints, 2)
-    )
+    assert(torch.isTypeOf(parameters, datatypes.PlanParameters))
+    return queryJointPath(self, parameters.move_group_name, parameters.joint_names, torch.cat(waypoints, 2))
 end
 
 function MotionService:planJointPath(_1, _2, _3)
@@ -467,22 +465,22 @@ end
 
 function MotionService:planCartesianPath(waypoints, parameters)
     assert(torch.type(waypoints) == 'table')
-    assert(torch.type(parameters) == 'PlanParameters')
+    assert(torch.isTypeOf(parameters, datatypes.PlanParameters))
     local pathCartesian
     local res = self:queryCartesianPath(waypoints, #waypoints)
     if res.error_code.val == 1 then
         pathCartesian = res.path
     else
-        ros.ERROR("No valid Cartesian path found: %d", res.error_code.val)
+        ros.ERROR('No valid Cartesian path found: %d', res.error_code.val)
     end
     return res.error_code.val, stampedMessages2PoseArray(pathCartesian)
 end
 
 --IJointTrajectory PlanMoveJoint(IJointPath path, PlanParameters parameters);
 function MotionService:planMoveJoint(path, parameters)
-    ros.INFO("planMoveJoint")
+    ros.INFO('planMoveJoint')
     assert(torch.isTypeOf(path, torch.DoubleTensor))
-    assert(torch.type(parameters) == 'PlanParameters')
+    assert(torch.isTypeOf(parameters, datatypes.PlanParameters))
     assert(
         path:size(2) == #parameters.joint_names,
         string.format(
@@ -499,13 +497,13 @@ function MotionService:planMoveJoint(path, parameters)
         path,
         parameters.max_velocity * self.global_veloctiy_scaling,
         parameters.max_acceleration * self.global_acceleration_scaling,
-        0.0,
+        parameters.max_deviation,
         parameters.dt or 0.008
     )
     if res.error_code.val == 1 then
         trajectory = res.solution
     else
-        ros.ERROR("No valid joint trajectory found: %d", res.error_code.val)
+        ros.ERROR('No valid joint trajectory found: %d', res.error_code.val)
     end
     return res.error_code.val, trajectory
 end
