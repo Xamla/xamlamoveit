@@ -9,8 +9,9 @@ local set_c =  js({'AC', 'A'})
 local set_d =  js({'AB'})
 
 function TestJointSet:testEq()
-    luaunit.assertTrue(set_a == set_b)
-    luaunit.assertTrue(set_b == set_a)
+    luaunit.assertFalse(set_a == set_b)
+    luaunit.assertTrue(set_a == set_a)
+    luaunit.assertTrue(set_b ~= set_a)
     luaunit.assertFalse(set_a == set_c)
     luaunit.assertFalse(set_c == set_a)
 end
@@ -24,8 +25,8 @@ end
 function TestJointSet:testAdd()
     local result_A = set_c + set_d
     local result_B = set_d + set_c
-    luaunit.assertTrue(result_A == set_a)
-    luaunit.assertTrue(result_B == set_a)
+    luaunit.assertTrue(result_A:isSimilar(set_a))
+    luaunit.assertTrue(result_B:isSimilar(set_a))
 end
 
 

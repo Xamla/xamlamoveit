@@ -86,7 +86,15 @@ end
 function JointSet.__eq(a, b)
   assert(torch.isTypeOf(a, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(a)))
   assert(torch.isTypeOf(b, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(b)))
-  return a:isSimilar(b)
+  if #b.joint_names ~= #a.joint_names then
+    return false
+  end
+  for i, v in ipairs(a.joint_names) do
+     if b.joint_names[i] ~= v then
+        return false
+     end
+  end
+  return true
 end
 
 function JointSet.__lt(a, b)
