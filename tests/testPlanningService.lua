@@ -8,7 +8,7 @@ local sp = ros.AsyncSpinner() -- background job
 sp:start()
 local datatypes = require 'xamlamoveit.datatypes'
 local mc = require 'xamlamoveit.motionLibrary'.MotionService(nh) -- motion client
-local move_group_names, move_group_details = mc:queryAvailableMovegroups()
+local move_group_names, move_group_details = mc:queryAvailableMoveGroups()
 local move_group = move_group_names[1]
 local current_joint_values = mc:queryJointState(move_group_details[move_group].joint_names)
 local plan_parameters = mc:getDefaultPlanParameters(move_group, move_group_details[move_group].joint_names)

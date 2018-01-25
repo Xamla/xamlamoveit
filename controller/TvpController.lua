@@ -43,7 +43,10 @@ function TvpController:update(target, dt)
     acc = clamp(acc, -self.max_acc, self.max_acc)
 
     self.state.acc = acc
-    self.converged = time_to_target:gt(dt / 2):sum() < 1
+    self.converged = time_to_target:max() <= dt -- time_to_target:gt(dt / 2):sum() < 1
+    if self.converged then
+        self.state.pos = target
+    end
     return self.converged
 end
 

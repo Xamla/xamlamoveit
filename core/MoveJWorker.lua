@@ -158,14 +158,9 @@ end
 function MoveJWorker:cancelCurrentPlan(abortMsg)
     ros.INFO('MoveJWorker:cancelCurrentPlan %s', abortMsg)
     if self.currentPlan ~= nil then
-        if callAbortCallback then
-            local traj = self.currentPlan.traj
-            if traj.abort ~= nil then
-                if traj.manipulator ~= nil then
-                --traj.manipulator:stop()
-                end
-                traj:abort(abortMsg or 'Canceled') -- abort callback
-            end
+        local traj = self.currentPlan.traj
+        if traj.abort ~= nil then
+            traj:abort(abortMsg or 'Canceled') -- abort callback
         end
         self.currentPlan = nil
     end
