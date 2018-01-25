@@ -29,6 +29,10 @@ function MotionService:shutdown()
     self.node_handle:shutdown()
 end
 
+function MotionService:getMoveGroup(move_group_name)
+    return motionLibrary.MoveGroup(self, move_group_name)
+end
+
 local function poses2MsgArray(points)
     local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
     local result = {}
@@ -84,7 +88,7 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
 end
 
 --get Avalable move groups
-function MotionService:queryAvailableMovegroups()
+function MotionService:queryAvailableMoveGroups()
     local move_group_interface =
         self.node_handle:serviceClient(
         'xamlaMoveGroupServices/query_move_group_interface',
