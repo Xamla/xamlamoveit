@@ -124,12 +124,12 @@ function MoveGroup:moveJ(target, velocity_scaling, collision_check)
     joint_path[{2,{}}] = end_joints
     
     -- plan trajectory
-    local success, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
-    assert(success == 1, 'planMoveJoint() failed')
+    local ok, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
+    assert(ok == 1, 'planMoveJoint() failed')
 
     -- start synchronous blocking execution
-    local result = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
-    print(result)
+    local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
+    assert(ok, 'executeJointTrajectory failed.')
 end
 
 function MoveGroup:moveWaypointList(waypoints, velocity_scaling, collision_check)
@@ -156,6 +156,6 @@ function MoveGroup:moveWaypointList(waypoints, velocity_scaling, collision_check
     assert(success == 1, 'planMoveJoint() failed')
 
     -- start synchronous blocking execution
-    local result = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
-    print(result)
+    local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
+    assert(ok, 'executeJointTrajectory failed.')
 end
