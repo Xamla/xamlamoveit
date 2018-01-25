@@ -8,6 +8,7 @@ local ac
 local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
 
+local xutils = require 'xamlamoveit.xutils'
 local motionLibrary = require 'xamlamoveit.motionLibrary.env'
 local MotionService = torch.class('MotionService', motionLibrary)
 
@@ -232,7 +233,11 @@ function MotionService:queryStateCollision(move_group_name, joint_names, points)
         ros.INFO('found service: .. ' .. collision_check_interface:getService())
         response = collision_check_interface:call(request)
         --print(response)
+        if response then
         return response.success, response.in_collision, response.error_codes, response.messages
+        else
+            return false, false, nil, 'Connection lost'
+        end
     else
         ros.INFO('could not find service: .. ' .. collision_check_interface:getService())
     end
@@ -258,14 +263,17 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints)
     else
         ros.INFO('could not find service: .. ' .. generate_path_interface:getService())
     end
-
-    --check order of joint names
-    if response.error_code.val > 0 then
-        local path = torch.Tensor(#response.path, waypoints[{{}, 1}]:size(1))
-        for i = 1, #response.path do
-            path[i]:copy(response.path[i].positions)
+    if response then
+        --check order of joint names
+        if response.error_code.val > 0 then
+            local path = torch.Tensor(#response.path, waypoints[{{}, 1}]:size(1))
+            for i = 1, #response.path do
+                path[i]:copy(response.path[i].positions)
+            end
+            return true, path
+        else
+            return false
         end
-        return true, path
     else
         return false
     end
@@ -335,7 +343,7 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, result
     end
 
     ros.spinOnce()
-    action_client:waitForServer(ros.Duration(2.5))
+
     if action_client:isServerConnected() then
         action_client:sendGoal(g, action_done, action_active, action_feedback)
         return true, action_client
@@ -346,6 +354,7 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, result
 end
 
 function MotionService:executeJointTrajectory(traj, check_collision)
+    xutils.tic("executeJointTrajectory:check")
     if self.execution_action_client == nil then
         self.execution_action_client =
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
@@ -357,6 +366,7 @@ function MotionService:executeJointTrajectory(traj, check_collision)
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
         self.execution_action_client:waitForServer(ros.Duration(2.5))
     end
+    xutils.toc("executeJointTrajectory:check")
     local action_client = self.execution_action_client
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
@@ -365,10 +375,12 @@ function MotionService:executeJointTrajectory(traj, check_collision)
 
     if action_client:isServerConnected() then
         local state, state_msg = action_client:sendGoalAndWait(g)
-        if not state == SimpleClientGoalState.SUCCEEDED then
+        ros.INFO('moveJ_action returned: %s', state_msg)
+        if state == SimpleClientGoalState.SUCCEEDED then
+            print("state true", state, SimpleClientGoalState.SUCCEEDED)
             return true, state_msg
         else
-            ros.INFO('moveJ_action returned: %s', state_msg)
+            print("state false", state)
             return false, state_msg
         end
     else
@@ -472,12 +484,16 @@ function MotionService:planCartesianPath(waypoints, parameters)
     assert(torch.isTypeOf(parameters, datatypes.PlanParameters))
     local pathCartesian
     local res = self:queryCartesianPath(waypoints, #waypoints)
-    if res.error_code.val == 1 then
-        pathCartesian = res.path
+    if res then
+        if res.error_code.val == 1 then
+            pathCartesian = res.path
+        else
+            ros.ERROR('No valid Cartesian path found: %d', res.error_code.val)
+        end
+        return res.error_code.val, stampedMessages2PoseArray(pathCartesian)
     else
-        ros.ERROR('No valid Cartesian path found: %d', res.error_code.val)
+        return -9999
     end
-    return res.error_code.val, stampedMessages2PoseArray(pathCartesian)
 end
 
 --IJointTrajectory PlanMoveJoint(IJointPath path, PlanParameters parameters);
@@ -504,12 +520,17 @@ function MotionService:planMoveJoint(path, parameters)
         parameters.max_deviation,
         parameters.dt or 0.008
     )
-    if res.error_code.val == 1 then
-        trajectory = res.solution
+    if res then
+        if res.error_code.val == 1 then
+            trajectory = res.solution
+        else
+            ros.ERROR('No valid joint trajectory found: %d', res.error_code.val)
+        end
+        return res.error_code.val, trajectory
     else
-        ros.ERROR('No valid joint trajectory found: %d', res.error_code.val)
+        ros.ERROR('Connection Lost')
+        return -9999
     end
-    return res.error_code.val, trajectory
 end
 
 function MotionService:getDefaultPlanParameters(

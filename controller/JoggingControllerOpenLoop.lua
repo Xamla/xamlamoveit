@@ -56,7 +56,7 @@ local function queryJointLimits(node_handle, joint_names, namespace)
         if nh:getParamVariable(has_acc_param) then
             max_acc[i] = nh:getParamVariable(get_acc_param)
         else
-            max_acc[i] = max_vel[i] * 0.5
+            max_acc[i] = max_vel[i] * 4
             ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
         end
     end
@@ -136,6 +136,24 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.FIRSTPOINT = true
     self.dt_monitor = core.MonitorBuffer(100, 1)
     self.nh = node_handle
+    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+    self.kinematic_model = self.robot_model_loader:getModel()
+    self.planning_scene = moveit.PlanningScene(self.kinematic_model)
+    self.lock_client = core.LeasedBaseLockClient(node_handle)
+
+    self.joint_monitor = core.JointMonitor(self.kinematic_model:getVariableNames():totable())
+    local ready = false
+    local once = true
+    while not ready and ros.ok() do
+        ready = self.joint_monitor:waitReady(20.0)
+        if once then
+            ros.ERROR('joint states not ready')
+            once = false
+        end
+    end
+    ros.INFO('joint states ready')
+
+
     self.move_groups = {}
     self.curr_move_group_name = nil
     if move_group then
@@ -147,17 +165,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.state = move_group:getCurrentState()
     self.time_last = ros.Time.now()
     self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
-    self.joint_monitor = core.JointMonitor(self.state:getVariableNames():totable())
-    local ready = false
-    local once = true
-    while not ready and ros.ok() do
-        ready = self.joint_monitor:waitReady(20.0)
-        if once then
-            ros.ERROR('joint states not ready')
-            once = false
-        end
-    end
-    ros.INFO('joint states ready')
+
     self.lastCommandJointPositions =
         createJointValues(
         self.joint_set.joint_names,
@@ -182,10 +190,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
 
     self.controller_list = ctr_list
 
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.kinematic_model = self.robot_model_loader:getModel()
-    self.planning_scene = moveit.PlanningScene(self.kinematic_model)
-    self.lock_client = core.LeasedBaseLockClient(node_handle)
+
     self.resource_lock = nil
     self.subscriber_pose_goal = nil
     self.subscriber_posture_goal = nil

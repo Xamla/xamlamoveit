@@ -145,11 +145,9 @@ function GenerativeSimulationWorker:cancelCurrentTrajectory(abortMsg)
     if self.currentTrajectory ~= nil then
         self.logger.info('[GenerativeSimulationWorker] Cancelling trajectory execution.')
         local handler = self.currentTrajectory.handler
-        if callAbortCallback then
-            local traj = self.currentTrajectory.traj
-            if traj.abort ~= nil then
-                traj:abort(abortMsg or 'Canceled') -- abort callback
-            end
+        local traj = self.currentTrajectory.traj
+        if traj.abort ~= nil then
+            traj:abort(abortMsg or 'Canceled') -- abort callback
         end
         self.currentTrajectory = nil
         handler:cancel()

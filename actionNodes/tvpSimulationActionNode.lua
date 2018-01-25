@@ -170,7 +170,7 @@ local function FollowJointTrajectory_Cancel(goalHandle)
     if i > 0 then
         -- entry found, simply remove from queue
         table.remove(worker.trajectoryQueue, i)
-        goalHandle:setCanceled(nil, 'Canceled')
+        goalHandle:setAborted(nil, 'Canceled')
     elseif worker.currentTrajectory ~= nil and worker.currentTrajectory.goalHandle == goalHandle then
         worker:cancelCurrentTrajectory('Canceled')
     end
@@ -204,7 +204,7 @@ local function queryJointLimits(joint_names)
         if nh:getParamVariable(has_acc_param) then
             max_acc[i] = nh:getParamVariable(get_acc_param)
         else
-            max_acc[i] = max_vel[i] * 0.5
+            max_acc[i] = max_vel[i] * 4
             ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
         end
     end
@@ -214,8 +214,6 @@ end
 
 local function generateSimpleTvpTrajectory(start, goal, max_velocities, max_accelerations, dt)
     local dim = goal:size(1)
-    print('dim', dim)
-    print('goal', goal)
     local controller = require 'xamlamoveit.controller'.MultiAxisTvpController(dim)
     controller.max_vel:copy(max_velocities)
     controller.max_acc:copy(max_accelerations)
@@ -245,7 +243,7 @@ local function moveGripperAction_serverGoal(global_state_summary, goal_handle, j
             return false
         end
     end
-    local current_position = joint_monitor:getPositionsTensor(target_joint_names)
+    local current_position = joint_monitor:getPositionsOrderedTensor(target_joint_names)
     local command = current_position:clone()
     command:fill(g.goal.command.position)
     local max_min_pos, max_vel, max_acc = queryJointLimits(target_joint_names)

@@ -25,7 +25,7 @@ end
 
 local function CancelCallBack(goal_handle)
     ros.INFO('Cancel moveJ Goal')
-    goal_handle:setCanceled(nil, msg or 'Error')
+    goal_handle:setAborted(nil, msg or 'Error')
 end
 
 function MoveJActionServer:onInitialize()
