@@ -2,6 +2,7 @@ local ros = require 'ros'
 local moveit = require 'moveit'
 local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
+local xutils = require 'xamlamoveit.xutils'
 
 local function generateSimpleTvpTrajectory(waypoints, max_velocities, max_accelerations, dt)
     local start = waypoints[{1, {}}]
@@ -49,6 +50,16 @@ local function sample(traj, dt)
     return time, pos, vel, acc
 end
 
+local function checkPathLength(waypoints)
+    assert(torch.isTypeOf(waypoints,torch.DoubleTensor), "wong type")
+    local length = 0
+    for i = 1, waypoints:size(1) do
+        local j = math.min(i + 1, waypoints:size(1))
+        length = (waypoints[j] - waypoints[i]):norm() + length
+    end
+    return length
+end
+
 local function generateTrajectory(waypoints, max_velocities, max_accelerations, max_deviation, dt)
     max_deviation = max_deviation or 1e-5
     max_deviation = max_deviation < 1e-5 and 1e-5 or max_deviation
@@ -58,9 +69,10 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
     ros.INFO('generateTrajectory from waypoints with max dev: %08f, dt %08f', max_deviation, time_step)
     local path = {}
     path[1] = optimplan.Path(waypoints, max_deviation)
+
     local suc, split, skip = path[1]:analyse()
     waypoints = path[1].waypoints:clone()
-
+    xutils.tic('generateTrajectory:analysing')
     if not suc and #skip > 0 then
         ros.INFO('skipping %d points split %d ', #skip, #split)
         local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
@@ -92,33 +104,45 @@ local function generateTrajectory(waypoints, max_velocities, max_accelerations, 
             end
             start_index = v
         end
-        print(start_index, waypoints:size(1))
         path[#path + 1] = optimplan.Path(waypoints[{{start_index, waypoints:size(1)}, {}}], max_deviation)
     end
-
+    xutils.toc('generateTrajectory:analysing')
     local trajectory = {}
     local valid = true
 
-    ros.INFO('generating trajectory from %d path segments, with dt = %f', #path, time_step)
-    local str = {[1] = 'st', [2] = 'nd', [3] = 'th'}
-    for i = 1, #path do
-        ros.INFO('generating trajectory from %d%s path segments', i, str[math.min(i, 3)])
-        trajectory[i] = optimplan.Trajectory(path[i], max_velocities, max_accelerations, time_step)
-        --trajectory[i]:outputPhasePlaneTrajectory() -- writes trajectory in file
-        if not trajectory[i]:isValid() then
-            valid = false
-        else
-            ros.INFO('Generation of Trajectories: %d%s', i / #path * 100, '%')
-        end
-    end
     local time, pos, vel, acc
-    if valid then
-        time, pos, vel, acc = sample(trajectory, dt)
+    if #path > 0 then
+        ros.INFO('generating trajectory from %d path segments, with dt = %f', #path, time_step)
+        xutils.tic('generateTrajectory:trajectory')
+        local str = {[1] = 'st', [2] = 'nd', [3] = 'th'}
+        for i = 1, #path do
+            ros.INFO('generating trajectory from %d%s path segments', i, str[math.min(i, 3)])
+            trajectory[i] = optimplan.Trajectory(path[i], max_velocities, max_accelerations, time_step)
+            --trajectory[i]:outputPhasePlaneTrajectory() -- writes trajectory in file
+            if not trajectory[i]:isValid() then
+                valid = false
+            else
+                ros.INFO('Generation of Trajectories: %d%s', i / #path * 100, '%')
+            end
+        end
+
+        if valid then
+            time, pos, vel, acc = sample(trajectory, dt)
+        end
+        xutils.toc('generateTrajectory:trajectory')
+    else
+        time = torch.zeros[1]
+        valid = true
+        pos = waypoints[1]
+        vel = torch.zeros(pos:size())
+        acc = torch.zeros(pos:size())
     end
+
     return valid, time, pos, vel, acc
 end
 
 local function queryJointTrajectoryServiceHandler(self, request, response, header)
+    xutils.tic('queryJointTrajectoryServiceHandler')
     if #request.waypoints < 2 then
         ros.ERROR('Only one waypoint detected. Abort Trajectory generation.')
         response.error_code.val = -2
@@ -139,13 +163,41 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
         waypoints[i]:copy(v.positions)
     end
 
-    local valid,  time, pos, vel, acc
-    if waypoints:size(1)>2 then
-      valid,  time, pos, vel, acc =
-        generateTrajectory(waypoints, request.max_velocity, request.max_acceleration, request.max_deviation, request.dt)
+    local valid, time, pos, vel, acc
+    if waypoints:size(1) > 2 then
+        if checkPathLength(waypoints) < 1e-6 then
+            ros.INFO('waypoints seem to be all equal')
+            response.solution.joint_names = request.joint_names
+            response.solution.points[1] = ros.Message('trajectory_msgs/JointTrajectoryPoint')
+            response.solution.points[1].positions = request.waypoints[1].positions
+            response.solution.points[1].velocities = torch.zeros(dim)
+            response.solution.points[1].accelerations = torch.zeros(dim)
+            response.solution.points[1].time_from_start = ros.Duration(0)
+            response.error_code.val = 1
+            return true
+        end
+        xutils.tic('generateTrajectory')
+        valid,
+            time,
+            pos,
+            vel,
+            acc =
+            generateTrajectory(
+            waypoints,
+            request.max_velocity,
+            request.max_acceleration,
+            request.max_deviation,
+            request.dt
+        )
+        xutils.toc('generateTrajectory')
     elseif waypoints:size(1) == 2 then
+        xutils.tic('generateSimpleTvpTrajectory')
         valid = true
-        time, pos, vel, acc = generateSimpleTvpTrajectory(waypoints, request.max_velocity, request.max_acceleration, request.dt)
+        time,
+            pos,
+            vel,
+            acc = generateSimpleTvpTrajectory(waypoints, request.max_velocity, request.max_acceleration, request.dt)
+        xutils.toc('generateSimpleTvpTrajectory')
     else
         valid = false
     end
@@ -153,6 +205,7 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
     if not valid then
         ros.ERROR('Generated Trajectory is not valid!')
         response.error_code.val = -2
+        xutils.toc('queryJointTrajectoryServiceHandler')
         return true
     else
         ros.INFO('Generated Trajectory is valid!')
@@ -167,6 +220,7 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
         response.solution.points[i].time_from_start = ros.Duration(time[i])
     end
     response.error_code.val = 1
+    xutils.toc('queryJointTrajectoryServiceHandler')
     --print(response)
     return true
 end
