@@ -4,6 +4,7 @@ local tf = ros.tf
 local moveit = require 'moveit'
 local xamlamoveit = require 'xamlamoveit'
 local controller = xamlamoveit.controller
+local core = xamlamoveit.core
 local xamla_sysmon = require 'xamla_sysmon'
 local planning = xamlamoveit.planning
 
@@ -192,8 +193,24 @@ local function joggingServer(name)
     sub = nil
     local config = nh:getParamVariable(string.format('%s/controller_list', nh:getNamespace()))
     ros.INFO('get move group interface')
+
+
+    local joint_monitor = core.JointMonitor(robot_model:getVariableNames():totable())
+    local ready = false
+    local once = true
+    while not ready and ros.ok() do
+        ready = joint_monitor:waitReady(20.0)
+        if once then
+            ros.ERROR('joint states not ready')
+            once = false
+        end
+    end
+    ros.INFO('joint states ready')
+    if not ros.ok() then
+        return
+    end
     local move_group = moveit.MoveGroupInterface(planningGroup)
-    cntr = controller.JoggingControllerOpenLoop(nh, move_group, config, dt)
+    cntr = controller.JoggingControllerOpenLoop(nh, joint_monitor, move_group, config, dt)
     while not cntr:connect('jogging_command', 'jogging_setpoint', 'jogging_twist') do
         dt:sleep()
         ros.spinOnce()
@@ -261,8 +278,8 @@ local function joggingServer(name)
         end
         dt:sleep()
     end
-    shutdownSetup()
 end
 
 local result = xutils.parseRosParametersFromCommandLine(arg) or {}
 joggingServer(result['__name'])
+shutdownSetup()

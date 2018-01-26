@@ -128,7 +128,7 @@ end
 local controller = require 'xamlamoveit.controller.env'
 local JoggingControllerOpenLoop = torch.class('xamlamoveit.controller.JoggingControllerOpenLoop', controller)
 
-function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt, debug)
+function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group, ctr_list, dt, debug)
     self.debug = debug or false
     if self.debug then
         ros.console.set_logger_level(nil, ros.console.Level.Debug)
@@ -141,18 +141,7 @@ function JoggingControllerOpenLoop:__init(node_handle, move_group, ctr_list, dt,
     self.planning_scene = moveit.PlanningScene(self.kinematic_model)
     self.lock_client = core.LeasedBaseLockClient(node_handle)
 
-    self.joint_monitor = core.JointMonitor(self.kinematic_model:getVariableNames():totable())
-    local ready = false
-    local once = true
-    while not ready and ros.ok() do
-        ready = self.joint_monitor:waitReady(20.0)
-        if once then
-            ros.ERROR('joint states not ready')
-            once = false
-        end
-    end
-    ros.INFO('joint states ready')
-
+    self.joint_monitor = joint_monitor
 
     self.move_groups = {}
     self.curr_move_group_name = nil

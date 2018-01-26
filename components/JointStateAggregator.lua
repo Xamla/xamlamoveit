@@ -94,6 +94,10 @@ function JointStateAggregator:onInitialize()
         end
         ready = self.joint_monitor:waitReady(20.0)
     end
+    if not ros.ok() then
+        self:shutdown()
+        return
+    end
     ros.INFO('joint states  ready')
     self.last_joint_state = self.joint_monitor:getPositionsTensor()
     self.joint_names = self.joint_monitor:getJointNames()
