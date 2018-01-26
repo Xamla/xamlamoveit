@@ -81,16 +81,16 @@ function RosComponent:create()
 end
 
 function RosComponent:onCreate()
-    print('onCreate is Called')
+    print('onCreate was called')
 end
 
 function RosComponent:onInitialize()
-    print('onInitialize is Called')
+    print('onInitialize was called')
     self.current_state = circle_states.INITIALIZED
 end
 
 function RosComponent:start()
-    print('Start is Called')
+    print('start was called')
     if not (self.current_state == circle_states.INITIALIZED or self.current_state == circle_states.STOPPED) then
         error('start was called not in state STOPPED or INITIALIZED')
     end
@@ -99,7 +99,7 @@ function RosComponent:start()
 end
 
 function RosComponent:onStart()
-    print('onStart is Called')
+    print('onStart was called')
 end
 
 function RosComponent:process()
@@ -110,18 +110,18 @@ function RosComponent:process()
 end
 
 function RosComponent:onProcess()
-    print('onProcess is Called')
+    print('onProcess was called')
     --IMPEMENT IN YOUR APPLICATION
 end
 
 function RosComponent:stop()
-    print('Stop is Called')
+    print('stop was called')
     self:onStop()
     self.current_state = circle_states.STOPPED
 end
 
 function RosComponent:onReset()
-    print('onReset is Called')
+    print('onReset was called')
 end
 
 function RosComponent:reset()
@@ -133,7 +133,7 @@ function RosComponent:reset()
 end
 
 function RosComponent:onStop()
-    print('onStop is Called')
+    print('onStop was called')
 end
 
 function RosComponent:spin()
@@ -144,7 +144,7 @@ function RosComponent:onShutdown()
 end
 
 function RosComponent:shutdown()
-    print('Shutdown is Called')
+    print('shutdown was called')
     if self.current_state ~= circle_states.FINISHED then
         if self.current_state == circle_states.EXECUTE then
             self:stop()

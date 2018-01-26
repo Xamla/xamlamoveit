@@ -1,6 +1,7 @@
 local ros = require 'ros'
 local components = require 'xamlamoveit.components.env'
 local GoalStatus = require 'ros.actionlib.GoalStatus'
+local xutils = require 'xamlamoveit.xutils'
 local epsilon = 1e-2;
 
 local TrajectoryExecutionRequest = torch.class('xamlamoveit.components.TrajectoryExecutionRequest', components)
@@ -8,6 +9,7 @@ local TrajectoryExecutionRequest = torch.class('xamlamoveit.components.Trajector
 local errorCodes = {
     SUCCESS = 1,
     FAILURE = 99999,
+    SIGNAL_LOST = -9999,
     PLANNING_FAILED = -1,
     INVALID_MOTION_PLAN = -2,
     MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE = -3,
@@ -31,16 +33,7 @@ local errorCodes = {
     SENSOR_INFO_STALE = -24,
     NO_IK_SOLUTION = -31
 }
-
--- http://docs.ros.org/fuerte/api/control_msgs/html/msg/FollowJointTrajectoryResult.html
-local TrajectoryResultStatus = {
-    SUCCESSFUL = 0,
-    INVALID_GOAL = -1,
-    INVALID_JOINTS = -2,
-    OLD_HEADER_TIMESTAMP = -3,
-    PATH_TOLERANCE_VIOLATED = -4,
-    GOAL_TOLERANCE_VIOLATED = -5
-}
+errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
 
 function TrajectoryExecutionRequest:__init(goal_handle)
     self.starttime = ros.Time.now()
@@ -89,7 +82,7 @@ function TrajectoryExecutionRequest:proceed()
     if self.goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
         if self.manipulator == nil then
             ros.ERROR('[TrajectoryExecutionRequest] move group interface is nil')
-            self.status = errorCodes.ABORT
+            self.status = errorCodes.PREEMPTED
             return false
         elseif self.joint_monitor then
             local now = ros.Time.now()

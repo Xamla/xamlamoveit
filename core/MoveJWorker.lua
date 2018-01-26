@@ -6,14 +6,42 @@ local xutils = require 'xamlamoveit.xutils'
 local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
 
-local errorCodes = {}
-errorCodes.SUCCESSFUL = 1
-errorCodes.INVALID_GOAL = -1
-errorCodes.ABORT = -2
-errorCodes.NO_IK_FOUND = -3
-errorCodes.INVALID_LINK_NAME = -4
-errorCodes.SIGNAL_LOST = -9999
-
+local error_codes = {
+    SUCCESS = 1,
+    FAILURE = 99999,
+    SIGNAL_LOST = -9999,
+    PLANNING_FAILED = -1,
+    INVALID_MOTION_PLAN = -2,
+    MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE = -3,
+    CONTROL_FAILED = -4,
+    UNABLE_TO_AQUIRE_SENSOR_DATA = -5,
+    TIMED_OUT = -6,
+    PREEMPTED = -7,
+    START_STATE_IN_COLLISION = -10,
+    START_STATE_VIOLATES_PATH_CONSTRAINTS = -11,
+    GOAL_IN_COLLISION = -12,
+    GOAL_VIOLATES_PATH_CONSTRAINTS = -13,
+    GOAL_CONSTRAINTS_VIOLATED = -14,
+    INVALID_GROUP_NAME = -15,
+    INVALID_GOAL_CONSTRAINTS = -16,
+    INVALID_ROBOT_STATE = -17,
+    INVALID_LINK_NAME = -18,
+    INVALID_OBJECT_NAME = -19,
+    FRAME_TRANSFORM_FAILURE = -21,
+    COLLISION_CHECKING_UNAVAILABLE = -22,
+    ROBOT_STATE_STALE = -23,
+    SENSOR_INFO_STALE = -24,
+    NO_IK_SOLUTION = -31
+}
+error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
+--[[
+    error_codes.SUCCESSFUL = 1
+error_codes.INVALID_GOAL = -1
+error_codes.ABORT = -2
+error_codes.NO_IK_FOUND = -3
+error_codes.INVALID_LINK_NAME = -4
+error_codes.SIGNAL_LOST = -9999
+--]]
 local MoveJWorker = torch.class('MoveJWorker')
 
 local function checkMoveGroupName(self, name)
@@ -91,7 +119,7 @@ function MoveJWorker:__init(nh)
     self.trajectoryQueue = {} -- list of pending trajectories
     self.syncCallbacks = {}
     self.nodehandle = nh
-    self.errorCodes = errorCodes
+    self.error_codes = error_codes
     self.allowed_execution_duration_scaling =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_execution_duration_scaling')
     self.allowed_goal_duration_margin =
@@ -199,13 +227,12 @@ local function executeAsync(self, traj, plan)
     local function action_done(state, result)
         ros.INFO('actionDone')
         ros.INFO('Finished with states: %s (%d)', SimpleClientGoalState[state], state)
-        ros.INFO('Result:\n%s', result)
         if result then
             traj.status = result.error_code.val
         else
-            traj.status = errorCodes.SIGNAL_LOST -- SIGNAL LOST
+            traj.status = error_codes.SIGNAL_LOST -- SIGNAL LOST
         end
-        print("the trajecory status: ", traj.status)
+        ros.INFO('Trajectory execution result: %s, (%d)', error_codes[traj.status], traj.status)
     end
 
     local function action_active()
@@ -213,7 +240,9 @@ local function executeAsync(self, traj, plan)
     end
 
     local function action_feedback(feedback)
-        ros.INFO('Action_feedback \n\t%s ', tostring(feedback))
+        if feedback then
+            ros.INFO('Action_feedback \n\t%s ', tostring(feedback.state))
+        end
     end
     self.action_client:sendGoal(g, action_done, action_active, action_feedback)
     return true
@@ -319,7 +348,7 @@ local function handleMoveJTrajectory(self, traj)
     ros.INFO('Specified groupName: ' .. group_name)
     manipulator = self.manipulators[group_name]
     if not manipulator then
-        status = self.errorCodes.INVALID_GOAL
+        status = self.error_codes.INVALID_GOAL
     else
         traj.manipulator = manipulator
         traj.joint_monitor = self.joint_monitor
@@ -330,7 +359,7 @@ local function handleMoveJTrajectory(self, traj)
         toc('generateRobotTrajectory')
 
         if suc == false then
-            status = self.errorCodes.INVALID_GOAL
+            status = self.error_codes.INVALID_MOTION_PLAN
             suc = false
             msg = 'Could create valid Trajectory.'
         else
@@ -392,9 +421,9 @@ local function dispatchTrajectory(self)
             -- check if trajectory execution is still desired (e.g. not canceled)
             if traj:proceed() == false then
                 -- robot not ready or proceed callback returned false
-                status = self.errorCodes.ABORT
+                status = self.error_codes.CONTROL_FAILED
                 ros.ERROR('Stop plan execution. proceed method returned false')
-                self:cancelCurrentPlan('Stop plan execution.')
+                self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.traj.error_codes[status]))
             else
                 status = traj.status
                 if status < 1 then
@@ -405,20 +434,20 @@ local function dispatchTrajectory(self)
                                     self.allowed_goal_duration_margin)
                          then
                             ros.ERROR('trajecotry duration timeout reached')
-                            status = self.errorCodes.ABORT
+                            status = self.error_codes.TIMED_OUT
                         end
                     else
                         if d > traj.duration + self.allowed_goal_duration_margin + 1 then
                             ros.ERROR('trajecotry duration timeout reached')
-                            print((d - traj.duration + self.allowed_goal_duration_margin), status)
-                            status = self.errorCodes.ABORT
+                            --print((d - traj.duration + self.allowed_goal_duration_margin), status)
+                            status = self.error_codes.TIMED_OUT
                         end
                     end
                 end
             end
 
             if suc == false then
-                status = self.errorCodes.ABORT
+                status = self.error_codes.PREEMPTED
                 ros.ERROR('Stop plan execution. Lock failed.')
                 self:cancelCurrentPlan('Stop plan execution. Lock failed.')
             end
@@ -426,14 +455,14 @@ local function dispatchTrajectory(self)
         -- execute main update call
         if status < 0 then -- error
             if traj.abort ~= nil then
-                ros.ERROR('status: ' .. status)
-                traj:abort('status: ' .. status, status) -- abort callback
+                ros.ERROR('status: %s, %d' .. self.error_codes[status], status)
+                traj:abort('status: ' .. self.error_codes[status], status) -- abort callback
             end
             if traj.id_lock and traj.jointNames then
                 suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
             end
             self.currentPlan = nil
-        elseif status == self.errorCodes.SUCCESSFUL then
+        elseif status == self.error_codes.SUCCESS then
             if traj.completed ~= nil then
                 traj:completed() -- completed callback
             end
@@ -483,9 +512,19 @@ local function MoveJWorkerCore(self)
     dispatchTrajectory(self)
 end
 
-local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
+local error_msg_func = function(x)
+    ros.ERROR(debug.traceback())
+    return x
+end
 function MoveJWorker:spin()
-    local ok, err = xpcall(function() MoveJWorkerCore(self) end, error_msg_func)
+    local ok,
+        err =
+        xpcall(
+        function()
+            MoveJWorkerCore(self)
+        end,
+        error_msg_func
+    )
     -- abort current trajectory
     if (not ok) and self.currentPlan then
         local traj = self.currentPlan.traj
