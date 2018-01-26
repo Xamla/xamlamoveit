@@ -109,7 +109,7 @@ function MotionService:queryAvailableMoveGroups()
         end
         return names, details
     else
-        return {}, {}
+        return {''}, {''}
     end
 end
 
@@ -166,8 +166,10 @@ function MotionService:queryPose(move_group_name, jointvalues, link_name)
     end
     local response = move_group_pose_interface:call(request)
     --check order of joint names
-    if response.error_codes[1].val == 1 then
-        return response.error_codes[1], response.solutions[1], response.error_msgs[1]
+    if response then
+        if response.error_codes[1].val == 1 then
+            return response.error_codes[1], response.solutions[1], response.error_msgs[1]
+        end
     end
 end
 
@@ -189,8 +191,12 @@ function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
         end
     end
     local response = move_group_pose_interface:call(request)
-    --check order of joint names
-    return response.error_codes, response.solutions, response.error_msgs
+    if response then
+        --check order of joint names
+        return response.error_codes, response.solutions, response.error_msgs
+    else
+        return {val = -9999}
+    end
 end
 
 -- get current Position of movegroup
@@ -224,15 +230,12 @@ function MotionService:queryStateCollision(move_group_name, joint_names, points)
     request.joint_names = joint_names
     for i = 1, #points do
         request.points[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-        print('queryStateCollision', points[i])
         request.points[i].positions = points[i]
     end
-    --print(request)
     local response
     if collision_check_interface:exists() then
         ros.INFO('found service: .. ' .. collision_check_interface:getService())
         response = collision_check_interface:call(request)
-        --print(response)
         if response then
         return response.success, response.in_collision, response.error_codes, response.messages
         else
@@ -313,13 +316,13 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, result
     if self.execution_action_client == nil then
         self.execution_action_client =
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
-        self.execution_action_client:waitForServer(ros.Duration(2.5))
+        self.execution_action_client:waitForServer(ros.Duration(1))
     elseif not self.execution_action_client:isServerConnected() then
         self.execution_action_client:shutdown()
         self.execution_action_client = nil
         self.execution_action_client =
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
-        self.execution_action_client:waitForServer(ros.Duration(2.5))
+        self.execution_action_client:waitForServer(ros.Duration(1))
     end
     local action_client = self.execution_action_client
     local g = action_client:createGoal()
@@ -377,10 +380,8 @@ function MotionService:executeJointTrajectory(traj, check_collision)
         local state, state_msg = action_client:sendGoalAndWait(g)
         ros.INFO('moveJ_action returned: %s', state_msg)
         if state == SimpleClientGoalState.SUCCEEDED then
-            print("state true", state, SimpleClientGoalState.SUCCEEDED)
             return true, state_msg
         else
-            print("state false", state)
             return false, state_msg
         end
     else
@@ -399,13 +400,20 @@ local function planMoveCartesian_1(self, start, goal, parameters)
     )
     local seed = self:queryJointState(parameters.joint_names)
     local suc, start = self:queryIK(start, parameters, seed)
-    if suc[1].val ~= 1 then
-        print('start suc ', suc)
+    if suc then
+        if suc[1].val ~= 1 then
+            return false
+        end
+    else
         return false
     end
     suc, goal = self:queryIK(goal, parameters, start.solutions[1])
-    if suc[1].val ~= 1 then
-        print('goal suc ', suc.error_code.val)
+    if suc then
+        if suc[1].val ~= 1 then
+            print('goal suc ', suc.error_code.val)
+            return false
+        end
+    else
         return false
     end
     return self:planMoveJoint(torch.cat(start[1].positions, goal[1].positions, 2):t(), parameters)
@@ -422,8 +430,12 @@ local function planMoveCartesian_2(self, waypoints, parameters)
     local seed = self:queryJointState(parameters.joint_names)
     for i, v in ipairs(waypoints) do
         local suc, start = self:queryIK(v, parameters, seed)
-        if suc[1].val ~= 1 then
-            print('start suc ', suc)
+        if suc then
+            if suc[1].val ~= 1 then
+                print('start suc ', suc)
+                return false
+            end
+        else
             return false
         end
         table.insert(result, start[1].positions)
@@ -569,7 +581,11 @@ function MotionService:emergencyStop(enable)
     local g = set_emergency_stop:createRequest()
     g.data = enable
     local response = set_emergency_stop:call(g)
-    return response.success, response.message
+    if response then
+        return response.success, response.message
+    else
+        return -9999
+    end
 end
 
 return MotionService
