@@ -77,6 +77,9 @@ function TvpController:generateOfflineTrajectory(start, goal, dt)
         counter = counter + 1
     end
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
+    for i = 1, 5 do
+        result[counter + i] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
+    end
     return result
 end
 

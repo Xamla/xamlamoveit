@@ -56,7 +56,7 @@ local function queryJointLimits(node_handle, joint_names, namespace)
         if nh:getParamVariable(has_acc_param) then
             max_acc[i] = nh:getParamVariable(get_acc_param)
         else
-            max_acc[i] = max_vel[i] * 4
+            max_acc[i] = max_vel[i] * 0.5
             ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
         end
     end

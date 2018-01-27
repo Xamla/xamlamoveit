@@ -296,10 +296,13 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     end
 
     traj:addSuffixWayPoint(start_state, dt)
+    local last_time_from_start = dt
     local p = start_state:clone()
-    for i = 1, #trajectory.points do
-        local k = math.min(i + 1, #trajectory.points)
-        dt = trajectory.points[k].time_from_start:toSec() - trajectory.points[i].time_from_start:toSec()
+    for i = 2, #trajectory.points do
+        dt = trajectory.points[i].time_from_start:toSec() - last_time_from_start
+        assert(dt > 0, 'trajectory time must be strictly increasing')
+        last_time_from_start = trajectory.points[i].time_from_start:toSec()
+
         p:setVariablePositions(trajectory.points[i].positions, trajectory.joint_names)
         p:setVariableVelocities(trajectory.points[i].velocities, trajectory.joint_names)
         p:setVariableAccelerations(trajectory.points[i].accelerations, trajectory.joint_names)
@@ -424,6 +427,8 @@ local function dispatchTrajectory(self)
                 status = self.error_codes.CONTROL_FAILED
                 ros.ERROR('Stop plan execution. proceed method returned false')
                 self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.traj.error_codes[status]))
+            end
+            --[[
             else
                 status = traj.status
                 if status < 1 then
@@ -437,15 +442,17 @@ local function dispatchTrajectory(self)
                             status = self.error_codes.TIMED_OUT
                         end
                     else
-                        if d > traj.duration + self.allowed_goal_duration_margin + 1 then
-                            ros.ERROR('trajecotry duration timeout reached')
-                            --print((d - traj.duration + self.allowed_goal_duration_margin), status)
+                        if d > traj.duration + self.allowed_goal_duration_margin + 5 then
+                            ros.ERROR(
+                                'trajecotry duration timeout reached current duration %f, planed duration %f, margin %f ',
+                                 d:toSec(), traj.duration:toSec(), self.allowed_goal_duration_margin + 5
+                                )
                             status = self.error_codes.TIMED_OUT
                         end
                     end
                 end
             end
-
+            ]]
             if suc == false then
                 status = self.error_codes.PREEMPTED
                 ros.ERROR('Stop plan execution. Lock failed.')
@@ -455,7 +462,7 @@ local function dispatchTrajectory(self)
         -- execute main update call
         if status < 0 then -- error
             if traj.abort ~= nil then
-                ros.ERROR('status: %s, %d' .. self.error_codes[status], status)
+                ros.ERROR('status: %s, %d', self.error_codes[status], status)
                 traj:abort('status: ' .. self.error_codes[status], status) -- abort callback
             end
             if traj.id_lock and traj.jointNames then
@@ -464,6 +471,7 @@ local function dispatchTrajectory(self)
             self.currentPlan = nil
         elseif status == self.error_codes.SUCCESS then
             if traj.completed ~= nil then
+                ros.INFO("Trajectory execution took %fsec. Planed execution duration was: %f", d:toSec(), traj.duration:toSec())
                 traj:completed() -- completed callback
             end
             suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
