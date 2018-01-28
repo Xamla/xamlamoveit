@@ -1,7 +1,6 @@
 local xutils = require 'xamlamoveit.xutils.env'
 local ros = require 'ros'
 local p = require 'posix'
-local xutils = require 'xamlamoveit.xutils'
 
 
 local STDIN = 0
@@ -142,8 +141,19 @@ function Prompt:showMenu(title, menu_options, custom_spin_fn, custom_info_fn)
     if custom_info_fn ~= nil then
       custom_info_fn()
     end
+
+    local entries
+    if type(menu_options) == 'table' then
+      entries = menu_options
+    elseif type(menu_options) == 'function' then
+      entries = menu_options()
+      assert(type(entries) == 'table', 'Menu entry generator did not return a table.')
+    else
+      error("Invalid argument: 'menu_options'.")
+    end
+
     local key_fn_map = {}
-    for i,o in ipairs(menu_options) do
+    for i,o in ipairs(entries) do
       print(o[1] .. ' ' .. o[2])
       if #o[1] == 1 then
         key_fn_map[o[1]] = o[3]
