@@ -312,7 +312,7 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
     return response
 end
 
-function MotionService:executeJointTrajectoryAsync(traj, check_collision, result_storage)
+function MotionService:executeJointTrajectoryAsync(traj, check_collision, done_cb)
     if self.execution_action_client == nil then
         self.execution_action_client =
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
@@ -324,36 +324,19 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, result
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
         self.execution_action_client:waitForServer(ros.Duration(1))
     end
+
     local action_client = self.execution_action_client
+
+    ros.spinOnce()
+    assert(action_client:isServerConnected(), 'could not reach moveJ_action')
+
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
     g.check_collision = check_collision or false
-    result_storage.done = false
-    local function action_done(state, result)
-        ros.INFO('actionDone')
-        ros.INFO('Finished with states: %s (%d)', SimpleClientGoalState[state], state)
-        ros.INFO('Result:\n%s', result)
-        result_storage.done = true
-    end
 
-    local function action_active()
-        ros.INFO('MotionService Action_active')
-    end
-
-    local function action_feedback(feedback)
-        ros.INFO('Action_feedback')
-    end
-
-    ros.spinOnce()
-
-    if action_client:isServerConnected() then
-        action_client:sendGoal(g, action_done, action_active, action_feedback)
-        return true, action_client
-    else
-        ros.ERROR('could not reach moveJ_action')
-        return false
-    end
+    action_client:sendGoal(g, done_cb)
+    return action_client
 end
 
 function MotionService:executeJointTrajectory(traj, check_collision)

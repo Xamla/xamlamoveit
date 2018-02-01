@@ -51,6 +51,15 @@ function xutils.kbhit(timeout)
 end
 
 
+function xutils.readKey(timeout)
+  if not xutils.kbhit() then
+    return nil
+  end
+  local d, err = p.read(STDIN, 1)
+  return d
+end
+
+
 function xutils.waitKey(spinFunc, poll_timeout)
   while true do
     if xutils.kbhit(poll_timeout) == true then

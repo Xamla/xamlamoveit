@@ -109,7 +109,7 @@ function MoveGroup:buildPlanParameters(velocity_scaling, collision_check, max_de
     return result
 end
 
-function MoveGroup:moveJ(target, velocity_scaling, collision_check)
+local function planMoveJ(self, target, velocity_scaling, collision_check)
     local plan_parameters = self:buildPlanParameters(velocity_scaling, collision_check)
 
     -- get current pose
@@ -125,11 +125,26 @@ function MoveGroup:moveJ(target, velocity_scaling, collision_check)
     
     -- plan trajectory
     local ok, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
-    assert(ok == 1, 'planMoveJoint() failed')
+    return ok, joint_trajectory, plan_parameters
+end
+
+function MoveGroup:moveJ(target, velocity_scaling, collision_check)
+    -- plan trajectory
+    local ok, joint_trajectory, plan_parameters = planMoveJ(self, target, velocity_scaling, collision_check)
+    assert(ok == 1, 'planMoveJ failed')
 
     -- start synchronous blocking execution
     local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
     assert(ok, 'executeJointTrajectory failed.')
+end
+
+function MoveGroup:moveJAsync(target, velocity_scaling, collision_check, done_cb)
+    -- plan trajectory
+    local ok, joint_trajectory, plan_parameters = planMoveJ(self, target, velocity_scaling, collision_check)
+    assert(ok == 1, 'planMoveJ failed')
+
+    local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
+    return simple_action_client
 end
 
 function MoveGroup:moveWaypointList(waypoints, velocity_scaling, collision_check)

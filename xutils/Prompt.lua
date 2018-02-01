@@ -71,6 +71,11 @@ function Prompt:waitEnterOrEsc()
 end
 
 
+function Prompt:readKey(timeout)
+  return xutils.readKey(timeout)
+end
+
+
 function Prompt:readLine()
   if self.rawTerminal then
     self:restoreTerminalAttributes()
