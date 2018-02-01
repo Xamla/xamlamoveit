@@ -58,6 +58,20 @@ local function poses2MsgArray(points)
     return result
 end
 
+local function stampedMessages2PoseArray(msgs)
+    local result = {}
+    for i, v in ipairs(msgs) do
+        local point = datatypes.Pose()
+        local position = v.pose.position
+        local ori = v.pose.orientation
+        point:setTranslation(torch.Tensor {position.x, position.y, position.z})
+        point:setRotation(torch.Tensor {ori.x, ori.y, ori.z, ori.w})
+        point.frame = v.frame_id
+        table.insert(result, point)
+    end
+    return result
+end
+
 function MotionService:queryCartesianPath(waypoints, sample_resolution)
     local compute_cartesian_path_interface =
         self.node_handle:serviceClient(
@@ -68,7 +82,17 @@ function MotionService:queryCartesianPath(waypoints, sample_resolution)
     request.waypoints = poses2MsgArray(waypoints)
     request.num_steps = sample_resolution
     local response = compute_cartesian_path_interface:call(request)
-    return response
+    if response then
+        local pathCartesian
+        if response.error_code.val == 1 then
+            pathCartesian = response.path
+        else
+            ros.ERROR('No valid Cartesian path found: %d', response.error_code.val)
+        end
+        return response.error_code.val, stampedMessages2PoseArray(pathCartesian)
+    else
+        return -9999
+    end
 end
 
 function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector_link, attempts, timeout)
@@ -85,7 +109,11 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     end
     request.collision_check = true -- this is recomended to be true in all cases
     local response = self.compute_ik_interface:call(request)
-    return response.error_codes, response.solutions
+    if response then
+        return response.error_codes, response.solutions
+    else
+        return {val = -9999}, nil, "IK service call failed! Connection lost."
+    end
 end
 
 --get Avalable move groups
@@ -195,7 +223,7 @@ function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
         --check order of joint names
         return response.error_codes, response.solutions, response.error_msgs
     else
-        return {val = -9999}
+        return {val = -9999}, nil, "Poses service call failed! Connection lost."
     end
 end
 
@@ -237,7 +265,7 @@ function MotionService:queryStateCollision(move_group_name, joint_names, points)
         ros.INFO('found service: .. ' .. collision_check_interface:getService())
         response = collision_check_interface:call(request)
         if response then
-        return response.success, response.in_collision, response.error_codes, response.messages
+            return response.success, response.in_collision, response.error_codes, response.messages
         else
             return false, false, nil, 'Connection lost'
         end
@@ -308,8 +336,19 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
     else
         ros.INFO('could not find service: ..' .. generate_trajectory_interface:getService())
     end
-
-    return response
+    local trajectory, error_code
+    if response then
+        error_code = response.error_code.val
+        if error_code == 1 then
+            trajectory = response.solution
+        else
+            ros.ERROR('No valid joint trajectory found: %d', error_code)
+        end
+        return error_code, trajectory
+    else
+        ros.ERROR('Connection Lost')
+        return -9999
+    end
 end
 
 function MotionService:executeJointTrajectoryAsync(traj, check_collision, done_cb)
@@ -460,35 +499,11 @@ function MotionService:planJointPath(_1, _2, _3)
     end
 end
 
-local function stampedMessages2PoseArray(msgs)
-    local result = {}
-    for i, v in ipairs(msgs) do
-        local point = datatypes.Pose()
-        local position = v.pose.position
-        local ori = v.pose.orientation
-        point:setTranslation(torch.Tensor {position.x, position.y, position.z})
-        point:setRotation(torch.Tensor {ori.x, ori.y, ori.z, ori.w})
-        point.frame = v.frame_id
-        table.insert(result, point)
-    end
-    return result
-end
-
 function MotionService:planCartesianPath(waypoints, parameters)
     assert(torch.type(waypoints) == 'table')
     assert(torch.isTypeOf(parameters, datatypes.PlanParameters))
-    local pathCartesian
-    local res = self:queryCartesianPath(waypoints, #waypoints)
-    if res then
-        if res.error_code.val == 1 then
-            pathCartesian = res.path
-        else
-            ros.ERROR('No valid Cartesian path found: %d', res.error_code.val)
-        end
-        return res.error_code.val, stampedMessages2PoseArray(pathCartesian)
-    else
-        return -9999
-    end
+    local error_code, path = self:queryCartesianPath(waypoints, #waypoints)
+    return error_code, path
 end
 
 --IJointTrajectory PlanMoveJoint(IJointPath path, PlanParameters parameters);
@@ -504,8 +519,8 @@ function MotionService:planMoveJoint(path, parameters)
             #parameters.joint_names
         )
     )
-    local trajectory
-    local res =
+
+    local error_code, trajectory =
         queryJointTrajectory(
         self,
         parameters.joint_names,
@@ -515,17 +530,7 @@ function MotionService:planMoveJoint(path, parameters)
         parameters.max_deviation,
         parameters.dt or 0.008
     )
-    if res then
-        if res.error_code.val == 1 then
-            trajectory = res.solution
-        else
-            ros.ERROR('No valid joint trajectory found: %d', res.error_code.val)
-        end
-        return res.error_code.val, trajectory
-    else
-        ros.ERROR('Connection Lost')
-        return -9999
-    end
+    return error_code, trajectory
 end
 
 function MotionService:getDefaultPlanParameters(

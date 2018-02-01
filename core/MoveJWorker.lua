@@ -201,10 +201,14 @@ local function queryLock(self, id_resources, id_lock, release_flag)
     request.id_resources = id_resources
     request.id_lock = id_lock or ''
     local responds = self.query_resource_lock_service:call(request)
-    if responds.success then
-        return responds.success, responds.id_lock, responds.creation_date, responds.expiration_date
+    if responds then
+        if responds.success then
+            return responds.success, responds.id_lock, responds.creation_date, responds.expiration_date
+        else
+            return responds.success
+        end
     else
-        return responds.success
+        return false
     end
 end
 
@@ -300,6 +304,9 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     local p = start_state:clone()
     for i = 2, #trajectory.points do
         dt = trajectory.points[i].time_from_start:toSec() - last_time_from_start
+        if not (dt > 0) then
+            ros.INFO('i %d, total %d, dt %f', i, #trajectory.points, dt)
+        end
         assert(dt > 0, 'trajectory time must be strictly increasing')
         last_time_from_start = trajectory.points[i].time_from_start:toSec()
 
@@ -426,7 +433,7 @@ local function dispatchTrajectory(self)
                 -- robot not ready or proceed callback returned false
                 status = self.error_codes.CONTROL_FAILED
                 ros.ERROR('Stop plan execution. proceed method returned false')
-                self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.traj.error_codes[status]))
+                self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.error_codes[status]))
             end
             --[[
             else
@@ -471,7 +478,11 @@ local function dispatchTrajectory(self)
             self.currentPlan = nil
         elseif status == self.error_codes.SUCCESS then
             if traj.completed ~= nil then
-                ros.INFO("Trajectory execution took %fsec. Planed execution duration was: %f", d:toSec(), traj.duration:toSec())
+                ros.INFO(
+                    'Trajectory execution took %fsec. Planed execution duration was: %f',
+                    d:toSec(),
+                    traj.duration:toSec()
+                )
                 traj:completed() -- completed callback
             end
             suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
