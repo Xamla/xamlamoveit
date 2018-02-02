@@ -183,20 +183,6 @@ function MoveJWorker:sync()
     return true
 end
 
-function MoveJWorker:cancelCurrentPlan(abortMsg)
-    ros.INFO('MoveJWorker:cancelCurrentPlan %s', abortMsg)
-    if self.currentPlan ~= nil then
-        local traj = self.currentPlan.traj
-        if traj.abort ~= nil then
-            traj:abort(abortMsg or 'Canceled') -- abort callback
-        end
-        if self.action_client and self.action_client:getState() == SimpleClientGoalState.ACTIVE then
-            self.action_client:cancelAllGoals()
-        end
-        self.currentPlan = nil
-    end
-end
-
 local function queryLock(self, id_resources, id_lock, release_flag)
     ros.DEBUG('queryLock')
     local request = self.query_resource_lock_service:createRequest()
@@ -221,6 +207,24 @@ end
 
 local function releaseResource(self, id_resources, id_lock)
     return queryLock(self, id_resources, id_lock, true)
+end
+
+
+function MoveJWorker:cancelCurrentPlan(abortMsg)
+    ros.INFO('MoveJWorker:cancelCurrentPlan %s', abortMsg)
+    if self.currentPlan ~= nil then
+        local traj = self.currentPlan.traj
+        if traj.abort ~= nil then
+            traj:abort(abortMsg or 'Canceled') -- abort callback
+        end
+        if self.action_client and self.action_client:getState() == SimpleClientGoalState.ACTIVE then
+            self.action_client:cancelAllGoals()
+        end
+        if traj.id_lock and traj.jointNames then
+            suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
+        end
+        self.currentPlan = nil
+    end
 end
 
 local function executeAsync(self, traj, plan)
