@@ -30,6 +30,10 @@ function MultiAxisTvpController:__init(dim)
     self.last_goal = nil
     self.convergence_threshold = 1e-4
     self.converged = true
+
+    -- temporary tensors
+    self.a0 = torch.zeros(dim)  -- current acceleration
+    self.etas = torch.zeros(dim)
 end
 
 function MultiAxisTvpController:update(goal, dt)
@@ -41,13 +45,13 @@ function MultiAxisTvpController:update(goal, dt)
 
     if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
         self.last_goal = goal:clone()
-        self.norm_max_vel = self.max_vel:clone()
-        self.norm_max_acc = self.max_acc:clone()
+        self.norm_max_vel:copy(self.max_vel)
+        self.norm_max_acc:copy(self.max_acc)
 
         -- compute times of all phases for all axis
-        local acc_times = torch.zeros(goal:size())
-        local cru_times = torch.zeros(goal:size())
-        local dec_times = torch.zeros(goal:size())
+        local acc_times = torch.zeros(dim)
+        local cru_times = torch.zeros(dim)
+        local dec_times = torch.zeros(dim)
 
         for i=1,dim do
             -- calculate time to goal for each axis
@@ -101,7 +105,12 @@ function MultiAxisTvpController:update(goal, dt)
         local longest_dec = dec_times:max(1)[1]
         local longest_cru = cru_times:max(1)[1]
 
-        local total_traj_time = longest_acc + longest_cru + longest_dec
+        -- round phases to full dt
+        longest_acc = math.ceil(longest_acc / dt) * dt
+        longest_dec = math.ceil(longest_dec / dt) * dt
+        longest_cru = math.ceil(longest_cru / dt) * dt
+
+        --local total_traj_time = longest_acc + longest_cru + longest_dec
 
         -- now run 2nd pass over all axis and compute max_acc & max_vel values for them to reach goal in total_traj_time
         for i=1,dim do
@@ -133,8 +142,8 @@ function MultiAxisTvpController:update(goal, dt)
 ]]
     end
 
-    local a0 = torch.zeros(dim)  -- current acceleration
-    local etas = torch.zeros(dim)
+    local a0 = self.a0
+    local etas = self.etas
 
     -- compute eta
     for i=1,dim do
@@ -145,8 +154,21 @@ function MultiAxisTvpController:update(goal, dt)
         etas[i] = eta
     end
 
+    -- eta computation als with tensor (unfortunately not faster with luajit)
+    --etas:copy(to_go):abs():cdiv(self.norm_max_acc):mul(2):sqrt():div(dt):ceil():mul(dt)
     local eta = etas:max(1)[1]
+    local eta_ = eta + dt
 
+    --[[local v0 = self.state.vel
+    local vmax = self.norm_max_vel -- max velocity
+    local amax = self.norm_max_acc -- max acceleration
+
+    a0:copy(to_go):div(eta_ * eta_):mul(2 * eta_)
+    local v = a0
+    a0 = clamp(a0, -vmax, vmax)
+    a0 = clamp(a0, v0 - amax * dt, v0 + amax * dt)
+    a0:add(-v0):div(dt)]]
+    
     -- now compute tvp step
     for i=1,dim do
 
@@ -159,16 +181,17 @@ function MultiAxisTvpController:update(goal, dt)
 
         --local correct_amax = amax
         local eta_ = eta + dt
-        local correct_amax = 2 * torch.abs(p1) / (eta_ * eta_) -- correct amax
+        local correct_amax = 2 * p1 / (eta_ * eta_) -- correct amax
 
         --if eta <= dt then
         --    correct_amax = 0
         --end
 
-        local v = math.sign(p1) * correct_amax * eta_ -- max velocity to stop on goal, decelerating
+        local v = correct_amax * eta_ -- max velocity to stop on goal, decelerating
         v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
         v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
-        print(v)  -- ## debug output
+        --print(v)  -- ## debug output
+        --print(to_go:norm())
 
         a0[i] = (v - v0) / dt
     end
@@ -216,8 +239,13 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
         counter = counter + 1
     end
+    
+    local final_delta = goal-self.state.pos
+    --print('final_delta:')
+    --print(final_delta)
+
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
-    return result
+    return result, final_delta
 end
 
 return MultiAxisTvpController
