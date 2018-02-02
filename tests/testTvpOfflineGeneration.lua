@@ -50,14 +50,16 @@ local function runRandomTest(dim, runs, dt, plot)
         local start = generateRandomVector(dim, -3 * math.pi, 3 * math.pi)
         local goal = generateRandomVector(dim, -3 * math.pi, 3 * math.pi)
 
-        --[[print('max_v')
+        --[[
+        print('max_v')
         print(max_v)
         print('max_a')
         print(max_a)
         print('start')
         print(start)
         print('goal')
-        print(goal)]]
+        print(goal)
+        ]]
 
         controller.max_vel:copy(max_v)
         controller.max_acc:copy(max_a)

@@ -8,11 +8,6 @@ local function clamp(t, min, max)
     return torch.cmin(t, max):cmax(min)
 end
 
-function math.sign(x)
-    assert(type(x) == 'number')
-    return x > 0 and 1 or x < 0 and -1 or 0
-end
-
 function MultiAxisTvpController:__init(dim)
     self.dim = dim
     self.state = {
@@ -24,9 +19,6 @@ function MultiAxisTvpController:__init(dim)
     self.max_acc = torch.ones(dim) * math.pi / 2
     self.norm_max_vel = torch.ones(dim) * math.pi
     self.norm_max_acc = torch.ones(dim) * math.pi / 2
-    self.axis_scale = torch.ones(dim)
-    self.longest_axis = nil
-    self.slowest_axis = nil
     self.last_goal = nil
     self.convergence_threshold = 1e-4
     self.converged = true
@@ -129,6 +121,7 @@ function MultiAxisTvpController:update(goal, dt)
                 self.norm_max_acc[i] = a_acc_max
             end
         end
+
 --[[
         -- ## debug output
         print('max_vel')
@@ -143,35 +136,27 @@ function MultiAxisTvpController:update(goal, dt)
         print('norm_max_acc')
         print(self.norm_max_acc)
 ]]
+
     end
 
-    local a0 = self.a0
-    local etas = self.etas
-
     -- compute eta
+    local eta = 0
     for i = 1, dim do
         local p1 = to_go[i] -- goal position
         local amax = self.norm_max_acc[i] -- max acceleration
-        local eta = math.sqrt(2 * math.abs(p1) / amax) -- time to goal
-        eta = math.ceil(eta / dt) * dt -- round to full dt
-        etas[i] = eta
+        local time_to_goal = math.sqrt(2 * math.abs(p1) / amax) -- time to goal
+        time_to_goal = math.ceil(time_to_goal / dt) * dt -- round to full dt
+        if time_to_goal > eta then
+            eta = time_to_goal
+        end
     end
 
-    -- eta computation als with tensor (unfortunately not faster with luajit)
+    -- eta computation alternative with tensor functions (unfortunately not faster with torch than loop in luajit)
     --etas:copy(to_go):abs():cdiv(self.norm_max_acc):mul(2):sqrt():div(dt):ceil():mul(dt)
-    local eta = etas:max(1)[1]
     local eta_ = eta + dt
 
-    --[[local v0 = self.state.vel
-    local vmax = self.norm_max_vel -- max velocity
-    local amax = self.norm_max_acc -- max acceleration
-
-    a0:copy(to_go):div(eta_ * eta_):mul(2 * eta_)
-    local v = a0
-    a0 = clamp(a0, -vmax, vmax)
-    a0 = clamp(a0, v0 - amax * dt, v0 + amax * dt)
-    a0:add(-v0):div(dt)]]
     -- now compute tvp step
+    local a0 = self.a0
     for i = 1, dim do
         -- plan for each axis individually
         local p1 = to_go[i] -- goal position
@@ -179,15 +164,7 @@ function MultiAxisTvpController:update(goal, dt)
 
         local vmax = self.norm_max_vel[i] -- max velocity
         local amax = self.norm_max_acc[i] -- max acceleration
-
-        --local correct_amax = amax
-        local eta_ = eta + dt
         local correct_amax = 2 * p1 / (eta_ * eta_) -- correct amax
-
-        --if eta <= dt then
-        --    correct_amax = 0
-        --end
-
         local v = correct_amax * eta_ -- max velocity to stop on goal, decelerating
         v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
         v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
@@ -197,17 +174,9 @@ function MultiAxisTvpController:update(goal, dt)
         a0[i] = (v - v0) / dt
     end
 
-    -- test nan
-    a0:apply(
-        function(x)
-            if x ~= x then
-                return 0
-            end
-        end
-    )
-
-    self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))
-    self.converged = eta <= dt --to_go:norm() < self.convergence_threshold
+    a0:apply(function(x) if x ~= x then return 0 end end)           -- replace nan values by 0
+    self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))     -- clamp to max_acc and assign to state acceleration value
+    self.converged = eta < (dt / 2)
     --printf('eta: %f', eta) -- ## debug output
 
     return eta
@@ -242,7 +211,7 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt)
     end
 
     local final_delta = goal - self.state.pos
-
+    assert(final_delta:norm() < self.convergence_threshold, 'Goal distance of generated TVP trajectory is too high.')
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
     return result, final_delta
 end
