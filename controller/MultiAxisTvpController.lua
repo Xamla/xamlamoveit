@@ -32,7 +32,7 @@ function MultiAxisTvpController:__init(dim)
     self.converged = true
 
     -- temporary tensors
-    self.a0 = torch.zeros(dim)  -- current acceleration
+    self.a0 = torch.zeros(dim) -- current acceleration
     self.etas = torch.zeros(dim)
 end
 
@@ -44,6 +44,7 @@ function MultiAxisTvpController:update(goal, dt)
     local dim = goal:size(1)
 
     if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
+        assert(self.state.vel:norm() < 1e-8 and self.state.acc:norm() < 1e-8, 'Cannot handle inital non zero velocity or non zero acceleration.')
         self.last_goal = goal:clone()
         self.norm_max_vel:copy(self.max_vel)
         self.norm_max_acc:copy(self.max_acc)
@@ -53,7 +54,7 @@ function MultiAxisTvpController:update(goal, dt)
         local cru_times = torch.zeros(dim)
         local dec_times = torch.zeros(dim)
 
-        for i=1,dim do
+        for i = 1, dim do
             -- calculate time to goal for each axis
 
             local max_vel = self.max_vel[i]
@@ -74,7 +75,7 @@ function MultiAxisTvpController:update(goal, dt)
                 dec_time = acc_time
                 cru_time = 0
             else
-                acc_time = max_vel / max_acc         -- time for 0 -> max vel / max_vel -> 0 vel
+                acc_time = max_vel / max_acc -- time for 0 -> max vel / max_vel -> 0 vel
                 dec_time = acc_time
 
                 -- distance traveled during acc & dec phase
@@ -113,18 +114,20 @@ function MultiAxisTvpController:update(goal, dt)
         --local total_traj_time = longest_acc + longest_cru + longest_dec
 
         -- now run 2nd pass over all axis and compute max_acc & max_vel values for them to reach goal in total_traj_time
-        for i=1,dim do
-
+        for i = 1, dim do
             -- compute v_max to reach goal
             local distance = math.abs(to_go[i])
-            local v_max = distance / (0.5 * longest_acc + longest_cru + 0.5 * longest_dec)
 
-            -- compute a_max to reach v_max in longest times
-            local a_acc_max = v_max / longest_acc
-            --local a_dec_max = v_max / longest_dec
+            if distance > 1e-8 then
+                local v_max = distance / (0.5 * longest_acc + longest_cru + 0.5 * longest_dec)
 
-            self.norm_max_vel[i] = v_max
-            self.norm_max_acc[i] = a_acc_max
+                -- compute a_max to reach v_max in longest times
+                local a_acc_max = v_max / longest_acc
+                --local a_dec_max = v_max / longest_dec
+
+                self.norm_max_vel[i] = v_max
+                self.norm_max_acc[i] = a_acc_max
+            end
         end
 --[[
         -- ## debug output
@@ -146,7 +149,7 @@ function MultiAxisTvpController:update(goal, dt)
     local etas = self.etas
 
     -- compute eta
-    for i=1,dim do
+    for i = 1, dim do
         local p1 = to_go[i] -- goal position
         local amax = self.norm_max_acc[i] -- max acceleration
         local eta = math.sqrt(2 * math.abs(p1) / amax) -- time to goal
@@ -168,11 +171,9 @@ function MultiAxisTvpController:update(goal, dt)
     a0 = clamp(a0, -vmax, vmax)
     a0 = clamp(a0, v0 - amax * dt, v0 + amax * dt)
     a0:add(-v0):div(dt)]]
-    
     -- now compute tvp step
-    for i=1,dim do
-
-         -- plan for each axis individually
+    for i = 1, dim do
+        -- plan for each axis individually
         local p1 = to_go[i] -- goal position
         local v0 = self.state.vel[i] -- current velocity
 
@@ -206,7 +207,7 @@ function MultiAxisTvpController:update(goal, dt)
     )
 
     self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))
-    self.converged = eta <= dt      --to_go:norm() < self.convergence_threshold
+    self.converged = eta <= dt --to_go:norm() < self.convergence_threshold
     --printf('eta: %f', eta) -- ## debug output
 
     return eta
@@ -233,16 +234,14 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt)
     local counter = 1
     self:reset()
     self.state.pos:copy(start)
-    local T = 2*dt
-    while T > dt/2 do
-         T = self:update(goal, dt)
+    local T = 2 * dt
+    while T > dt / 2 do
+        T = self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
         counter = counter + 1
     end
-    
-    local final_delta = goal-self.state.pos
-    --print('final_delta:')
-    --print(final_delta)
+
+    local final_delta = goal - self.state.pos
 
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
     return result, final_delta
