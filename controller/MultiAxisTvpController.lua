@@ -37,71 +37,142 @@ function MultiAxisTvpController:update(goal, dt)
     self.state.pos = self.state.pos + self.state.vel * dt
 
     local to_go = goal - self.state.pos
+    local dim = goal:size(1)
 
     if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
         self.last_goal = goal:clone()
         self.norm_max_vel = self.max_vel:clone()
         self.norm_max_acc = self.max_acc:clone()
-        -- find longest axis
-        local _
-        _, self.longest_axis = torch.abs(to_go):max(1)
 
-        if math.abs(to_go[self.longest_axis[1]]) > 0 then
-            self.axis_scale:copy((goal - self.state.pos) / to_go[self.longest_axis[1]])
-        else
-            self.axis_scale:fill(1)
-        end
-        -- find slowest axis to reach goal
-        local slowest_vel_time = torch.cdiv(torch.abs(goal - self.state.pos), self.max_vel)
-        _, self.slowest_vel_axis = torch.max(slowest_vel_time, 1)
+        -- compute times of all phases for all axis
+        local acc_times = torch.zeros(goal:size())
+        local cru_times = torch.zeros(goal:size())
+        local dec_times = torch.zeros(goal:size())
 
-        if slowest_vel_time[self.slowest_vel_axis[1]] > 1 then
-            for i = 1, self.dim do
-                self.norm_max_vel[i] =
-                    self.max_vel[i] * slowest_vel_time[i] / slowest_vel_time[self.slowest_vel_axis[1]]
+        for i=1,dim do
+            -- calculate time to goal for each axis
+
+            local max_vel = self.max_vel[i]
+            local max_acc = self.max_acc[i]
+            local distance = math.abs(to_go[i])
+
+            local acc_time = 0
+            local cru_time = 0
+            local dec_time = 0
+
+            -- compute maximum velocity that could be reached to goal (asuming inital 0 velocity)
+            -- by checking how long it would take to reach mid-point of distance to go with full throttle
+            local unbounded_max_v = math.sqrt(distance / max_acc) * max_acc
+            --printf('unbounded_max_v: %f (max_vel: %f)', unbounded_max_v, max_vel)     -- ## debug output
+            if unbounded_max_v < max_vel then
+                -- we will never reach cruising velocity
+                acc_time = math.sqrt(distance / max_acc)
+                dec_time = acc_time
+                cru_time = 0
+            else
+                acc_time = max_vel / max_acc         -- time for 0 -> max vel / max_vel -> 0 vel
+                dec_time = acc_time
+
+                -- distance traveled during acc & dec phase
+                local acc_dec_distance = max_acc * dec_time * dec_time
+                local cruise_distance = distance - acc_dec_distance
+                cru_time = cruise_distance / max_vel
             end
+
+            acc_times[i] = acc_time
+            dec_times[i] = dec_time
+            cru_times[i] = cru_time
         end
 
-        -- find slowest axis to reach norm_max_vel
-        local slowest_acc_time = torch.abs(torch.cdiv(self.norm_max_vel, self.max_acc))
-        local _, slowest_acc_axis = torch.max(slowest_acc_time, 1)
-        if slowest_acc_time[slowest_acc_axis[1]] > 1 then
-            for i = 1, self.dim do
-                self.norm_max_acc[i] = self.max_acc[i] * slowest_acc_time[i] / slowest_acc_time[slowest_acc_axis[1]]
-            end
+--[[
+        -- ## debug output
+        print('acc_times')
+        print(acc_times)
+
+        print('cru_times')
+        print(cru_times)
+
+        print('dec_times')
+        print(dec_times)
+]]
+
+        -- compute slowest values for each phase
+        local longest_acc = acc_times:max(1)[1]
+        local longest_dec = dec_times:max(1)[1]
+        local longest_cru = cru_times:max(1)[1]
+
+        local total_traj_time = longest_acc + longest_cru + longest_dec
+
+        -- now run 2nd pass over all axis and compute max_acc & max_vel values for them to reach goal in total_traj_time
+        for i=1,dim do
+
+            -- compute v_max to reach goal
+            local distance = math.abs(to_go[i])
+            local v_max = distance / (0.5 * longest_acc + longest_cru + 0.5 * longest_dec)
+
+            -- compute a_max to reach v_max in longest times
+            local a_acc_max = v_max / longest_acc
+            --local a_dec_max = v_max / longest_dec
+
+            self.norm_max_vel[i] = v_max
+            self.norm_max_acc[i] = a_acc_max
         end
+--[[
+        -- ## debug output
+        print('max_vel')
+        print(self.max_vel)
+
+        print('norm_max_vel')
+        print(self.norm_max_vel)
+
+        print('max_acc')
+        print(self.max_acc)
+
+        print('norm_max_acc')
+        print(self.norm_max_acc)
+]]
     end
 
-    -- plan with longest axis with max_vel and max_acc scaled by the slowest axis
-    local p0 = 0 -- current position normalized
-    local p1 = to_go[self.longest_axis[1]] or 0 -- goal position
-    local v0 = self.state.vel[self.longest_axis[1]] or 0 -- current velocity
-    local a0  -- current acceleration
-    local vmax, amax  -- max velocity
-    if self.longest_axis[1] then
-        vmax = self.norm_max_vel[self.longest_axis[1]] -- max velocity
-        amax = self.norm_max_acc[self.longest_axis[1]] -- max acceleration
-    else
-        vmax = self.norm_max_vel:min()
-        amax = self.norm_max_acc:min()
+    local a0 = torch.zeros(dim)  -- current acceleration
+    local etas = torch.zeros(dim)
+
+    -- compute eta
+    for i=1,dim do
+        local p1 = to_go[i] -- goal position
+        local amax = self.norm_max_acc[i] -- max acceleration
+        local eta = math.sqrt(2 * math.abs(p1) / amax) -- time to goal
+        eta = math.ceil(eta / dt) * dt -- round to full dt
+        etas[i] = eta
     end
 
-    local v
-    local eta
-    local correct_amax
+    local eta = etas:max(1)[1]
 
-    eta = math.sqrt(2 * (math.abs(p1 - p0)) / amax) -- time to goal
+    -- now compute tvp step
+    for i=1,dim do
 
-    correct_amax = 2 * torch.abs(p1 - p0) / (eta * eta) -- correct amax
-    if eta < dt * 0.5 then
-        correct_amax = 0
+         -- plan for each axis individually
+        local p1 = to_go[i] -- goal position
+        local v0 = self.state.vel[i] -- current velocity
+
+        local vmax = self.norm_max_vel[i] -- max velocity
+        local amax = self.norm_max_acc[i] -- max acceleration
+
+        --local correct_amax = amax
+        local eta_ = eta + dt
+        local correct_amax = 2 * torch.abs(p1) / (eta_ * eta_) -- correct amax
+
+        --if eta <= dt then
+        --    correct_amax = 0
+        --end
+
+        local v = math.sign(p1) * correct_amax * eta_ -- max velocity to stop on goal, decelerating
+        v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
+        v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
+        print(v)  -- ## debug output
+
+        a0[i] = (v - v0) / dt
     end
 
-    v = math.sign(p1 - p0) * correct_amax * eta -- max velocity to stop on goal, decelerating
-    v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
-    v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
-
-    a0 = (self.axis_scale * v - self.state.vel) / dt
     -- test nan
     a0:apply(
         function(x)
@@ -110,8 +181,11 @@ function MultiAxisTvpController:update(goal, dt)
             end
         end
     )
+
     self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))
-    self.converged = eta < dt/2--to_go:norm() < self.convergence_threshold
+    self.converged = eta <= dt      --to_go:norm() < self.convergence_threshold
+    --printf('eta: %f', eta) -- ## debug output
+
     return eta
 end
 
