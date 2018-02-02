@@ -190,6 +190,9 @@ function MoveJWorker:cancelCurrentPlan(abortMsg)
         if traj.abort ~= nil then
             traj:abort(abortMsg or 'Canceled') -- abort callback
         end
+        if self.action_client and self.action_client:getState() == SimpleClientGoalState.ACTIVE then
+            self.action_client:cancelAllGoals()
+        end
         self.currentPlan = nil
     end
 end

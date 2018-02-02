@@ -23,9 +23,8 @@ local function GoalCallBack(self, goal_handle)
     self:doTrajectoryAsync(traj) -- queue for processing
 end
 
-local function CancelCallBack(goal_handle)
+local function CancelCallBack(self, goal_handle)
     ros.INFO('Cancel moveJ Goal')
-    goal_handle:setAborted(nil, msg or 'Error')
     self.worker:cancelCurrentPlan('Trajectory canceled')
 end
 
@@ -37,7 +36,11 @@ function MoveJActionServer:onInitialize()
             GoalCallBack(self, gh)
         end
     )
-    self.action_server:registerCancelCallback(CancelCallBack)
+    self.action_server:registerCancelCallback(
+        function(gh)
+            CancelCallBack(self, gh)
+        end
+    )
     --TODO feedback
 end
 
