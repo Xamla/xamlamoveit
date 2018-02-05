@@ -29,11 +29,15 @@ function MultiAxisTvpController:__init(dim)
 end
 
 function MultiAxisTvpController:update(goal, dt)
+    local dim = self.dim
+    assert(dim == goal:size(1), 'Goal element count mismatch')
+
     self.state.vel = self.state.vel + self.state.acc * dt
-    self.state.pos = self.state.pos + self.state.vel * dt
+    self.state.pos = self.state.pos + self.state.vel * dt + 0.5 * self.state.acc * dt * dt
 
     local to_go = goal - self.state.pos
-    local dim = goal:size(1)
+
+    --printf('error: %f; pos: %f; vel: %f; acc: %f', to_go[1], self.state.pos[1], self.state.vel[1], self.state.acc[1])
 
     if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
         assert(self.state.vel:norm() < 1e-8 and self.state.acc:norm() < 1e-8, 'Cannot handle inital non zero velocity or non zero acceleration.')
@@ -136,7 +140,6 @@ function MultiAxisTvpController:update(goal, dt)
         print('norm_max_acc')
         print(self.norm_max_acc)
 ]]
-
     end
 
     -- compute eta
@@ -145,15 +148,12 @@ function MultiAxisTvpController:update(goal, dt)
         local p1 = to_go[i] -- goal position
         local amax = self.norm_max_acc[i] -- max acceleration
         local time_to_goal = math.sqrt(2 * math.abs(p1) / amax) -- time to goal
-        time_to_goal = math.ceil(time_to_goal / dt) * dt -- round to full dt
         if time_to_goal > eta then
             eta = time_to_goal
         end
     end
 
-    -- eta computation alternative with tensor functions (unfortunately not faster with torch than loop in luajit)
-    --etas:copy(to_go):abs():cdiv(self.norm_max_acc):mul(2):sqrt():div(dt):ceil():mul(dt)
-    local eta_ = eta + dt
+    local eta_ = math.ceil(eta / dt) * dt -- round to full dt
 
     -- now compute tvp step
     local a0 = self.a0
@@ -177,7 +177,7 @@ function MultiAxisTvpController:update(goal, dt)
     a0:apply(function(x) if x ~= x then return 0 end end)           -- replace nan values by 0
     self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))     -- clamp to max_acc and assign to state acceleration value
     self.converged = eta < (dt / 2)
-    --printf('eta: %f', eta) -- ## debug output
+    --printf('eta: %f, eta_: %f', eta, eta_) -- ## debug output
 
     return eta
 end
