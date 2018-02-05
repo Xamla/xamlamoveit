@@ -4,7 +4,7 @@ local tf = ros.tf
 local planning = require 'xamlamoveit.planning'
 local core = require 'xamlamoveit.core'
 local datatypes = require 'xamlamoveit.datatypes'
-local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController'
+local tvpController = require 'xamlamoveit.controller.TvpController'
 local xutils = require 'xamlamoveit.xutils'
 local transformListener
 function math.sign(x)

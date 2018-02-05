@@ -16,24 +16,29 @@ function TvpController:__init(dim)
     self.last_update = nil
     self.scale = nil
     self.converged = true
+    self.time_to_target = nil
 end
 
 function TvpController:update(target, dt)
     self.state.pos = self.state.pos + self.state.vel * dt + self.state.acc * dt * dt / 2
     self.state.vel = self.state.vel + self.state.acc * dt
 
+    if self.time_to_target then -- check for convergence dt + 1
+        self.converged = self.time_to_target:max() <= dt/2 -- time_to_target:gt(dt / 2):sum() < 1
+    end
+
     -- calc time to reach target with max acceleration in decelerating phase
     local distance_to_go = target - self.state.pos
-    local time_to_target = torch.sqrt(2 * torch.abs(distance_to_go):cdiv(self.max_acc))  -- solve s=1/2 * a * t^2 for t
+    self.time_to_target = torch.sqrt(2 * torch.abs(distance_to_go):cdiv(self.max_acc))  -- solve s=1/2 * a * t^2 for t
 
     ---print("distance_to_go:norm()", distance_to_go:norm())
     -- scale to discrete timesteps
-    local real_time_to_target = torch.ceil(time_to_target / dt) * dt
+    local real_time_to_target = torch.ceil(self.time_to_target / dt) * dt
 
     -- calc new acceleration to stop on target
     local acc = torch.cdiv(distance_to_go * 2, torch.pow(real_time_to_target, 2))
 
-    acc[time_to_target:lt(dt * 0.5)] = 0 -- target reached
+    acc[self.time_to_target:lt(dt * 0.5)] = 0 -- target reached
     local vel = torch.cmul(acc, torch.cmax(real_time_to_target - dt, 0)) -- max next velocity to stop on target
 
     vel = clamp(vel, -self.max_vel, self.max_vel) -- limit to max velocity
@@ -42,10 +47,7 @@ function TvpController:update(target, dt)
     acc = clamp(acc, -self.max_acc, self.max_acc)
 
     self.state.acc = acc
-    self.converged = time_to_target:max() <= dt -- time_to_target:gt(dt / 2):sum() < 1
-    if self.converged then
-        self.state.pos = target
-    end
+
     return self.converged
 end
 
@@ -76,6 +78,7 @@ function TvpController:generateOfflineTrajectory(start, goal, dt)
         counter = counter + 1
     end
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
+
     for i = 1, 5 do
         result[counter + i] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
     end
