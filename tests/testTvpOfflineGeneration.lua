@@ -21,20 +21,20 @@ local function plotVelocities(result, filename)
     end
 
     local t = torch.Tensor(time)
-    
+
     gnuplot.pngfigure(filename)
     gnuplot.raw("set terminal png size 1280,960")
     gnuplot.xlabel('time')
     gnuplot.ylabel('pos')
     gnuplot.grid(true)
-    
-    
+
+
     local g = {}
     for i=1,7 do
         local v = velocities[{{},i}]
         g[#g+1] = { string.format('vel%d', i), t, v, '+-'}
     end
-    
+
     gnuplot.plot(
         table.unpack(g)
     )
@@ -42,8 +42,8 @@ local function plotVelocities(result, filename)
 end
 
 
-local function runRandomTest(dim, runs, dt, plot)    
-    local controller = xamlamoveit.controller.MultiAxisTvpController(dim)
+local function runRandomTest(controllerName, dim, runs, dt, plot)
+    local controller = xamlamoveit.controller[controllerName](dim)
     for i=1,runs do
         local max_v = generateRandomVector(dim, 1, 15)
         local max_a = generateRandomVector(dim, 0.1, 20)
@@ -72,9 +72,16 @@ local function runRandomTest(dim, runs, dt, plot)
     end
 end
 
-
-torch.manualSeed(0)
-local t0 = torch.tic()
-runRandomTest(10, 100, 0.008, false)
-local elapsed = torch.toc(t0)
-printf('elapsed: %f', elapsed)
+local cmd = torch.CmdLine()
+cmd:option('-controllerName','TvpController','controller class name. Choose From [TvpController, MultiAxisTvpController]')
+-- parse input params
+local params = cmd:parse(arg)
+if params.controllerName == 'TvpController' or params.controllerName == 'MultiAxisTvpController' then
+    torch.manualSeed(0)
+    local t0 = torch.tic()
+    runRandomTest(params.controllerName, 10, 100, 0.008, false)
+    local elapsed = torch.toc(t0)
+    printf('elapsed: %f', elapsed)
+else
+    print('Unknown controller name. Choose From [TvpController, MultiAxisTvpController]')
+end
