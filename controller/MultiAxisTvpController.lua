@@ -37,8 +37,6 @@ function MultiAxisTvpController:update(goal, dt)
 
     local to_go = goal - self.state.pos
 
-    --printf('error: %f; pos: %f; vel: %f; acc: %f', to_go[1], self.state.pos[1], self.state.vel[1], self.state.acc[1])
-
     if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
         assert(self.state.vel:norm() < 1e-8 and self.state.acc:norm() < 1e-8, 'Cannot handle inital non zero velocity or non zero acceleration.')
         self.last_goal = goal:clone()
@@ -61,74 +59,30 @@ function MultiAxisTvpController:update(goal, dt)
             local max_vel = self.max_vel[i]
             local max_acc = self.max_acc[i]
 
-            if self.state.vel[i] > 0 then
+            local distance = math.abs(to_go[i])
 
-                local time_since_start = (self.state.vel[i] / max_acc)
-                local traj_offset = 0.5 * max_acc * (time_since_start * time_since_start)
-
-                local distance = math.abs(to_go[i]) + math.abs(traj_offset)
-
-                -- compute maximum velocity that could be reached to goal (asuming inital 0 velocity)
-                -- by checking how long it would take to reach mid-point of distance to go with full throttle
-                local unbounded_max_v = math.sqrt(distance / max_acc) * max_acc
-
-                if unbounded_max_v < max_vel then
-                    -- we will never reach cruising velocity
-                    acc_time = math.sqrt(2 * ((distance /2) - math.asb(traj_offset)) / max_acc)
-                    dec_time = math.sqrt(distance / max_acc)        --time to reach zero from mid-point
-                    cru_time = 0
-                else
-
-                    acc_time = max_vel / max_acc -- time for 0 -> max vel / max_vel -> 0 vel
-                    dec_time = acc_time
-
-                    -- distance traveled during acc & dec phase
-                    local acc_dec_distance = max_acc * dec_time * dec_time
-                    local cruise_distance = distance - acc_dec_distance
-                    cru_time = cruise_distance / max_vel
-                end
-
+            -- compute maximum velocity that could be reached to goal (asuming inital 0 velocity)
+            -- by checking how long it would take to reach mid-point of distance to go with full throttle
+            local unbounded_max_v = math.sqrt(distance / max_acc) * max_acc
+            if unbounded_max_v < max_vel then
+                -- we will never reach cruising velocity
+                acc_time = math.sqrt(distance / max_acc)
+                dec_time = acc_time
+                cru_time = 0
             else
-            
-                local distance = math.abs(to_go[i])
+                acc_time = max_vel / max_acc -- time for 0 -> max vel / max_vel -> 0 vel
+                dec_time = acc_time
 
-                -- compute maximum velocity that could be reached to goal (asuming inital 0 velocity)
-                -- by checking how long it would take to reach mid-point of distance to go with full throttle
-                local unbounded_max_v = math.sqrt(distance / max_acc) * max_acc
-                --printf('unbounded_max_v: %f (max_vel: %f)', unbounded_max_v, max_vel)     -- ## debug output
-                if unbounded_max_v < max_vel then
-                    -- we will never reach cruising velocity
-                    acc_time = math.sqrt(distance / max_acc)
-                    dec_time = acc_time
-                    cru_time = 0
-                else
-                    acc_time = max_vel / max_acc -- time for 0 -> max vel / max_vel -> 0 vel
-                    dec_time = acc_time
-
-                    -- distance traveled during acc & dec phase
-                    local acc_dec_distance = max_acc * dec_time * dec_time
-                    local cruise_distance = distance - acc_dec_distance
-                    cru_time = cruise_distance / max_vel
-                end
-
+                -- distance traveled during acc & dec phase
+                local acc_dec_distance = max_acc * dec_time * dec_time
+                local cruise_distance = distance - acc_dec_distance
+                cru_time = cruise_distance / max_vel
             end
 
             acc_times[i] = acc_time
             dec_times[i] = dec_time
             cru_times[i] = cru_time
         end
-
---[[
-        -- ## debug output
-        print('acc_times')
-        print(acc_times)
-
-        print('cru_times')
-        print(cru_times)
-
-        print('dec_times')
-        print(dec_times)
-]]
 
         -- compute slowest values for each phase
         local longest_acc = acc_times:max(1)[1]
@@ -142,7 +96,7 @@ function MultiAxisTvpController:update(goal, dt)
 
         --local total_traj_time = longest_acc + longest_cru + longest_dec
 
-        -- now run 2nd pass over all axis and compute max_acc & max_vel values for them to reach goal in total_traj_time
+        -- now run 2nd pass over all axis and compute max_acc & max_vel values
         for i = 1, dim do
             -- compute v_max to reach goal
             local distance = math.abs(to_go[i])
@@ -159,20 +113,6 @@ function MultiAxisTvpController:update(goal, dt)
             end
         end
 
---[[
-        -- ## debug output
-        print('max_vel')
-        print(self.max_vel)
-
-        print('norm_max_vel')
-        print(self.norm_max_vel)
-
-        print('max_acc')
-        print(self.max_acc)
-
-        print('norm_max_acc')
-        print(self.norm_max_acc)
-]]
     end
 
     -- compute eta
@@ -208,16 +148,13 @@ function MultiAxisTvpController:update(goal, dt)
 
         v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
         v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
-        --print(v)  -- ## debug output
-        --print(to_go:norm())
 
         a0[i] = (v - v0) / dt
     end
 
     a0:apply(function(x) if x ~= x then return 0 end end)           -- replace nan values by 0
     self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))     -- clamp to max_acc and assign to state acceleration value
-    self.converged = eta < (dt / 2)
-    --printf('eta: %f, eta_: %f', eta, eta_) -- ## debug output
+    self.converged = eta < (dt / 4)
 
     return eta
 end

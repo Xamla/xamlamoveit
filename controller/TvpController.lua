@@ -13,15 +13,8 @@ function TvpController:__init(dim)
     }
     self.max_vel = torch.ones(dim)
     self.max_acc = torch.ones(dim) * math.pi
-    self.last_update = nil
-    self.scale = nil
     self.convergence_threshold = 1e-4
     self.converged = true
-end
-
-function math.sign(x)
-    assert(type(x) == 'number')
-    return x > 0 and 1 or x < 0 and -1 or 0
 end
 
 function TvpController:update(target, dt)
@@ -65,6 +58,7 @@ function TvpController:update(target, dt)
     end
 
     self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))     -- clamp to max_acc and assign to state acceleration value
+    self.converged = max_eta < (dt / 4)
 
     return max_eta
 end

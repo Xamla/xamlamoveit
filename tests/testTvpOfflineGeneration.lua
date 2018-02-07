@@ -65,6 +65,28 @@ local function runRandomTest(controllerName, dim, runs, dt, plot, plot_stride, g
         local result, delta = controller:generateOfflineTrajectory(start, goal, dt)
         printf('[%d] Number of points: %d; final delta: %f;', i, #result, delta:norm())
 
+        local last_v = result[1].vel
+        for i = 2, #result do
+            v = (result[i].pos - result[i - 1].pos) / dt
+            a = (v - last_v) / dt
+
+            for j = 1, dim do
+                if v[j] > max_v[j] * 1.001 or v[j] < -max_v[j] * 1.001 then
+                    printf("velocity violation by %f%% at point %d dim %d", math.abs(v[j]) / max_v[j] * 100 - 100, i, j)
+                    printf("%f -> %f / %f", result[i - 1].pos[j], result[i].pos[j], dt)
+                    printf("max_v[%d] = %f, vel[%d] = %f", j, max_v[j], j, math.abs(v[j]))
+                end
+
+                if a[j] > max_a[j] * 1.001 or a[j] < -max_a[j] * 1.001 then
+                    printf("acceleration violation by %f%% at point %d dim %d", math.abs(a[j]) / max_a[j] * 100 - 100, i, j)
+                    printf("%f -> %f / %f", last_v[j], v[j], dt)
+                    printf("max_a[%d] = %f, acc[%d] = %f", j, max_a[j], j, math.abs(a[j]))
+                end
+            end
+
+            last_v = v
+        end
+
         if plot and (plot_stride == nil or i % plot_stride == 0) then
             plotVelocities(result, dt, dim, string.format("plot%d.png", i))
         end
