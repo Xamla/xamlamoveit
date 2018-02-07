@@ -1,6 +1,6 @@
 local controller = require 'xamlamoveit.controller.env'
 
-local MultiAxisTvpController = torch.class('xamlamoveit.controller.MultiAxisTvpController', controller)
+local MultiAxisTvpController2 = torch.class('xamlamoveit.controller.MultiAxisTvpController2', controller)
 
 local function clamp(t, min, max)
     if torch.type(t) == 'number' then
@@ -9,7 +9,7 @@ local function clamp(t, min, max)
     return torch.cmin(t, max):cmax(min)
 end
 
-function MultiAxisTvpController:__init(dim)
+function MultiAxisTvpController2:__init(dim)
     self.dim = dim
     self.state = {
         pos = torch.zeros(dim),
@@ -29,7 +29,7 @@ function MultiAxisTvpController:__init(dim)
     self.etas = torch.zeros(dim)
 end
 
-function MultiAxisTvpController:update(goal, dt)
+function MultiAxisTvpController2:update(goal, dt)
     local dim = self.dim
     assert(dim == goal:size(1), 'Goal element count mismatch')
 
@@ -39,81 +39,28 @@ function MultiAxisTvpController:update(goal, dt)
     local to_go = goal - self.state.pos
 
     if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
-        assert(self.state.vel:norm() < 1e-8 and self.state.acc:norm() < 1e-8, 'Cannot handle inital non zero velocity or non zero acceleration.')
         self.last_goal = goal:clone()
         self.norm_max_vel:copy(self.max_vel)
         self.norm_max_acc:copy(self.max_acc)
 
-        -- compute times of all phases for all axis
-        local acc_times = torch.zeros(dim)
-        local cru_times = torch.zeros(dim)
-        local dec_times = torch.zeros(dim)
+        -- find slowest axis to reach goal
+        local slowest_vel_time = torch.cdiv(torch.abs(to_go), self.max_vel)
+        local _, slowest_vel_axis = torch.max(slowest_vel_time, 1)
 
-        for i = 1, dim do
-
-            -- calculate time to goal for each axis
-
-            local acc_time = 0
-            local cru_time = 0
-            local dec_time = 0
-
-            local max_vel = self.max_vel[i]
-            local max_acc = self.max_acc[i]
-
-            local distance = math.abs(to_go[i])
-
-            -- compute maximum velocity that could be reached to goal (asuming inital 0 velocity)
-            -- by checking how long it would take to reach mid-point of distance to go with full throttle
-            local unbounded_max_v = math.sqrt(distance / max_acc) * max_acc
-            if unbounded_max_v < max_vel then
-                -- we will never reach cruising velocity
-                acc_time = math.sqrt(distance / max_acc)
-                dec_time = acc_time
-                cru_time = 0
-            else
-                acc_time = max_vel / max_acc -- time for 0 -> max vel / max_vel -> 0 vel
-                dec_time = acc_time
-
-                -- distance traveled during acc & dec phase
-                local acc_dec_distance = max_acc * dec_time * dec_time
-                local cruise_distance = distance - acc_dec_distance
-                cru_time = cruise_distance / max_vel
-            end
-
-            acc_times[i] = acc_time
-            dec_times[i] = dec_time
-            cru_times[i] = cru_time
-        end
-
-        -- compute slowest values for each phase
-        local longest_acc = acc_times:max(1)[1]
-        local longest_dec = dec_times:max(1)[1]
-        local longest_cru = cru_times:max(1)[1]
-
-        -- round phases to full dt
-        longest_acc = math.ceil(longest_acc / dt) * dt
-        longest_dec = math.ceil(longest_dec / dt) * dt
-        longest_cru = math.ceil(longest_cru / dt) * dt
-
-        --local total_traj_time = longest_acc + longest_cru + longest_dec
-
-        -- now run 2nd pass over all axis and compute max_acc & max_vel values
-        for i = 1, dim do
-            -- compute v_max to reach goal
-            local distance = math.abs(to_go[i])
-
-            if distance > 1e-8 then
-                local v_max = distance / (0.5 * longest_acc + longest_cru + 0.5 * longest_dec)
-
-                -- compute a_max to reach v_max in longest times
-                local a_acc_max = v_max / longest_acc
-                --local a_dec_max = v_max / longest_dec
-
-                self.norm_max_vel[i] = v_max
-                self.norm_max_acc[i] = a_acc_max
+        if slowest_vel_time[slowest_vel_axis[1]] > 0 then
+            for i = 1, self.dim do
+                self.norm_max_vel[i] = self.max_vel[i] * slowest_vel_time[i] / slowest_vel_time[slowest_vel_axis[1]]
             end
         end
 
+        -- find slowest axis to reach norm_max_vel
+        local slowest_acc_time = torch.abs(torch.cdiv(self.norm_max_vel, self.max_acc))
+        local _, slowest_acc_axis = torch.max(slowest_acc_time, 1)
+        if slowest_acc_time[slowest_acc_axis[1]] > 0 then
+            for i = 1, self.dim do
+                self.norm_max_acc[i] = self.max_acc[i] * slowest_acc_time[i] / slowest_acc_time[slowest_acc_axis[1]]
+            end
+        end
     end
 
     -- compute eta
@@ -160,7 +107,7 @@ function MultiAxisTvpController:update(goal, dt)
     return eta
 end
 
-function MultiAxisTvpController:reset()
+function MultiAxisTvpController2:reset()
     self.last_goal = nil
     self.state.pos:zero()
     self.state.vel:zero()
@@ -176,7 +123,7 @@ local function createState(pos, vel, acc)
     return state
 end
 
-function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt, start_vel)
+function MultiAxisTvpController2:generateOfflineTrajectory(start, goal, dt, start_vel)
     local result = {}
     local counter = 1
     self:reset()
@@ -198,4 +145,4 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt, start
     return result, final_delta
 end
 
-return MultiAxisTvpController
+return MultiAxisTvpController2

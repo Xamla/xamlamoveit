@@ -41,7 +41,7 @@ local function plotVelocities(result, dt, dim, filename)
     gnuplot.plotflush()
 end
 
-local function runRandomTest(controllerName, dim, runs, dt, plot, plot_stride, goal_diff_scale)
+local function runRandomTest(controllerName, dim, runs, dt, plot, plot_stride, goal_diff_scale, random_start_vel)
     local controller = xamlamoveit.controller[controllerName](dim)
     for i=1,runs do
         local max_v = generateRandomVector(dim, 1, 15)
@@ -62,7 +62,15 @@ local function runRandomTest(controllerName, dim, runs, dt, plot, plot_stride, g
 
         controller.max_vel:copy(max_v)
         controller.max_acc:copy(max_a)
-        local result, delta = controller:generateOfflineTrajectory(start, goal, dt)
+
+        local start_vel
+        if random_start_vel then
+            start_vel = (torch.rand(dim) * 2 - 1):cmul(max_v)
+        else
+            start_vel = torch.zeros(dim)
+        end
+
+        local result, delta = controller:generateOfflineTrajectory(start, goal, dt, start_vel)
         printf('[%d] Number of points: %d; final delta: %f;', i, #result, delta:norm())
 
         local last_v = result[1].vel
@@ -94,20 +102,21 @@ local function runRandomTest(controllerName, dim, runs, dt, plot, plot_stride, g
 end
 
 local cmd = torch.CmdLine()
-cmd:option('-controllerName','TvpController','controller class name. Choose From [TvpController, MultiAxisTvpController]')
-cmd:option('-plot', false, 'whether to generate plots')
-cmd:option('-plot_stride', 1, 'genaret plots for each i%plot_stide == 0')
+cmd:option('-controllerName','TvpController','controller class name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2]')
+cmd:option('-plot', false, 'enable drawing of trajectory plots')
+cmd:option('-plot_stride', 1, 'generate plots for each i%plot_stide == 0')
 cmd:option('-dt', 0.008, 'dt')
 cmd:option('-dim', 10, 'number of axis')
 cmd:option('-n', 100, 'number of tests')
+cmd:option('-start_vel', false, 'enable non-zero of start velocity')
 -- parse input params
 local params = cmd:parse(arg)
-if params.controllerName == 'TvpController' or params.controllerName == 'MultiAxisTvpController' then
+if params.controllerName == 'TvpController' or params.controllerName == 'MultiAxisTvpController' or params.controllerName == 'MultiAxisTvpController2' then
     torch.manualSeed(0)
     local t0 = torch.tic()
-    runRandomTest(params.controllerName, params.dim, params.n, params.dt, params.plot, params.plot_stride, 1)
+    runRandomTest(params.controllerName, params.dim, params.n, params.dt, params.plot, params.plot_stride, 1, params.start_vel)
     local elapsed = torch.toc(t0)
     printf('elapsed: %f', elapsed)
 else
-    print('Unknown controller name. Choose From [TvpController, MultiAxisTvpController]')
+    print('Unknown controller name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2]')
 end

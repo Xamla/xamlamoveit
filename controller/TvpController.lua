@@ -1,9 +1,11 @@
 local controller = require 'xamlamoveit.controller.env'
+
 local TvpController = torch.class('xamlamoveit.controller.TvpController', controller)
 
 local function clamp(t, min, max)
     return torch.cmin(t, max):cmax(min)
 end
+
 function TvpController:__init(dim)
     self.dim = dim
     self.state = {
@@ -78,11 +80,15 @@ local function createState(pos, vel, acc)
     return state
 end
 
-function TvpController:generateOfflineTrajectory(start, goal, dt)
+function TvpController:generateOfflineTrajectory(start, goal, dt, start_vel)
     local result = {}
     local counter = 1
     self:reset()
     self.state.pos:copy(start)
+    if start_vel ~= nil then
+        self.state.vel:copy(start_vel)
+    end
+
     local T = 2 * dt
     while T > dt / 8 do
         T = self:update(goal, dt)
