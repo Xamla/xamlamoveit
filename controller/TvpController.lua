@@ -93,11 +93,7 @@ function TvpController:generateOfflineTrajectory(start, goal, dt)
     self:reset()
     self.state.pos:copy(start)
     local T = 2 * dt
-<<<<<<< HEAD
-    while T > dt/100 do
-=======
-    while T > dt / 2 do
->>>>>>> d5149754518af70d539da230904f98de31990db7
+    while T > dt / 8 do
         T = self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
         counter = counter + 1
