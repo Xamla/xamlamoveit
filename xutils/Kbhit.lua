@@ -1,10 +1,7 @@
 local xutils = require 'xamlamoveit.xutils.env'
 local p = require 'posix'
 local signal = require 'posix.signal'
-signal.signal(signal.SIGINT, function(signum)
-  log("Caught CTRL+C, terminating...")
-  active = false
-end)
+
 
 local STDIN = 0
 

@@ -15,39 +15,61 @@ function TvpController:__init(dim)
     self.max_acc = torch.ones(dim) * math.pi
     self.last_update = nil
     self.scale = nil
-    self.convergence_threshold = 1e-3
+    self.convergence_threshold = 1e-4
     self.converged = true
     self.time_to_target = nil
 end
 
+function math.sign(x)
+    assert(type(x) == 'number')
+    return x > 0 and 1 or x < 0 and -1 or 0
+end
+
 function TvpController:update(target, dt)
+    local dim = self.dim
+    assert(dim == target:size(1), 'Goal element count mismatch')
+
+    self.state.pos = self.state.pos + self.state.vel * dt + 0.5 * self.state.acc * dt * dt
     self.state.vel = self.state.vel + self.state.acc * dt
-    self.state.pos = self.state.pos + self.state.vel * dt
-    if self.time_to_target then -- check for convergence dt + 1
-        self.converged = self.time_to_target:max() <= dt/2 -- time_to_target:gt(dt / 2):sum() < 1
-    end
+
+    local to_go = target - self.state.pos
+
     -- calc time to reach target with max acceleration in decelerating phase
-    local distance_to_go = target - self.state.pos
-    self.time_to_target = torch.sqrt(2 * torch.abs(distance_to_go):cdiv(self.max_acc))  -- solve s=1/2 * a * t^2 for t
+    self.time_to_target = torch.sqrt(2 * torch.abs(to_go):cdiv(self.max_acc))  -- solve s=1/2 * a * t^2 for t
 
-    ---print("distance_to_go:norm()", distance_to_go:norm())
-    -- scale to discrete timesteps
-    local real_time_to_target = torch.ceil(self.time_to_target / dt) * dt + dt
+    local max_eta = 0
 
-    -- calc new acceleration to stop on target
-    local acc = torch.cdiv(distance_to_go * 2, torch.pow(real_time_to_target, 2))
+    local a0 = torch.zeros(dim)
+    for i = 1, dim do
+        local p1 = to_go[i] -- goal position
+        local v0 = self.state.vel[i] -- current velocity
 
-    acc[self.time_to_target:lt(dt * 0.5)] = 0 -- target reached
-    local vel = torch.cmul(acc, torch.cmax(real_time_to_target - dt, 0)) -- max next velocity to stop on target
+        local vmax = self.max_vel[i] -- max velocity
+        local amax = self.max_acc[i] -- max acceleration
+        vmax = math.floor(vmax / (amax * dt)) * amax * dt
 
-    vel = clamp(vel, -self.max_vel, self.max_vel) -- limit to max velocity
+        local eta = math.sqrt(2 * math.abs(p1) / amax)
+        max_eta = math.max(eta, max_eta)
+        local eta_  = math.ceil(eta / dt) * dt -- round to full dt
 
-    acc = (vel - self.state.vel) / dt
-    acc = clamp(acc, -self.max_acc, self.max_acc)
+        -- plan for each axis individually
+        local correct_amax = 2 * p1 / (eta_ * eta_) -- correct amax
+        local v = 0
+        if eta_ > dt then
+            v = correct_amax * (eta_ - dt) -- max velocity to stop on goal, decelerating
+        elseif eta > 0 and v0 == 0 then
+            v = correct_amax * eta      -- handles case when near goal
+        end
 
-    self.state.acc = acc
+        v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
+        v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
+        
+        a0[i] = (v - v0) / dt
+    end
 
-    return self.time_to_target:max()
+    self.state.acc:copy(clamp(a0, -self.max_acc, self.max_acc))     -- clamp to max_acc and assign to state acceleration value
+
+    return max_eta
 end
 
 function TvpController:reset()
@@ -71,7 +93,7 @@ function TvpController:generateOfflineTrajectory(start, goal, dt)
     self:reset()
     self.state.pos:copy(start)
     local T = 2 * dt
-    while T > dt/2 do
+    while T > dt/100 do
         T = self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
         counter = counter + 1

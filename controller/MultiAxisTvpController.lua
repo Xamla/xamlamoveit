@@ -32,8 +32,8 @@ function MultiAxisTvpController:update(goal, dt)
     local dim = self.dim
     assert(dim == goal:size(1), 'Goal element count mismatch')
 
-    self.state.vel = self.state.vel + self.state.acc * dt
     self.state.pos = self.state.pos + self.state.vel * dt + 0.5 * self.state.acc * dt * dt
+    self.state.vel = self.state.vel + self.state.acc * dt
 
     local to_go = goal - self.state.pos
 
@@ -51,33 +51,66 @@ function MultiAxisTvpController:update(goal, dt)
         local dec_times = torch.zeros(dim)
 
         for i = 1, dim do
-            -- calculate time to goal for each axis
 
-            local max_vel = self.max_vel[i]
-            local max_acc = self.max_acc[i]
-            local distance = math.abs(to_go[i])
+            -- calculate time to goal for each axis
 
             local acc_time = 0
             local cru_time = 0
             local dec_time = 0
 
-            -- compute maximum velocity that could be reached to goal (asuming inital 0 velocity)
-            -- by checking how long it would take to reach mid-point of distance to go with full throttle
-            local unbounded_max_v = math.sqrt(distance / max_acc) * max_acc
-            --printf('unbounded_max_v: %f (max_vel: %f)', unbounded_max_v, max_vel)     -- ## debug output
-            if unbounded_max_v < max_vel then
-                -- we will never reach cruising velocity
-                acc_time = math.sqrt(distance / max_acc)
-                dec_time = acc_time
-                cru_time = 0
-            else
-                acc_time = max_vel / max_acc -- time for 0 -> max vel / max_vel -> 0 vel
-                dec_time = acc_time
+            local max_vel = self.max_vel[i]
+            local max_acc = self.max_acc[i]
 
-                -- distance traveled during acc & dec phase
-                local acc_dec_distance = max_acc * dec_time * dec_time
-                local cruise_distance = distance - acc_dec_distance
-                cru_time = cruise_distance / max_vel
+            if self.state.vel[i] > 0 then
+
+                local time_since_start = (self.state.vel[i] / max_acc)
+                local traj_offset = 0.5 * max_acc * (time_since_start * time_since_start)
+
+                local distance = math.abs(to_go[i]) + math.abs(traj_offset)
+
+                -- compute maximum velocity that could be reached to goal (asuming inital 0 velocity)
+                -- by checking how long it would take to reach mid-point of distance to go with full throttle
+                local unbounded_max_v = math.sqrt(distance / max_acc) * max_acc
+
+                if unbounded_max_v < max_vel then
+                    -- we will never reach cruising velocity
+                    acc_time = math.sqrt(2 * ((distance /2) - math.asb(traj_offset)) / max_acc)
+                    dec_time = math.sqrt(distance / max_acc)        --time to reach zero from mid-point
+                    cru_time = 0
+                else
+
+                    acc_time = max_vel / max_acc -- time for 0 -> max vel / max_vel -> 0 vel
+                    dec_time = acc_time
+
+                    -- distance traveled during acc & dec phase
+                    local acc_dec_distance = max_acc * dec_time * dec_time
+                    local cruise_distance = distance - acc_dec_distance
+                    cru_time = cruise_distance / max_vel
+                end
+
+            else
+            
+                local distance = math.abs(to_go[i])
+
+                -- compute maximum velocity that could be reached to goal (asuming inital 0 velocity)
+                -- by checking how long it would take to reach mid-point of distance to go with full throttle
+                local unbounded_max_v = math.sqrt(distance / max_acc) * max_acc
+                --printf('unbounded_max_v: %f (max_vel: %f)', unbounded_max_v, max_vel)     -- ## debug output
+                if unbounded_max_v < max_vel then
+                    -- we will never reach cruising velocity
+                    acc_time = math.sqrt(distance / max_acc)
+                    dec_time = acc_time
+                    cru_time = 0
+                else
+                    acc_time = max_vel / max_acc -- time for 0 -> max vel / max_vel -> 0 vel
+                    dec_time = acc_time
+
+                    -- distance traveled during acc & dec phase
+                    local acc_dec_distance = max_acc * dec_time * dec_time
+                    local cruise_distance = distance - acc_dec_distance
+                    cru_time = cruise_distance / max_vel
+                end
+
             end
 
             acc_times[i] = acc_time
@@ -165,7 +198,10 @@ function MultiAxisTvpController:update(goal, dt)
         local vmax = self.norm_max_vel[i] -- max velocity
         local amax = self.norm_max_acc[i] -- max acceleration
         local correct_amax = 2 * p1 / (eta_ * eta_) -- correct amax
-        local v = correct_amax * eta_ -- max velocity to stop on goal, decelerating
+        local v = 0
+        if eta_ > dt then
+            v = correct_amax * (eta_ - dt) -- max velocity to stop on goal, decelerating
+        end
         v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
         v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
         --print(v)  -- ## debug output
