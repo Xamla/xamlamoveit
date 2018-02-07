@@ -468,7 +468,7 @@ local function initActions()
                 ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'control_msgs/GripperCommand')
         elseif v.type == 'WeissGripperCmd' then
                 action_server[v.name] =
-                    ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'wsg_50_common/WeissGripperCmd')
+                    ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'wsg_50_common/Command')
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end

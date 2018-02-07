@@ -1,6 +1,6 @@
 local xamlamoveit = require 'xamlamoveit'
 local gnuplot = require 'gnuplot'
-
+local dt
 
 local function generateRandomVector(size, min, max)
     return torch.rand(size) * (max-min) + min
@@ -83,7 +83,7 @@ local params = cmd:parse(arg)
 if params.controllerName == 'TvpController' or params.controllerName == 'MultiAxisTvpController' then
     torch.manualSeed(0)
     local t0 = torch.tic()
-    runRandomTest(params.controllerName, params.dim, params.n, params.dt, params.plot, params.plot_stride, 0.01)
+    runRandomTest(params.controllerName, params.dim, params.n, params.dt, params.plot, params.plot_stride, 1)
     local elapsed = torch.toc(t0)
     printf('elapsed: %f', elapsed)
 else
