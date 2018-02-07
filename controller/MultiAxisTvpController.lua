@@ -197,11 +197,15 @@ function MultiAxisTvpController:update(goal, dt)
 
         local vmax = self.norm_max_vel[i] -- max velocity
         local amax = self.norm_max_acc[i] -- max acceleration
+
         local correct_amax = 2 * p1 / (eta_ * eta_) -- correct amax
         local v = 0
         if eta_ > dt then
             v = correct_amax * (eta_ - dt) -- max velocity to stop on goal, decelerating
+        elseif eta > 0 and v0 == 0 then
+            v = correct_amax * eta      -- handles case when near goal
         end
+
         v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
         v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
         --print(v)  -- ## debug output
@@ -240,7 +244,7 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt)
     self:reset()
     self.state.pos:copy(start)
     local T = 2 * dt
-    while T > dt / 2 do
+    while T > dt / 4 do
         T = self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
         counter = counter + 1

@@ -17,7 +17,6 @@ function TvpController:__init(dim)
     self.scale = nil
     self.convergence_threshold = 1e-4
     self.converged = true
-    self.time_to_target = nil
 end
 
 function math.sign(x)
@@ -34,31 +33,29 @@ function TvpController:update(target, dt)
 
     local to_go = target - self.state.pos
 
-    -- calc time to reach target with max acceleration in decelerating phase
-    self.time_to_target = torch.sqrt(2 * torch.abs(to_go):cdiv(self.max_acc))  -- solve s=1/2 * a * t^2 for t
-
     local max_eta = 0
 
     local a0 = torch.zeros(dim)
     for i = 1, dim do
-        local p1 = to_go[i] -- goal position
+        local s = to_go[i] -- goal position
         local v0 = self.state.vel[i] -- current velocity
 
         local vmax = self.max_vel[i] -- max velocity
         local amax = self.max_acc[i] -- max acceleration
         vmax = math.floor(vmax / (amax * dt)) * amax * dt
 
-        local eta = math.sqrt(2 * math.abs(p1) / amax)
+        -- calc time to reach target with max acceleration in decelerating phase
+        local eta = math.sqrt(2 * math.abs(s) / amax) -- solve s=1/2 * a * t^2 for t
         max_eta = math.max(eta, max_eta)
         local eta_  = math.ceil(eta / dt) * dt -- round to full dt
 
         -- plan for each axis individually
-        local correct_amax = 2 * p1 / (eta_ * eta_) -- correct amax
+        local correct_amax = 2 * s / (eta_ * eta_) -- correct amax
         local v = 0
         if eta_ > dt then
             v = correct_amax * (eta_ - dt) -- max velocity to stop on goal, decelerating
         elseif eta > 0 and v0 == 0 then
-            v = correct_amax * eta      -- handles case when near goal
+            v = correct_amax * eta -- handles case when near goal
         end
 
         v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
