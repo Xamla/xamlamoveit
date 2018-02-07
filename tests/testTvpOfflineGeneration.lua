@@ -102,7 +102,7 @@ local function runRandomTest(controllerName, dim, runs, dt, plot, plot_stride, g
 end
 
 local cmd = torch.CmdLine()
-cmd:option('-controllerName','TvpController','controller class name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2]')
+cmd:option('-controllerName','TvpController','controller class name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2, MultiAxisCPPController]')
 cmd:option('-plot', false, 'enable drawing of trajectory plots')
 cmd:option('-plot_stride', 1, 'generate plots for each i%plot_stide == 0')
 cmd:option('-dt', 0.008, 'dt')
@@ -111,12 +111,16 @@ cmd:option('-n', 100, 'number of tests')
 cmd:option('-start_vel', false, 'enable non-zero of start velocity')
 -- parse input params
 local params = cmd:parse(arg)
-if params.controllerName == 'TvpController' or params.controllerName == 'MultiAxisTvpController' or params.controllerName == 'MultiAxisTvpController2' then
+if params.controllerName == 'TvpController' 
+    or params.controllerName == 'MultiAxisTvpController' 
+    or params.controllerName == 'MultiAxisTvpController2' 
+    or params.controllerName == 'MultiAxisCPPController' then
+
     torch.manualSeed(0)
     local t0 = torch.tic()
     runRandomTest(params.controllerName, params.dim, params.n, params.dt, params.plot, params.plot_stride, 1, params.start_vel)
     local elapsed = torch.toc(t0)
     printf('elapsed: %f', elapsed)
 else
-    print('Unknown controller name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2]')
+    print('Unknown controller name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2, MultiAxisCPPController]')
 end
