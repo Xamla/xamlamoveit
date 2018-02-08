@@ -187,18 +187,19 @@ function JointMonitor:getPositionsOrderedTensor(target_joint_names)
 end
 
 function JointMonitor:getNextPositions(timeout)
-    self:waitForNextState(timeout)
-    return self:getPositions()
+    local ok = self:waitForNextState(timeout)
+    return ok, self:getPositions()
 end
 
 function JointMonitor:getNextPositionsTensor(timeout, target_joint_names)
-    self:waitForNextState(timeout)
-    return self:getPositionsTensor(target_joint_names)
+    local ok = self:waitForNextState(timeout)
+    return ok, self:getPositionsTensor(target_joint_names)
 end
 
 function JointMonitor:getNextPositionsOrderedTensor(timeout, target_joint_names)
-    self:waitForNextState(timeout)
-    return self:getPositionsOrderedTensor(target_joint_names)
+    local ok = self:waitForNextState(timeout)
+    local p, l = self:getPositionsOrderedTensor(target_joint_names)
+    return ok, p, l
 end
 
 function JointMonitor:getTimestamps()

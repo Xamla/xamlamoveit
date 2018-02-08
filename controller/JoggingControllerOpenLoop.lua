@@ -162,7 +162,6 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
         self.joint_monitor:getPositionsOrderedTensor(self.joint_set.joint_names)
     )
     self.controller = tvpController.new(#self.joint_set.joint_names)
-    --    print(self.joint_monitor:getNextPositionsTensor())
 
     if torch.type(dt) == 'number' or torch.type(dt) == 'nil' then
         self.dt = ros.Duration(dt)
@@ -497,7 +496,8 @@ end
 
 function JoggingControllerOpenLoop:getNewRobotState()
     local names = self.lastCommandJointPositions:getNames()
-    local p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.1), names)
+    local ok, p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.1), names)
+    assert(ok, 'exceeded timeout for next robot joint state.')
     if #names ~= p:size(1) then
         ros.ERROR('Miss match: ')
         print(names, p)

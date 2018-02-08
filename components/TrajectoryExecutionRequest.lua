@@ -89,7 +89,8 @@ function TrajectoryExecutionRequest:proceed()
             local traj = self.goal.goal.trajectory
             local index = 1
             local joint_names = traj.joint_names
-            local p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.01), joint_names)
+            local ok, p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.01), joint_names)
+            assert(ok, 'exceeded timeout for next robot joint state.')
             local dist_to_start = (traj.points[index].positions - p):norm()
             if dist_to_start <= epsilon and traj.points[index].velocities:norm() > 1e-12 then
                 self.starttime = now

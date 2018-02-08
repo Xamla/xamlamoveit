@@ -170,7 +170,7 @@ end
 local function queryJointPositionServiceHandler(self, request, response, header)
     local joint_names = request.joint_names
     local wait_duration = ros.Duration(0.1)
-    local joints = self.joint_monitor:getNextPositionsTensor(wait_duration, joint_names)
+    local ok, joints = self.joint_monitor:getNextPositionsTensor(wait_duration, joint_names)
     --local joints = self.robot_state:getVariablePositions(joint_names):clone()
     response.current_joint_position.header.stamp = ros.Time.now()
     response.current_joint_position.name = joint_names
@@ -261,8 +261,10 @@ function PositionStateInfoService:onProcess()
         return
     end
     if self.joint_monitor:isReady() then
+        local ok, joints = self.joint_monitor:getNextPositionsTensor(0.1)
+        assert(ok, 'exceeded timeout for next robot joint state.')
         self.robot_state:setVariablePositions(
-            self.joint_monitor:getNextPositionsTensor(),
+            joints,
             self.joint_monitor:getJointNames()
         )
         self.robot_state:update()
