@@ -44,8 +44,11 @@ end
 local function runRandomTest(controllerName, dim, runs, dt, plot, plot_stride, goal_diff_scale, random_start_vel)
     local controller = xamlamoveit.controller[controllerName](dim)
     for i=1,runs do
-        local max_v = generateRandomVector(dim, 1, 15)
-        local max_a = generateRandomVector(dim, 0.1, 20)
+        local max_v = generateRandomVector(dim, 0.01, 4 * math.pi)
+        local max_a = generateRandomVector(dim, 1, 10)
+        for i = 1, dim do
+            max_a[i] = max_a[i] * math.max(max_v[i], 1)
+        end
         local start = generateRandomVector(dim, -3 * math.pi, 3 * math.pi)
         local goal = start + generateRandomVector(dim, -3 * math.pi, 3 * math.pi) * goal_diff_scale
 
