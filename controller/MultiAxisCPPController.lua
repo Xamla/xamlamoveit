@@ -11,7 +11,7 @@ function MultiAxisCPPController:__init(dim)
     }
     self.max_vel = torch.ones(dim) * math.pi
     self.max_acc = torch.ones(dim) * math.pi / 0.5
-    self.pos_gain = 0.02
+    self.pos_gain = 2.5
     self.vel_gain = 1
     self.convergence_threshold = 1e-5
 end
@@ -26,12 +26,12 @@ function MultiAxisCPPController:update(goal, dt)
 
     -- position loop
     local to_go = goal - self.state.pos
-    local vel_cmd = to_go * self.pos_gain / dt
+    local vel_cmd = to_go * self.pos_gain
 
     -- max vel scaling
     local vel_scale = 1
     for i = 1, dim do
-        vel_scale = math.min(vel_scale, self.max_vel[i] / math.max(self.max_vel[i], math.abs(vel_cmd[i])))
+        vel_scale = math.min(vel_scale, 0.95 * self.max_vel[i] / math.max(self.max_vel[i], math.abs(vel_cmd[i])))
     end
 
     vel_cmd:mul(vel_scale)
