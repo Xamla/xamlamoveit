@@ -289,7 +289,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     local move_group_name = manipulator:getName()
     local traj = moveit.RobotTrajectory(self.robot_model, move_group_name)
     tic('getCurrentState')
-    local start_state = RobotState.createFromModel(self.robot_model) --manipulator:getCurrentState()
+    local start_state = moveit.RobotState.createFromModel(self.robot_model) --manipulator:getCurrentState()
     local ok, p = self.joint_monitor:getNextPositionsTensor(0.1)
     assert(ok, 'exceeded timeout for next robot joint state.')
     start_state:setVariablePositions(p, self.joint_monitor:getJointNames())

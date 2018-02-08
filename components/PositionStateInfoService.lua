@@ -213,8 +213,9 @@ function PositionStateInfoService:onInitialize()
     if not ready then
         ros.WARN('joint states not ready')
     else
+        local ok, p = self.joint_monitor:getNextPositionsTensor()
         self.robot_state:setVariablePositions(
-            self.joint_monitor:getNextPositionsTensor(),
+            p,
             self.joint_monitor:getJointNames()
         )
         self.robot_state:update()
