@@ -4,7 +4,8 @@ local tf = ros.tf
 local planning = require 'xamlamoveit.planning'
 local core = require 'xamlamoveit.core'
 local datatypes = require 'xamlamoveit.datatypes'
-local tvpController = require 'xamlamoveit.controller.TvpController'
+--local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
+local tvpController = require 'xamlamoveit.controller.MultiAxisCPPController'
 local xutils = require 'xamlamoveit.xutils'
 local transformListener
 function math.sign(x)
@@ -175,7 +176,6 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
 
     self.ctrl = planning.MoveitPlanning(node_handle, move_group, dt)
     self.start_time = ros.Time.now()
-    BEGIN_EXECUTION = ros.Time.now()
 
     self.controller_list = ctr_list
 
@@ -194,7 +194,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.speed_scaling = 1.0
     self.command_distance_threshold = 0.05 --m
     self.command_rotation_threshold = math.rad(3)
-    self.joint_step_width = 0.01
+    self.joint_step_width = math.rad(0.5)
     local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
     if #link_name > 0 then
         self.current_pose = self.state:getGlobalLinkTransform(link_name)
@@ -249,13 +249,6 @@ local function pseudoInverse(M, W)
     -- make it definite
     inv:add(1e-15, torch.eye(inv:size(1)))
     return torch.inverse(inv) * M:t() * weights
-end
-
-local function checkConditionNumber(jacobian, singularity_threshold)
-    local e = torch.eig(jacobian)
-    local eigenValues = torch.abs(e:select(2, 1))
-    local cn = eigenValues:max() / eigenValues:min()
-    return cn <= singularity_threshold, cn
 end
 
 local function msg2StampedTransform(msg)
@@ -320,7 +313,6 @@ end
 function JoggingControllerOpenLoop:getPostureGoal()
     local newMessage = false
     local msg = nil
-    local joint_names = {}
     local joint_posture = self.lastCommandJointPositions:clone()
     while self.subscriber_posture_goal:hasMessage() and ros.ok() do
         ros.DEBUG('NEW POSTURE MESSAGE RECEIVED')
@@ -500,12 +492,6 @@ function JoggingControllerOpenLoop:getQdot(vel6D)
     local inv_jac = pseudoInverse(jac)
 
     local q_dot = createJointValues(joint_names, inv_jac * vel6D)
-    --[[local valid, cn = checkConditionNumber(inv_jac, self.singularity_threshold)
-    if not valid then
-        ros.DEBUG('detected ill-conditioned Jacobian. Robot is close to singularity slowing down. CN: %f', cn)
-        q_dot = createJointValues(joint_names, (inv_jac * vel6D))
-    end
-    ]]
     return q_dot, jac
 end
 
@@ -568,11 +554,11 @@ function JoggingControllerOpenLoop:update()
     local q_dot = self.lastCommandJointPositions:clone()
     q_dot.values:zero()
     if self.controller.converged then
-        --self.controller:reset()
-        --self.controller.state.pos:copy(self.lastCommandJointPositions.values)
         self.mode = 0
         self:getNewRobotState()
-        self.target_pose = self.current_pose:clone()
+        --self.target_pose = self.current_pose:clone()
+        self.controller:reset()
+        self.controller.state.pos:copy(self.lastCommandJointPositions.values)
     else
         self.state:setVariablePositions(
             self.lastCommandJointPositions.values,
@@ -759,7 +745,6 @@ function JoggingControllerOpenLoop:setMoveGroupInterface(name)
         self.curr_move_group_name = last_move_group_name
         return false, string.format('Could not set moveGroup with name: %s. ', name)
     end
-    return false, 'joint state is not available in time.'
 end
 
 function JoggingControllerOpenLoop:getCurrentMoveGroup()

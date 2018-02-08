@@ -109,6 +109,7 @@ local function queryJointLimits(joint_names, namespace)
     local max_min_pos = torch.zeros(#joint_names, 2)
 
     for i, name in ipairs(joint_names) do
+        assert(value[name] ~= nil, string.format("Failed to fetch joint limits!! From %s/%s", root_path, name))
         local has_pos_param = value[name].has_position_limits
         local has_vel_param = value[name].has_velocity_limits
         local has_acc_param = value[name].has_acceleration_limits
