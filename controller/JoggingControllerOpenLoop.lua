@@ -5,7 +5,7 @@ local planning = require 'xamlamoveit.planning'
 local core = require 'xamlamoveit.core'
 local datatypes = require 'xamlamoveit.datatypes'
 --local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
-local tvpController = require 'xamlamoveit.controller.MultiAxisCPPController'
+local tvpController = require 'xamlamoveit.controller.MultiAxisCppController'
 local xutils = require 'xamlamoveit.xutils'
 local transformListener
 function math.sign(x)

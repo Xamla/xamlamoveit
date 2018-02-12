@@ -105,7 +105,7 @@ local function runRandomTest(controllerName, dim, runs, dt, plot, plot_stride, g
 end
 
 local cmd = torch.CmdLine()
-cmd:option('-controllerName','TvpController','controller class name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2, MultiAxisCPPController]')
+cmd:option('-controllerName','TvpController','controller class name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2, MultiAxisCppController]')
 cmd:option('-plot', false, 'enable drawing of trajectory plots')
 cmd:option('-plot_stride', 1, 'generate plots for each i%plot_stide == 0')
 cmd:option('-dt', 0.008, 'dt')
