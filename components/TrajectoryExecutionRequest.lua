@@ -131,10 +131,6 @@ function TrajectoryExecutionRequest:proceed()
                 return false
             end
 
-            if delta:gt(1e-6):sum() == 0 then
-                ros.INFO("goal error is small: succeded")
-                self.status = errorCodes.SUCCESS
-            end
         end
         ros.DEBUG('moving')
         return true
