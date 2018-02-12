@@ -37,7 +37,7 @@ mj_action_server:start()
 local dt = ros.Rate(125)
 dt:reset()
 
-local idle_dt = ros.Rate(20)
+local idle_dt = ros.Rate(100)
 heartbeat:updateStatus(heartbeat.GO, 'Working ...')
 heartbeat:publish()
 local global_state_summary = sysmon_watch:getGlobalStateSummary()
