@@ -108,10 +108,14 @@ function JointStateAggregator:onStart()
 end
 
 function JointStateAggregator:onProcess()
+    local ok, p = self.joint_monitor:getNextPositionsTensor(0.1)
+    if not ok then
+        ros.ERROR('[onProcess] exceeded timeout for next robot joint state!!!!!!!!!!!')
+    end
     if self.last_joint_state then
-        self.last_joint_state:copy(self.joint_monitor:getPositionsTensor())
+        self.last_joint_state:copy(p)
     else
-        self.last_joint_state = self.joint_monitor:getPositionsTensor()
+        self.last_joint_state = p:clone()
     end
     if self.last_joint_state then
         sendJointState(self, self.last_joint_state, self.joint_names)
