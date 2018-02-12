@@ -61,7 +61,8 @@ end
 
 function MoveGroup:getCurrentJointValues()
     local joint_names = self:getJointNames()
-    local joint_values = self.motion_service:queryJointState(joint_names)
+    local error_code, joint_values = self.motion_service:queryJointState(joint_names)
+    assert(error_code.val == 1, string.format('Could not aquire current joint state. [%d]', error_code.val))
     return datatypes.JointValues(self.joint_set, joint_values)
 end
 
@@ -69,7 +70,7 @@ function MoveGroup:getDefaultPlanParameters()
     return self.default_plan_parameters
 end
 
-local function apply(dst, src) 
+local function apply(dst, src)
     assert(src ~= nil, 'Source table must not be nil.')
     assert(dst ~= nil, 'Destination table must not be nil.')
     for k, v in pairs(src) do
@@ -95,7 +96,7 @@ function MoveGroup:buildPlanParameters(velocity_scaling, collision_check, max_de
     if max_deviation then
         t.max_deviation = max_deviation
     end
-    
+
     if t.max_velocity ~= nil then
         t.max_velocity = t.max_velocity * velocity_scaling
     end
@@ -122,7 +123,7 @@ function MoveGroup:planMoveJ(target, velocity_scaling, collision_check)
     local joint_path = torch.DoubleTensor(2, start_joints:size(1))
     joint_path[{1,{}}] = start_joints
     joint_path[{2,{}}] = end_joints
-    
+
     -- plan trajectory
     local ok, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
     return ok, joint_trajectory, plan_parameters
@@ -134,8 +135,8 @@ function MoveGroup:moveJ(target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveJ failed')
 
     -- start synchronous blocking execution
-    local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
-    assert(ok, 'executeJointTrajectory failed.')
+    local ok, msg = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
+    assert(ok, 'executeJointTrajectory failed. ' .. msg)
 end
 
 function MoveGroup:moveJAsync(target, velocity_scaling, collision_check, done_cb)
@@ -162,7 +163,7 @@ function MoveGroup:planMoveWaypointList(waypoints, velocity_scaling, collision_c
     for i,p in ipairs(waypoints) do
         joint_path[{i+1,{}}] = p.values
     end
-    
+
     -- plan trajectory
     local ok, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
     return ok, joint_trajectory, plan_parameters

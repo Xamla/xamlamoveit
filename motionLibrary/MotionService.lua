@@ -11,6 +11,16 @@ local SimpleClientGoalState = actionlib.SimpleClientGoalState
 local xutils = require 'xamlamoveit.xutils'
 local motionLibrary = require 'xamlamoveit.motionLibrary.env'
 local MotionService = torch.class('MotionService', motionLibrary)
+local error_codes = require 'xamlamoveit.core.ErrorCodes'.error_codes
+error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
+
+local function getServiceConnectionLostErrorMsg(service)
+    return string.format(
+                'Connection lost to service: %s, Error: "%s"',
+                service:getService(),
+                error_codes[error_codes.SIGNAL_LOST]
+            )
+end
 
 function MotionService:__init(node_handle)
     self.node_handle = node_handle
@@ -91,7 +101,7 @@ function MotionService:queryCartesianPath(waypoints, sample_resolution)
         end
         return response.error_code.val, stampedMessages2PoseArray(pathCartesian)
     else
-        return -9999
+        return error_codes.SIGNAL_LOST
     end
 end
 
@@ -112,7 +122,8 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     if response then
         return response.error_codes, response.solutions
     else
-        return {val = -9999}, nil, "IK service call failed! Connection lost."
+        ros.ERROR(ros.ERROR(getServiceConnectionLostErrorMsg(self.compute_ik_interface)))
+        return {val = error_codes.SIGNAL_LOST}, nil, getServiceConnectionLostErrorMsg(self.compute_ik_interface)
     end
 end
 
@@ -223,7 +234,7 @@ function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
         --check order of joint names
         return response.error_codes, response.solutions, response.error_msgs
     else
-        return {val = -9999}, nil, "Poses service call failed! Connection lost."
+        return {val = error_codes.SIGNAL_LOST}, nil, getServiceConnectionLostErrorMsg(move_group_pose_interface)
     end
 end
 
@@ -241,9 +252,10 @@ function MotionService:queryJointState(joint_names)
     local response = move_group_position_interface:call(request)
     --check order of joint names
     if response then
-        return response.current_joint_position.position
+        return {val = 1}, response.current_joint_position.position
     else
-        return torch.Tensor()
+        ros.ERROR(getServiceConnectionLostErrorMsg(move_group_position_interface))
+        return {val = error_codes.SIGNAL_LOST}, torch.Tensor()
     end
 end
 
@@ -262,17 +274,18 @@ function MotionService:queryStateCollision(move_group_name, joint_names, points)
     end
     local response
     if collision_check_interface:exists() then
-        ros.INFO('found service: .. ' .. collision_check_interface:getService())
+        ros.DEBUG('found service: .. ' .. collision_check_interface:getService())
         response = collision_check_interface:call(request)
         if response then
             return response.success, response.in_collision, response.error_codes, response.messages
         else
-            return false, false, nil, 'Connection lost'
+            return false, false, { val = error_codes.SIGNAL_LOST}, getServiceConnectionLostErrorMsg(collision_check_interface)
         end
     else
-        ros.INFO('could not find service: .. ' .. collision_check_interface:getService())
+        local error_msg = getServiceConnectionLostErrorMsg(collision_check_interface)
+        ros.ERROR(error_msg)
+        return false, true, {val = error_codes.SIGNAL_LOST}, {error_msg}
     end
-    return false
 end
 
 -- get Path from service
@@ -290,7 +303,7 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints)
     local response
     if generate_path_interface:exists() then
         response = generate_path_interface:call(request)
-        ros.INFO('found service: .. ' .. generate_path_interface:getService())
+        ros.DEBUG('found service: .. ' .. generate_path_interface:getService())
     else
         ros.INFO('could not find service: .. ' .. generate_path_interface:getService())
     end
@@ -301,18 +314,18 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints)
             for i = 1, #response.path do
                 path[i]:copy(response.path[i].positions)
             end
-            return true, path
+            return response.error_code.val, path
         else
-            return false
+            return response.error_code.val
         end
     else
-        return false
+        ros.ERROR( getServiceConnectionLostErrorMsg(generate_path_interface) )
+        return error_codes.SIGNAL_LOST
     end
 end
 
 -- get Trajectory from service
 local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
-    ros.INFO('queryJointTrajectory')
     local generate_trajectory_interface =
         self.node_handle:serviceClient(
         'xamlaPlanningServices/query_joint_trajectory',
@@ -324,17 +337,16 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
     request.dt = dt > 1.0 and 1 / dt or dt
     request.max_velocity = max_vel
     request.max_acceleration = max_acc
-    ros.WARN('using Sampling dt: ' .. request.dt)
     for i = 1, waypoints:size(1) do
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
         request.waypoints[i].positions = waypoints[{i, {}}]
     end
     local response = nil
     if generate_trajectory_interface:exists() then
-        ros.INFO('found service: ..' .. generate_trajectory_interface:getService())
+        ros.DEBUG('found service: .. %s', generate_trajectory_interface:getService())
         response = generate_trajectory_interface:call(request)
     else
-        ros.INFO('could not find service: ..' .. generate_trajectory_interface:getService())
+        ros.INFO('could not find service: %s ', generate_trajectory_interface:getService())
     end
     local trajectory, error_code
     if response then
@@ -342,21 +354,23 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
         if error_code == 1 then
             trajectory = response.solution
         else
-            ros.ERROR('No valid joint trajectory found: %d', error_code)
+            ros.ERROR('No valid joint trajectory found: %d, %s', error_code, error_codes[error_code])
         end
         return error_code, trajectory
     else
-        ros.ERROR('Connection Lost')
-        return -9999
+        ros.ERROR(getServiceConnectionLostErrorMsg(generate_trajectory_interface))
+        return error_codes.SIGNAL_LOST
     end
 end
 
 function MotionService:executeJointTrajectoryAsync(traj, check_collision, done_cb)
     if self.execution_action_client == nil then
+        ros.WARN('Action Client does not exist yet')
         self.execution_action_client =
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
         self.execution_action_client:waitForServer(ros.Duration(1))
     elseif not self.execution_action_client:isServerConnected() then
+        ros.WARN('Action Client not reachable recreating client')
         self.execution_action_client:shutdown()
         self.execution_action_client = nil
         self.execution_action_client =
@@ -379,7 +393,6 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, done_c
 end
 
 function MotionService:executeJointTrajectory(traj, check_collision)
-    xutils.tic("executeJointTrajectory:check")
     if self.execution_action_client == nil then
         self.execution_action_client =
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
@@ -391,7 +404,6 @@ function MotionService:executeJointTrajectory(traj, check_collision)
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_action', self.node_handle)
         self.execution_action_client:waitForServer(ros.Duration(2.5))
     end
-    xutils.toc("executeJointTrajectory:check")
     local action_client = self.execution_action_client
     local g = action_client:createGoal()
     g.trajectory.joint_names = traj.joint_names
@@ -400,11 +412,15 @@ function MotionService:executeJointTrajectory(traj, check_collision)
 
     if action_client:isServerConnected() then
         local state, state_msg = action_client:sendGoalAndWait(g)
-        ros.INFO('moveJ_action returned: %s', state_msg)
+        local answere = action_client:getResult()
+        ros.INFO('moveJ_action returned: %s, [%d]', state_msg, state)
+        if answere == nil then
+            answere = {result = error_codes.SIGNAL_LOST}
+        end
         if state == SimpleClientGoalState.SUCCEEDED then
             return true, state_msg
         else
-            return false, state_msg
+            return false, string.format('%s, Result: %s (%d)', state_msg, error_codes[answere.result], answere.result)
         end
     else
         ros.ERROR('could not reach moveJ_action')
@@ -420,18 +436,21 @@ local function planMoveCartesian_1(self, start, goal, parameters)
         torch.isTypeOf(parameters, datatypes.PlanParameters),
         'Wrong data type should be PlanParameters but is: ' .. torch.type(parameters)
     )
-    local seed = self:queryJointState(parameters.joint_names)
-    local suc, start = self:queryIK(start, parameters, seed)
-    if suc then
-        if suc[1].val ~= 1 then
+    local js_error_code, seed = self:queryJointState(parameters.joint_names)
+    if js_error_code ~= 1 then
+        return false
+    end
+    local ik_error_codes, start = self:queryIK(start, parameters, seed)
+    if ik_error_codes then
+        if ik_error_codes[1].val ~= 1 then
             return false
         end
     else
         return false
     end
-    suc, goal = self:queryIK(goal, parameters, start.solutions[1])
-    if suc then
-        if suc[1].val ~= 1 then
+    ik_error_codes, goal = self:queryIK(goal, parameters, start.solutions[1])
+    if ik_error_codes then
+        if ik_error_codes[1].val ~= 1 then
             print('goal suc ', suc.error_code.val)
             return false
         end
@@ -449,12 +468,14 @@ local function planMoveCartesian_2(self, waypoints, parameters)
         'Wrong data type should be PlanParameters but is: ' .. torch.type(parameters)
     )
     local result = {}
-    local seed = self:queryJointState(parameters.joint_names)
+    local js_error_code, seed = self:queryJointState(parameters.joint_names)
+    if js_error_code ~= 1 then
+        return false
+    end
     for i, v in ipairs(waypoints) do
         local suc, start = self:queryIK(v, parameters, seed)
         if suc then
             if suc[1].val ~= 1 then
-                print('start suc ', suc)
                 return false
             end
         else
@@ -474,8 +495,6 @@ function MotionService:planMoveCartesian(_1, _2, _3)
         return planMoveCartesian_2(self, _1, _2)
     end
 end
-
---IJointPath Plan(JointValues start, JointValues goal, PlanParameters parameters);
 
 local function planJointPath_1(self, start, goal, parameters)
     assert(torch.isTypeOf(start, torch.DoubleTensor))
@@ -506,9 +525,8 @@ function MotionService:planCartesianPath(waypoints, parameters)
     return error_code, path
 end
 
---IJointTrajectory PlanMoveJoint(IJointPath path, PlanParameters parameters);
 function MotionService:planMoveJoint(path, parameters)
-    ros.INFO('planMoveJoint')
+    ros.DEBUG('planMoveJoint')
     assert(torch.isTypeOf(path, torch.DoubleTensor))
     assert(torch.isTypeOf(parameters, datatypes.PlanParameters))
     assert(
@@ -520,7 +538,8 @@ function MotionService:planMoveJoint(path, parameters)
         )
     )
 
-    local error_code, trajectory =
+    local error_code,
+        trajectory =
         queryJointTrajectory(
         self,
         parameters.joint_names,
@@ -572,7 +591,7 @@ function MotionService:emergencyStop(enable)
     if response then
         return response.success, response.message
     else
-        return -9999
+        return error_codes.SIGNAL_LOST, getServiceConnectionLostErrorMsg(set_emergency_stop)
     end
 end
 

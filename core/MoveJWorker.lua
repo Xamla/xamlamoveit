@@ -5,43 +5,10 @@ local xutils = require 'xamlamoveit.xutils'
 
 local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
-
-local error_codes = {
-    SUCCESS = 1,
-    FAILURE = 99999,
-    SIGNAL_LOST = -9999,
-    PLANNING_FAILED = -1,
-    INVALID_MOTION_PLAN = -2,
-    MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE = -3,
-    CONTROL_FAILED = -4,
-    UNABLE_TO_AQUIRE_SENSOR_DATA = -5,
-    TIMED_OUT = -6,
-    PREEMPTED = -7,
-    START_STATE_IN_COLLISION = -10,
-    START_STATE_VIOLATES_PATH_CONSTRAINTS = -11,
-    GOAL_IN_COLLISION = -12,
-    GOAL_VIOLATES_PATH_CONSTRAINTS = -13,
-    GOAL_CONSTRAINTS_VIOLATED = -14,
-    INVALID_GROUP_NAME = -15,
-    INVALID_GOAL_CONSTRAINTS = -16,
-    INVALID_ROBOT_STATE = -17,
-    INVALID_LINK_NAME = -18,
-    INVALID_OBJECT_NAME = -19,
-    FRAME_TRANSFORM_FAILURE = -21,
-    COLLISION_CHECKING_UNAVAILABLE = -22,
-    ROBOT_STATE_STALE = -23,
-    SENSOR_INFO_STALE = -24,
-    NO_IK_SOLUTION = -31
-}
+local GoalStatus = actionlib.GoalStatus
+local error_codes = core.error_codes
 error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
---[[
-    error_codes.SUCCESSFUL = 1
-error_codes.INVALID_GOAL = -1
-error_codes.ABORT = -2
-error_codes.NO_IK_FOUND = -3
-error_codes.INVALID_LINK_NAME = -4
-error_codes.SIGNAL_LOST = -9999
---]]
+
 local MoveJWorker = torch.class('MoveJWorker')
 
 local function checkMoveGroupName(self, name)
@@ -210,12 +177,12 @@ local function releaseResource(self, id_resources, id_lock)
 end
 
 
-function MoveJWorker:cancelCurrentPlan(abortMsg)
+function MoveJWorker:cancelCurrentPlan(abortMsg, code)
     ros.INFO('MoveJWorker:cancelCurrentPlan %s', abortMsg)
     if self.currentPlan ~= nil then
         local traj = self.currentPlan.traj
         if traj.abort ~= nil then
-            traj:abort(abortMsg or 'Canceled') -- abort callback
+            traj:abort(abortMsg or 'Canceled', code) -- abort callback
         end
         if self.action_client and self.action_client:getState() == SimpleClientGoalState.ACTIVE then
             self.action_client:cancelAllGoals()
@@ -285,7 +252,7 @@ local function executePlan(self, plan, manipulator, traj)
 end
 
 local function generateRobotTrajectory(self, manipulator, trajectory, check_collision)
-    local suc = true
+    local suc = self.error_codes.SUCCESS
     local move_group_name = manipulator:getName()
     local traj = moveit.RobotTrajectory(self.robot_model, move_group_name)
     tic('getCurrentState')
@@ -332,11 +299,11 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
         if self.plan_scene:syncPlanningScene() then --TODO parameter einstellen. performance check
             if not self.plan_scene:isPathValid(start_state, traj, move_group_name, true) then
                 ros.ERROR('[generateRobotTrajectory] Path not valid')
-                suc = false
+                suc = self.error_codes.INVALID_MOTION_PLAN
             end
         else
             ros.ERROR('[generateRobotTrajectory] Planning Scene could not be updated')
-            suc = false
+            suc = self.error_codes.SENSOR_INFO_STALE
         end
         toc('checkCollision')
     end
@@ -369,6 +336,7 @@ local function handleMoveJTrajectory(self, traj)
     manipulator = self.manipulators[group_name]
     if not manipulator then
         status = self.error_codes.INVALID_GOAL
+        msg = string.format('MoveGroup is not correctly configured. MoveGroup name: %s, is unknowm', group_name)
     else
         traj.manipulator = manipulator
         traj.joint_monitor = self.joint_monitor
@@ -378,11 +346,12 @@ local function handleMoveJTrajectory(self, traj)
             suc = generateRobotTrajectory(self, manipulator, traj.goal.goal.trajectory, traj.check_collision)
         toc('generateRobotTrajectory')
 
-        if suc == false then
-            status = self.error_codes.INVALID_MOTION_PLAN
+        if suc ~= self.error_codes.SUCCESS then
+            status = suc
             suc = false
-            msg = 'Could create valid Trajectory.'
+            msg = 'Could not generate a valid trajectory.'
         else
+            suc = true
             plan = moveit.Plan()
             plan:setStartStateMsg(start_state:toRobotStateMsg())
             plan:setTrajectoryMsg(rest:getRobotTrajectoryMsg())
@@ -391,6 +360,7 @@ local function handleMoveJTrajectory(self, traj)
     if suc == true then
         traj.starttime = ros.Time.now()
         traj = executePlan(self, plan, manipulator, traj)
+        msg = 'Trajectory is started.'
     end
     traj.status = status
     return suc, msg, traj, status
@@ -408,7 +378,8 @@ local function dispatchTrajectory(self)
                     self.currentPlan = {
                         startTime = sys.clock(), -- debug information
                         traj = traj,
-                        status = status
+                        status = status,
+                        error_msg = msg
                     }
                     break
                 end
@@ -422,6 +393,7 @@ local function dispatchTrajectory(self)
         local traj = self.currentPlan.traj
         local d = ros.Time.now() - traj.starttime
         status = traj.status
+        local error_msg = self.currentPlan.error_msg
         if status == 0 then
             if traj.expiration_date then
                 ros.DEBUG('Expiration data: ' .. tostring(traj.expiration_date))
@@ -443,7 +415,7 @@ local function dispatchTrajectory(self)
                 -- robot not ready or proceed callback returned false
                 status = self.error_codes.CONTROL_FAILED
                 ros.ERROR('Stop plan execution. proceed method returned false')
-                self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.error_codes[status]))
+                self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.error_codes[status]), status)
             end
             --[[
             else
@@ -473,14 +445,15 @@ local function dispatchTrajectory(self)
             if suc == false then
                 status = self.error_codes.PREEMPTED
                 ros.ERROR('Stop plan execution. Lock failed.')
-                self:cancelCurrentPlan('Stop plan execution. Lock failed.')
+                self:cancelCurrentPlan('Stop plan execution. Lock failed.', status)
             end
         end
         -- execute main update call
         if status < 0 then -- error
             if traj.abort ~= nil then
-                ros.ERROR('status: %s, %d', self.error_codes[status], status)
-                traj:abort('status: ' .. self.error_codes[status], status) -- abort callback
+                local msg = string.format('status: %s, %s, %d', error_msg, self.error_codes[status], status)
+                ros.ERROR(msg)
+                traj:abort(msg, status) -- abort callback
             end
             if traj.id_lock and traj.jointNames then
                 suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
@@ -558,8 +531,9 @@ function MoveJWorker:spin()
     if (not ok) and self.currentPlan then
         local traj = self.currentPlan.traj
         if traj.abort ~= nil then
-            ros.ERROR('currentPlan failed because of internal error')
-            traj:abort()
+            local error_msg = 'CurrentPlan failed because of internal error'
+            ros.ERROR(error_msg)
+            traj:abort(error_msg, error_codes.FAILURE)
         end
         self.currentPlan = nil
     end
