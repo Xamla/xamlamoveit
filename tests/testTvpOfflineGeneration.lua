@@ -114,10 +114,10 @@ cmd:option('-n', 100, 'number of tests')
 cmd:option('-start_vel', false, 'enable non-zero of start velocity')
 -- parse input params
 local params = cmd:parse(arg)
-if params.controllerName == 'TvpController' 
-    or params.controllerName == 'MultiAxisTvpController' 
-    or params.controllerName == 'MultiAxisTvpController2' 
-    or params.controllerName == 'MultiAxisCPPController' then
+if params.controllerName == 'TvpController'
+    or params.controllerName == 'MultiAxisTvpController'
+    or params.controllerName == 'MultiAxisTvpController2'
+    or params.controllerName == 'MultiAxisCppController' then
 
     torch.manualSeed(0)
     local t0 = torch.tic()
@@ -125,5 +125,5 @@ if params.controllerName == 'TvpController'
     local elapsed = torch.toc(t0)
     printf('elapsed: %f', elapsed)
 else
-    print('Unknown controller name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2, MultiAxisCPPController]')
+    print('Unknown controller name. Choose From [TvpController, MultiAxisTvpController, MultiAxisTvpController2, MultiAxisCppController]')
 end

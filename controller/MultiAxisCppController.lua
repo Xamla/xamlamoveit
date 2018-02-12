@@ -1,8 +1,8 @@
 local controller = require 'xamlamoveit.controller.env'
 
-local MultiAxisCPPController = torch.class('xamlamoveit.controller.MultiAxisCPPController', controller)
+local MultiAxisCppController = torch.class('xamlamoveit.controller.MultiAxisCppController', controller)
 
-function MultiAxisCPPController:__init(dim)
+function MultiAxisCppController:__init(dim)
     self.dim = dim
     self.state = {
         pos = torch.zeros(dim),
@@ -11,13 +11,13 @@ function MultiAxisCPPController:__init(dim)
     }
     self.max_vel = torch.ones(dim) * math.pi
     self.max_acc = torch.ones(dim) * math.pi / 0.5
-    self.pos_gain = 2.5
-    self.vel_gain = 1
+    self.pos_gain = 2.5 * 2
+    self.vel_gain = self.pos_gain / 10--1 * 0.25
     self.convergence_threshold = 1e-5
     self.converged = true
 end
 
-function MultiAxisCPPController:update(goal, dt)
+function MultiAxisCppController:update(goal, dt)
     local dim = self.dim
     assert(dim == goal:size(1), 'Goal element count mismatch')
 
@@ -53,7 +53,7 @@ function MultiAxisCPPController:update(goal, dt)
     self.state.acc = acc_cmd
 end
 
-function MultiAxisCPPController:reset()
+function MultiAxisCppController:reset()
     self.state.pos:zero()
     self.state.vel:zero()
     self.state.acc:zero()
@@ -69,7 +69,7 @@ local function createState(pos, vel, acc)
     return state
 end
 
-function MultiAxisCPPController:generateOfflineTrajectory(start, goal, dt, start_vel)
+function MultiAxisCppController:generateOfflineTrajectory(start, goal, dt, start_vel)
     local result = {}
     local counter = 1
     self:reset()
@@ -92,4 +92,4 @@ function MultiAxisCPPController:generateOfflineTrajectory(start, goal, dt, start
     return result, final_delta
 end
 
-return MultiAxisCPPController
+return MultiAxisCppController
