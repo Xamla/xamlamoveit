@@ -18,7 +18,7 @@ function TrajectoryExecutionRequest:__init(goal_handle)
     self.goal = goal_handle:getGoal()
     self.error_codes = errorCodes
     self.check_collision = self.goal_handle.goal.goal.check_collision
-    self.position_deviation_threshold = 2.3
+    self.position_deviation_threshold = 0.3
 end
 
 function TrajectoryExecutionRequest:accept()

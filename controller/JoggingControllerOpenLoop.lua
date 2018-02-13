@@ -126,6 +126,10 @@ local function sendFeedback(self)
     self.publisher_feedback:publish(self.feedback_message)
 end
 
+local function resetGoals(self)
+    self.goals = {pose_goal = nil, posture_goal = nil, twist_goal = nil}
+end
+
 local controller = require 'xamlamoveit.controller.env'
 local JoggingControllerOpenLoop = torch.class('xamlamoveit.controller.JoggingControllerOpenLoop', controller)
 
@@ -178,6 +182,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
 
     self.controller_list = ctr_list
 
+    self.goals = {pose_goal = nil, posture_goal = nil, twist_goal = nil}
 
     self.resource_lock = nil
     self.subscriber_pose_goal = nil
@@ -185,14 +190,13 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.subscriber_twist_goal = nil
     self.publisher_feedback = nil
     self.mode = 0
-    self.singularity_threshold = 3.5
     self.opt = {stiffness = 10.0, damping = 2.0}
     self.max_vel = nil
     self.max_acc = nil
-    self.max_speed_scaling = 0.25 -- 25% of the max constraints allowed for jogging
+    self.max_speed_scaling = 0.5 --50% of the max constraints allowed for jogging
     self.speed_scaling = 1.0
     self.command_distance_threshold = 0.05 --m
-    self.command_rotation_threshold = math.rad(3)
+    self.command_rotation_threshold = math.rad(0.5)
     self.joint_step_width = math.rad(0.5)
     local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
     if #link_name > 0 then
@@ -424,17 +428,6 @@ function JoggingControllerOpenLoop:shutdown()
     self.publisher_feedback:shutdown()
 end
 
-local function scaleJointVelocity(vel, max_vel)
-    local abs_vel = torch.abs(vel)
-    local ratio = torch.cdiv(abs_vel, max_vel)
-    local violates = ratio[abs_vel:gt(max_vel)]
-    local scaling = 1
-    if violates:nElement() > 0 then
-        scaling = math.min(violates:min(), 1.0)
-    end
-    vel:mul(scaling)
-end
-
 function JoggingControllerOpenLoop:tracking(q_des, duration)
     if type(duration) == 'number' then
         duration = ros.Duration(duration)
@@ -442,7 +435,6 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
 
     duration = ros.Duration(0.0)
     local state = self.state:clone()
-    --scaleJointVelocity(q_dot, self.max_vel)
 
     if self:isValid(q_des.values, self.lastCommandJointPositions.values, self.lastCommandJointPositions:getNames()) then
         assert(
@@ -462,6 +454,7 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
     end
     self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
 end
+
 
 function JoggingControllerOpenLoop:getStep(D_force, D_torques, timespan)
     local D_torques = D_torques or torch.zeros(3)
@@ -485,19 +478,10 @@ function JoggingControllerOpenLoop:getStep(D_force, D_torques, timespan)
     return q_dot_des, jacobian
 end
 
-function JoggingControllerOpenLoop:getQdot(vel6D)
-    local jac = self.state:getJacobian(self:getCurrentMoveGroup():getName())
-    local joint_names = self:getCurrentMoveGroup():getActiveJoints():totable() --self.state:getVariableNames():totable()
-    local inv_jac = pseudoInverse(jac)
-
-    local q_dot = createJointValues(joint_names, inv_jac * vel6D)
-    return q_dot, jac
-end
-
 function JoggingControllerOpenLoop:getNewRobotState()
     local names = self.lastCommandJointPositions:getNames()
     local ok, p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.1), names)
-    assert(ok, 'exceeded timeout for next robot joint state.')
+    assert(ok, '[getNewRobotState] exceeded timeout for next robot joint state.')
     if #names ~= p:size(1) then
         ros.ERROR('Miss match: ')
         print(names, p)
@@ -575,9 +559,18 @@ function JoggingControllerOpenLoop:update()
 
     local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
 
+    if self.dt:toSec() * 2 < (ros.Time.now() - self.start_time):toSec() then
+        ros.INFO('reset goals')
+        resetGoals(self)
+    end
+
     -- Decide which goal is valid
-    if self.mode < 2 and new_pose_message then
-        --self:getNewRobotState()
+    if (self.mode < 2 and new_pose_message) or (self.mode == 1 and self.goals.pose_goal) then
+        if pose_goal ~= nil then
+            self.goals.pose_goal = pose_goal:clone()
+        elseif self.goals.pose_goal then
+            pose_goal = self.goals.pose_goal:clone()
+        end
         local rel_poseAB = pose_goal:clone()
         rel_poseAB = rel_poseAB:mul(self.current_pose:inverse())
         if rel_poseAB:getOrigin():norm() > self.command_distance_threshold then
@@ -600,7 +593,12 @@ function JoggingControllerOpenLoop:update()
             q_dot.values:zero()
         end
         self.controller.converged = false
-    elseif (self.mode == 0 or self.mode == 2) and new_posture_message then
+    elseif ((self.mode == 0 or self.mode == 2) and new_posture_message) or (self.mode == 2 and self.goals.posture_goal) then
+        if posture_goal ~= nil then
+            self.goals.posture_goal = posture_goal:clone()
+        elseif self.goals.posture_goal then
+            posture_goal = self.goals.posture_goal:clone()
+        end
         self.mode = 2
         self.start_time = ros.Time.now()
         local tmp_state = self.state:clone()
@@ -608,7 +606,12 @@ function JoggingControllerOpenLoop:update()
         q_dot = posture_goal:clone()
         q_dot:sub(self.lastCommandJointPositions)
         self.controller.converged = false
-    elseif (self.mode == 0 or self.mode == 3) and new_twist_message then
+    elseif ((self.mode == 0 or self.mode == 3) and new_twist_message) or (self.mode == 3 and self.goals.twist_goal)  then
+        if twist_goal ~= nil then
+            self.goals.twist_goal = twist_goal:clone()
+        elseif self.goals.twist_goal then
+            twist_goal = self.goals.twist_goal:clone()
+        end
         local rel_tmp_pose = tf.StampedTransform()
         local dt = self.dt:toSec()
 
@@ -703,11 +706,12 @@ function JoggingControllerOpenLoop:reset()
         self.current_pose = tf.Transform()
         self.target_pose = tf.Transform()
     end
-
+    local ok, p = self.joint_monitor:getNextPositionsOrderedTensor(0.1, self.joint_set.joint_names)
+    assert(ok, '[reset] exceeded timeout for next robot joint state.')
     self.lastCommandJointPositions =
         createJointValues(
         self.joint_set.joint_names,
-        self.joint_monitor:getPositionsOrderedTensor(self.joint_set.joint_names)
+        p
     )
     self.max_vel, self.max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
     self.max_vel = self.max_vel * self.max_speed_scaling
