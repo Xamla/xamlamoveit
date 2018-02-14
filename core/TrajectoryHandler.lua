@@ -44,8 +44,8 @@ local function reachedGoal(self)
     local ok, state_pos = self.traj.joint_monitor:getNextPositionsTensor(0.1)
     assert(ok, 'exceeded timeout for next robot joint state.')
     local feedback_idx = {}
-    for i, v in ipairs(self.traj.state_joint_names) do
-        local index = table.indexof(self.traj.joint_names, v)
+    for i, v in ipairs(self.traj.joint_names) do
+        local index = table.indexof(self.traj.state_joint_names, v)
         if index > -1 then
             feedback_idx[i] = index
         end

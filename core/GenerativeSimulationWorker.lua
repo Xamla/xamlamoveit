@@ -154,6 +154,7 @@ function GenerativeSimulationWorker:cancelCurrentTrajectory(abortMsg)
     end
 end
 
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 local function dispatchTrajectory(self)
     if self.currentTrajectory == nil then
         if #self.trajectoryQueue > 0 then -- check if new trajectory is available
@@ -208,11 +209,13 @@ local function dispatchTrajectory(self)
             -- execute main update call
             local ok,
                 err =
-                pcall(
+                xpcall(
                 function()
                     handler:update()
-                end
+                end,
+                error_msg_func
             )
+
             if not ok then
                 self.logger.warn('Exception during handler update: %s', err)
             end
