@@ -25,7 +25,27 @@ end
 
 local function CancelCallBack(self, goal_handle)
     ros.INFO('Cancel moveJ Goal')
-    self.worker:cancelCurrentPlan('Trajectory canceled')
+    if self.worker.currentPlan ~= nil and self.worker.currentPlan.traj.goal_handle == goal_handle then
+        ros.INFO('Cancel active trajectory')
+        self.worker:cancelCurrentPlan('Trajectory canceled')
+    else
+        ros.INFO('\tCancel queued trajectory')
+        -- check if trajectory is in trajectoryQueue
+        local i =
+            findIndex(
+            self.worker.trajectoryQueue,
+            function(x)
+                return x.goal_handle == goal_handle
+            end
+        )
+        if i > 0 then
+            -- entry found, simply remove from queue
+            table.remove(self.worker.trajectoryQueue, i)
+        else
+            ros.WARN("Trajectory to cancel with goal handle '%s' not found.", goal_handle:getGoalID().id)
+        end
+        goal_handle:setCanceled(nil, 'Canceled')
+    end
 end
 
 function MoveJActionServer:onInitialize()

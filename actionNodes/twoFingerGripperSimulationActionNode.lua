@@ -159,7 +159,7 @@ local function createTrajectory(goal_handle, target_joint_names)
         pos = pos,
         vel = vel,
         acc = acc,
-        goalHandle = goal_handle,
+        goal_handle = goal_handle,
         goal = g,
         joint_monitor = joint_monitor,
         joint_names = target_joint_names,
@@ -231,7 +231,7 @@ local function moveGripperAction_serverGoal(global_state_summary, goal_handle, j
     end
 end
 
-local function GripperCommand_Cancel(goalHandle)
+local function GripperCommand_Cancel(goal_handle)
     ros.INFO('GripperCommand_Cancel')
     if global_state_summary then
         error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
@@ -268,7 +268,7 @@ local function moveWeissGripperAction_serverGoal(global_state_summary, goal_hand
     end
 end
 
-local function WeissGripperCommand_Cancel(goalHandle)
+local function WeissGripperCommand_Cancel(goal_handle)
     ros.INFO('WeissGripperCommand_Cancel')
     if global_state_summary then
         error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error

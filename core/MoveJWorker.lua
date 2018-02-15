@@ -178,19 +178,20 @@ end
 
 
 function MoveJWorker:cancelCurrentPlan(abortMsg, code)
-    ros.INFO('MoveJWorker:cancelCurrentPlan %s', abortMsg)
+    ros.DEBUG('MoveJWorker:cancelCurrentPlan %s', abortMsg)
     if self.currentPlan ~= nil then
         local traj = self.currentPlan.traj
-        if traj.abort ~= nil then
-            traj:abort(abortMsg or 'Canceled', code) -- abort callback
-        end
+
         if self.action_client and self.action_client:getState() == SimpleClientGoalState.ACTIVE then
             self.action_client:cancelAllGoals()
         end
-        if traj.id_lock and traj.jointNames then
-            suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
+        if traj.cancel ~= nil then
+            traj:cancel() -- cancel callback (e.g. enter canel requested state)
         end
-        self.currentPlan = nil
+        --if traj.id_lock and traj.jointNames then
+        --    suc, id_lock, creation, expiration = releaseResource(self, traj.jointNames, traj.id_lock)
+        --end
+        --self.currentPlan = nil
     end
 end
 
@@ -200,7 +201,9 @@ local function executeAsync(self, traj, plan)
     end
     local g = self.action_client:createGoal()
     g.trajectory = plan:getTrajectoryMsg()
-    traj.status = 0
+    if traj.status == nil then
+        traj.status = 0
+    end
 
     local function action_done(state, result)
         ros.INFO('actionDone')

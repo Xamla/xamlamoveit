@@ -2,8 +2,8 @@ local ros = require 'ros'
 local TrajectoryHandler = require 'xamlamoveit.core.TrajectoryHandler'
 
 local DEFAULT_SERVO_TIME = 0.008
-local DEFAULT_MAX_IDLE_CYCLES = 250                 -- number of cycles before simulated reverse connection disconnects
-local DEFAULT_REVERSE_CONNECTION_DELAY = 0.3        -- delay in seconds (e.g. to simulate script upload to UR)
+local DEFAULT_MAX_IDLE_CYCLES = 250 -- number of cycles before simulated reverse connection disconnects
+local DEFAULT_REVERSE_CONNECTION_DELAY = 0.3 -- delay in seconds (e.g. to simulate script upload to UR)
 
 local TrajectoryHandlerStatus = {
     ProtocolError = -3,
@@ -109,19 +109,6 @@ function GenerativeSimulationWorker:sync()
     return true
 end
 
-function GenerativeSimulationWorker:cancelCurrentPlan(abortMsg)
-    if self.currentPlan ~= nil then
-        if callAbortCallback then
-            local traj = self.currentPlan.traj
-            if traj.abort ~= nil then
-                --TODO
-                traj:abort(abortMsg or 'Canceled') -- abort callback
-            end
-        end
-        self.currentPlan = nil
-    end
-end
-
 function GenerativeSimulationWorker:createTrajectoryHandler(traj, flush, waitCovergence, maxBuffering)
     if flush == nil then
         flush = true
@@ -141,28 +128,32 @@ function GenerativeSimulationWorker:createTrajectoryHandler(traj, flush, waitCov
     )
 end
 
-function GenerativeSimulationWorker:cancelCurrentTrajectory(abortMsg)
-    if self.currentTrajectory ~= nil then
-        self.logger.info('[GenerativeSimulationWorker] Cancelling trajectory execution.')
-        local handler = self.currentTrajectory.handler
-        local traj = self.currentTrajectory.traj
-        if traj.abort ~= nil then
-            traj:abort(abortMsg or 'Canceled') -- abort callback
-        end
-        self.currentTrajectory = nil
-        handler:cancel()
+function GenerativeSimulationWorker:cancelCurrentTrajectory()
+    if self.currentTrajectory == nil then
+        return
+    end
+
+    self.logger.info('[GenerativeSimulationWorker] Cancelling trajectory execution.')
+    local traj = self.currentTrajectory.traj
+    local handler = self.currentTrajectory.handler
+    -- we try to bring the robot gracefully to a standstill
+    handler:cancel()
+    if traj.cancel ~= nil then
+        traj:cancel() -- cancel callback (e.g. enter canel requested state)
     end
 end
 
-local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
+local error_msg_func = function(x)
+    ros.ERROR(debug.traceback())
+    return x
+end
 local function dispatchTrajectory(self)
     if self.currentTrajectory == nil then
         if #self.trajectoryQueue > 0 then -- check if new trajectory is available
-
             -- simulate reverse connection delay
             if not self.reverseConnectionEstablished then
                 if self.reverseConnectionDelay > 0 then
-                    sys.sleep(self.reverseConnectionDelay)      -- sleep (simulate blocking accept call in UR driver)
+                    sys.sleep(self.reverseConnectionDelay) -- sleep (simulate blocking accept call in UR driver)
                 end
                 self.reverseConnectionEstablished = true
                 self.idleCycles = 0
@@ -202,10 +193,7 @@ local function dispatchTrajectory(self)
         local traj = self.currentTrajectory.traj
         local handler = self.currentTrajectory.handler
 
-        -- check if trajectory execution is still desired (e.g. not canceled)
-        if (traj.proceed == nil or traj:proceed()) then
-            self.idleCycles = 0     -- reset idle counter
-
+        if ( handler.status == TrajectoryHandlerStatus.Canceled or traj.proceed == nil or traj:proceed()) then
             -- execute main update call
             local ok,
                 err =
@@ -215,14 +203,17 @@ local function dispatchTrajectory(self)
                 end,
                 error_msg_func
             )
-
             if not ok then
                 self.logger.warn('Exception during handler update: %s', err)
             end
 
             if not ok or handler.status < 0 then -- error
                 if traj.abort ~= nil then
-                    traj:abort() -- abort callback
+                    local msg
+                    if handler.status == TrajectoryHandlerStatus.Canceled then
+                        msg = 'Robot was stopped due to trajectory cancel request.'
+                    end
+                    traj:abort(msg) -- abort callback
                 end
                 self.currentTrajectory = nil
             elseif handler.status == TrajectoryHandlerStatus.Completed then
@@ -233,12 +224,15 @@ local function dispatchTrajectory(self)
             end
         else
             -- robot not ready or proceed callback returned false
-            self:cancelCurrentTrajectory('Robot not ready or proceed callback returned false.')
+            self:cancelCurrentTrajectory()
         end
     else
         self.idleCycles = self.idleCycles + 1
         if self.reverseConnectionEstablished and self.idleCycles > self.maxIdleCycles then
-            self.logger.info('[GenerativeSimulationWorker] Robot was idle for %d cycles. Closing reverse connection.', self.idleCycles)
+            self.logger.info(
+                '[GenerativeSimulationWorker] Robot was idle for %d cycles. Closing reverse connection.',
+                self.idleCycles
+            )
             self.reverseConnectionEstablished = false
         end
     end
@@ -249,12 +243,13 @@ local function workerCore(self)
 end
 
 function GenerativeSimulationWorker:spin()
-    local ok, err =
+    local ok,
+        err =
         pcall(
-            function()
-                workerCore(self)
-            end
-        )
+        function()
+            workerCore(self)
+        end
+    )
 
     -- abort current trajectory
     if (not ok) and self.currentPlan then

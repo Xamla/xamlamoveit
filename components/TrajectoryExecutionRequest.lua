@@ -53,7 +53,8 @@ end
 
 function TrajectoryExecutionRequest:proceed()
     ros.DEBUG('proceed')
-    if self.goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+    local status = self.goal_handle:getGoalStatus().status
+    if  status == GoalStatus.ACTIVE or status == GoalStatus.PENDING or status == GoalStatus.PREEMPTING then
         if self.manipulator == nil then
             ros.ERROR('[TrajectoryExecutionRequest] move group interface is nil')
             self.status = errorCodes.PREEMPTED
@@ -108,7 +109,7 @@ function TrajectoryExecutionRequest:proceed()
         ros.DEBUG('moving')
         return true
     else
-        ros.WARN(
+        ros.DEBUG(
             '[TrajectoryExecutionRequest] Goal status of current trajectory no longer ACTIVE (actual: %d).',
             self.goal_handle:getGoalStatus().status
         )
@@ -117,10 +118,8 @@ function TrajectoryExecutionRequest:proceed()
 end
 
 function TrajectoryExecutionRequest:abort(msg, code)
-    if
-        self.goal_handle:getGoalStatus().status == GoalStatus.PENDING or
-            self.goal_handle:getGoalStatus().status == GoalStatus.ACTIVE
-     then
+    local status = self.goal_handle:getGoalStatus().status
+    if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
         local code = code or errorCodes.FAILURE
         local r = self.goal_handle:createResult()
         r.result = code
@@ -128,6 +127,17 @@ function TrajectoryExecutionRequest:abort(msg, code)
         ros.WARN(tostring(msg))
         ros.WARN(tostring(code))
         self.goal_handle:setAborted(r, msg or 'Error')
+    elseif status == GoalStatus.PREEMPTING then
+        ros.INFO("Notifying client about PREEMTING state")
+        local code = code or errorCodes.PREEMPTED
+        local r = self.goal_handle:createResult()
+        r.result = code
+        self.goal_handle:setAborted(r, msg or 'Abort')
+    elseif status == GoalStatus.RECALLING then
+        ros.INFO("Notifying client about RECALLING state")
+        self.goal_handle:setCanceled(nil, msg or 'Canceled')
+    else
+        ros.INFO("nothing to be done")
     end
     collectgarbage()
 end
@@ -137,6 +147,13 @@ function TrajectoryExecutionRequest:completed()
     r.result = errorCodes.SUCCESS
     self.goal_handle:setSucceeded(r, 'Completed')
     collectgarbage()
+end
+
+function TrajectoryExecutionRequest:cancel()
+    local status = self.goal_handle:getGoalStatus().status
+    if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
+        self.goal_handle:setCancelRequested()
+    end
 end
 
 return TrajectoryExecutionRequest

@@ -6,6 +6,8 @@ local xutils = xamlamoveit.xutils
 local core = xamlamoveit.core
 local actionlib = ros.actionlib
 local ActionServer = actionlib.ActionServer
+local errorCodes = require 'xamlamoveit.core.ErrorCodes'.error_codes
+errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
 local GoalStatus = actionlib.GoalStatus
 
 local GenerativeSimulationWorker = require 'xamlamoveit.core.GenerativeSimulationWorker'
@@ -87,6 +89,13 @@ local function decodeJointTrajectoryMsg(trajectory)
     return time, pos, vel, acc
 end
 
+local function isTerminalGoalStatus(status)
+    return status == GoalStatus.PREEMPTED or status == GoalStatus.SUCCEEDED or status == GoalStatus.ABORTED or
+        status == GoalStatus.REJECTED or
+        status == GoalStatus.RECALLED or
+        status == GoalStatus.LOST
+end
+
 local function moveJAction_serverGoal(global_state_summary, goal_handle, joint_monitor, target_joint_names)
     ros.INFO('moveJAction_serverGoal')
     local g = goal_handle:getGoal()
@@ -111,7 +120,7 @@ local function moveJAction_serverGoal(global_state_summary, goal_handle, joint_m
         pos = pos,
         vel = vel,
         acc = acc,
-        goalHandle = goal_handle,
+        goal_handle = goal_handle,
         goal = g,
         joint_monitor = joint_monitor,
         joint_names = g.goal.trajectory.joint_names,
@@ -121,58 +130,82 @@ local function moveJAction_serverGoal(global_state_summary, goal_handle, joint_m
                 goal_handle:setAccepted('Starting trajectory execution')
                 return true
             else
-                ros.WARN('Status of queued trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
+                ros.WARN('[moveJAction] Status of queued trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
                 return false
             end
         end,
-        proceed = function()
-            if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+        proceed = function(self)
+            if self.goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
                 return true
             else
                 ros.WARN(
-                    'Goal status of current trajectory no longer ACTIVE (actual: %d).',
-                    goal_handle:getGoalStatus().status
+                    '[moveJAction] Goal status of current trajectory no longer ACTIVE (actual: %d).',
+                    self.goal_handle:getGoalStatus().status
                 )
                 return false
             end
         end,
-        abort = function(self, msg)
-            goal_handle:setAborted(nil, msg or 'Error')
+        -- cancel signals the begin of a cancel/stop operation (to enter the preempting action state)
+        cancel = function(self)
+            local status = self.goal_handle:getGoalStatus().status
+            ros.ERROR('[setCancelRequest trajectory] goal status: %d', status)
+            if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
+                self.goal_handle:setCancelRequested()
+            end
         end,
-        completed = function()
-            local r = goal_handle:createResult()
+        -- abort signals end of trajectory processing
+        abort = function(self, msg)
+            local status = self.goal_handle:getGoalStatus().status
+            ros.ERROR('[abort trajectory] goal status: %d', status)
+            if status == GoalStatus.ACTIVE or status == GoalStatus.PREEMPTING then
+                ros.ERROR('[abort trajectory] goal status: %d', status)
+                self.goal_handle:setAborted(nil, msg or 'Error')
+            elseif status == GoalStatus.PENDING or status == GoalStatus.RECALLING then
+                ros.ERROR('[cancel trajectory] goal status: %d', status)
+                self.goal_handle:setCanceled(nil, msg or 'Error')
+            elseif not isTerminalGoalStatus(status) then
+                ros.ERROR('[abort trajectory] Unexpected goal status: %d', status)
+            end
+        end,
+        completed = function(self)
+            local r = self.goal_handle:createResult()
             r.error_code = worker.errorCodes.SUCCESSFUL
-            goal_handle:setSucceeded(r, 'Completed')
+            self.goal_handle:setSucceeded(r, 'Completed')
         end
     }
     if traj.pos:nElement() == 0 then -- empty trajectory
         local r = goal_handle:createResult()
         r.error_code = TrajectoryResultStatus.SUCCESSFUL
         goal_handle:setSucceeded(r, 'Completed (nothing to do)')
-        ros.WARN('Received empty FollowJointTrajectory request (goal: %s).', goal_handle:getGoalID().id)
+        ros.WARN('[moveJAction] Received empty FollowJointTrajectory request (goal: %s).', goal_handle:getGoalID().id)
     else
         worker:doTrajectoryAsync(traj) -- queue for processing
-        ros.INFO('Trajectory queued for execution (goal: %s).', goal_handle:getGoalID().id)
+        ros.INFO('[moveJAction] Trajectory queued for execution (goal: %s).', goal_handle:getGoalID().id)
     end
 end
 
-local function FollowJointTrajectory_Cancel(goalHandle)
+local function FollowJointTrajectory_Cancel(goal_handle)
     ros.INFO('FollowJointTrajectory_Cancel')
-
-    -- check if trajectory is in trajectoryQueue
-    local i =
-        table.findIndex(
-        worker.trajectoryQueue,
-        function(x)
-            return x.goalHandle == goalHandle
+    if worker.currentTrajectory ~= nil and worker.currentTrajectory.traj.goal_handle == goal_handle then
+        ros.INFO('Cancel active trajectory')
+        worker:cancelCurrentTrajectory()
+    else
+        ros.INFO('\tCancel queued trajectory')
+        -- check if trajectory is in trajectoryQueue
+        local i =
+            findIndex(
+            worker.trajectoryQueue,
+            function(x)
+                return x.goal_handle == goal_handle
+            end
+        )
+        if i > 0 then
+            -- entry found, simply remove from queue
+            table.remove(worker.trajectoryQueue, i)
+        else
+            ros.WARN("Trajectory to cancel with goal handle '%s' not found.", goal_handle:getGoalID().id)
         end
-    )
-    if i > 0 then
-        -- entry found, simply remove from queue
-        table.remove(worker.trajectoryQueue, i)
-        goalHandle:setAborted(nil, 'Canceled')
-    elseif worker.currentTrajectory ~= nil and worker.currentTrajectory.goalHandle == goalHandle then
-        worker:cancelCurrentTrajectory('Canceled')
+        goal_handle:setCanceled(nil, 'Canceled')
     end
 end
 
@@ -254,7 +287,7 @@ local function moveGripperAction_serverGoal(global_state_summary, goal_handle, j
         pos = pos,
         vel = vel,
         acc = acc,
-        goalHandle = goal_handle,
+        goal_handle = goal_handle,
         goal = g,
         joint_monitor = joint_monitor,
         joint_names = target_joint_names,
@@ -264,37 +297,53 @@ local function moveGripperAction_serverGoal(global_state_summary, goal_handle, j
                 goal_handle:setAccepted('Starting gripper trajectory execution')
                 return true
             else
-                ros.WARN('Status of queued gripper trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
-                return false
-            end
-        end,
-        proceed = function()
-            if goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
-                local fb = goal_handle:createFeeback()
-                fb.reached_goal = false
-                fb.stalled = false
-                local pos = joint_monitor:getPositionsTensor(target_joint_names)
-                fb.position = pos[1]
-                goal_handle:publishFeedback(fb)
-                return true
-            else
                 ros.WARN(
-                    'Goal status of current gripper trajectory no longer ACTIVE (actual: %d).',
+                    'Status of queued gripper trajectory is not pending but %d.',
                     goal_handle:getGoalStatus().status
                 )
                 return false
             end
         end,
-        abort = function(self, msg)
-            goal_handle:setAborted(nil, msg or 'Error')
+        proceed = function(self)
+            if self.goal_handle:getGoalStatus().status == GoalStatus.ACTIVE then
+                local fb = self.goal_handle:createFeeback()
+                fb.reached_goal = false
+                fb.stalled = false
+                local pos = joint_monitor:getPositionsTensor(target_joint_names)
+                fb.position = pos[1]
+                self.goal_handle:publishFeedback(fb)
+                return true
+            else
+                ros.WARN(
+                    'Goal status of current gripper trajectory no longer ACTIVE (actual: %d).',
+                    self.goal_handle:getGoalStatus().status
+                )
+                return false
+            end
         end,
-        completed = function()
-            local r = goal_handle:createResult()
+        cancel = function(self)
+            local status = self.goal_handle:getGoalStatus().status
+            if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
+                self.goal_handle:setCancelRequested()
+            end
+        end,
+        abort = function(self, msg)
+            local status = self.goal_handle:getGoalStatus().status
+            if status == GoalStatus.ACTIVE or status == GoalStatus.PREEMPTING then
+                self.goal_handle:setAborted(nil, msg or 'Error')
+            elseif status == GoalStatus.PENDING or status == GoalStatus.RECALLING then
+                self.goal_handle:setCanceled(nil, msg or 'Error')
+            elseif not isTerminalGoalStatus(status) then
+                ros.ERROR('[abort trajectory] Unexpected goal status: %d', status)
+            end
+        end,
+        completed = function(self)
+            local r = self.goal_handle:createResult()
             r.reached_goal = true
             r.stalled = false
             local pos = joint_monitor:getPositionsTensor(target_joint_names)
             r.position = pos[1]
-            goal_handle:setSucceeded(r, 'Completed')
+            self.goal_handle:setSucceeded(r, 'Completed')
         end
     }
     if traj.pos:nElement() == 0 then -- empty trajectory
@@ -308,7 +357,7 @@ local function moveGripperAction_serverGoal(global_state_summary, goal_handle, j
     end
 end
 
-local function GripperCommand_Cancel(goalHandle)
+local function GripperCommand_Cancel(goal_handle)
     ros.INFO('GripperCommand_Cancel')
     if global_state_summary then
         error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
@@ -343,7 +392,7 @@ local function moveWeissGripperAction_serverGoal(global_state_summary, goal_hand
         pos = pos,
         vel = vel,
         acc = acc,
-        goalHandle = goal_handle,
+        goal_handle = goal_handle,
         goal = g,
         joint_monitor = joint_monitor,
         joint_names = target_joint_names,
@@ -353,7 +402,10 @@ local function moveWeissGripperAction_serverGoal(global_state_summary, goal_hand
                 goal_handle:setAccepted('Starting gripper trajectory execution')
                 return true
             else
-                ros.WARN('Status of queued gripper trajectory is not pending but %d.', goal_handle:getGoalStatus().status)
+                ros.WARN(
+                    'Status of queued gripper trajectory is not pending but %d.',
+                    goal_handle:getGoalStatus().status
+                )
                 return false
             end
         end,
@@ -374,16 +426,29 @@ local function moveWeissGripperAction_serverGoal(global_state_summary, goal_hand
                 return false
             end
         end,
-        abort = function(self, msg)
-            goal_handle:setAborted(nil, msg or 'Error')
+        cancel = function(self)
+            local status = self.goal_handle:getGoalStatus().status
+            if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
+                self.goal_handle:setCancelRequested()
+            end
         end,
-        completed = function()
-            local r = goal_handle:createResult()
+        abort = function(self, msg)
+            local status = self.goal_handle:getGoalStatus().status
+            if status == GoalStatus.ACTIVE or status == GoalStatus.PREEMPTING then
+                self.goal_handle:setAborted(nil, msg or 'Error')
+            elseif status == GoalStatus.PENDING or status == GoalStatus.RECALLING then
+                self.goal_handle:setCanceled(nil, msg or 'Error')
+            elseif not isTerminalGoalStatus(status) then
+                ros.ERROR('[abort trajectory] Unexpected goal status: %d', status)
+            end
+        end,
+        completed = function(self)
+            local r = self.goal_handle:createResult()
             r.reached_goal = true
             r.stalled = false
             local pos = joint_monitor:getPositionsTensor(target_joint_names)
             r.position = pos[1]
-            goal_handle:setSucceeded(r, 'Completed')
+            self.goal_handle:setSucceeded(r, 'Completed')
         end
     }
     if traj.pos:nElement() == 0 then -- empty trajectory
@@ -397,7 +462,7 @@ local function moveWeissGripperAction_serverGoal(global_state_summary, goal_hand
     end
 end
 
-local function WeissGripperCommand_Cancel(goalHandle)
+local function WeissGripperCommand_Cancel(goal_handle)
     ros.INFO('WeissGripperCommand_Cancel')
     if global_state_summary then
         error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
@@ -467,8 +532,8 @@ local function initActions()
             action_server[v.name] =
                 ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'control_msgs/GripperCommand')
         elseif v.type == 'WeissGripperCmd' then
-                action_server[v.name] =
-                    ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'wsg_50_common/Command')
+            action_server[v.name] =
+                ActionServer(node_handle, string.format('%s/%s', v.name, v.action_ns), 'wsg_50_common/Command')
         end
         ns = string.split(action_server[v.name].node:getNamespace(), '/')
     end
@@ -512,14 +577,26 @@ local function initActions()
         elseif v.type == 'GripperCommand' then
             action_server[v.name]:registerGoalCallback(
                 function(gh)
-                    moveGripperAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints, action_server[v.name])
+                    moveGripperAction_serverGoal(
+                        global_state_summary,
+                        gh,
+                        joint_monitor,
+                        v.joints,
+                        action_server[v.name]
+                    )
                 end
             )
             action_server[v.name]:registerCancelCallback(GripperCommand_Cancel)
         elseif v.type == 'WeissGripperCmd' then
             action_server[v.name]:registerGoalCallback(
                 function(gh)
-                    moveWeissGripperAction_serverGoal(global_state_summary, gh, joint_monitor, v.joints, action_server[v.name])
+                    moveWeissGripperAction_serverGoal(
+                        global_state_summary,
+                        gh,
+                        joint_monitor,
+                        v.joints,
+                        action_server[v.name]
+                    )
                 end
             )
             action_server[v.name]:registerCancelCallback(WeissGripperCmd_Cancel)
