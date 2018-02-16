@@ -193,7 +193,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.opt = {stiffness = 10.0, damping = 2.0}
     self.max_vel = nil
     self.max_acc = nil
-    self.max_speed_scaling = 0.5 --50% of the max constraints allowed for jogging
+    self.max_speed_scaling = 0.75 --50% of the max constraints allowed for jogging
     self.speed_scaling = 1.0
     self.command_distance_threshold = 0.05 --m
     self.command_rotation_threshold = math.rad(0.5)
