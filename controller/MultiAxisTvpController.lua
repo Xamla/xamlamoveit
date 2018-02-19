@@ -185,11 +185,12 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt, start
         self.state.vel:copy(start_vel)
     end
 
+    result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
     local T = 2 * dt
     while T > dt / 4 do
+	counter = counter + 1
         T = self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
-        counter = counter + 1
     end
 
     local final_delta = goal - self.state.pos
@@ -197,13 +198,14 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt, start
         local correction_counter = 0
         while final_delta:norm() >= self.convergence_threshold and correction_counter < 33 do
             T = self:update(goal, dt)
+	    counter = counter + 1
             result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
-            counter = counter + 1
             final_delta = goal - self.state.pos
             correction_counter = correction_counter + 1
         end
     end
     assert(final_delta:norm() < self.convergence_threshold, 'Goal distance of generated TVP trajectory is too high.')
+    counter = counter + 1
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
     return result, final_delta
 end
