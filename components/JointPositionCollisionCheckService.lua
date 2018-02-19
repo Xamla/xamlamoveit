@@ -49,7 +49,7 @@ local function queryCollisionCheckServiceHandler(self, request, response, header
     robot_state:enforceBounds() -- nur auf joint model ebene nicht im state
     robot_state:update()
     response.error_codes:resize(#request.points):zero()
-    print(response)
+    --print(response)
     for i = 1, #request.points do
         if #request.joint_names ~= request.points[i].positions:size(1) then
             response.success = false
@@ -67,7 +67,6 @@ local function queryCollisionCheckServiceHandler(self, request, response, header
         robot_state:setVariablePositions(request.points[i].positions, request.joint_names)
         ros.INFO('update state')
         robot_state:update()
-        print(robot_state:getVariablePositions())
         ros.INFO('sync scene')
         self.plan_scene:syncPlanningScene()
         ros.INFO('checks selfcollision')
@@ -89,7 +88,6 @@ local function queryCollisionCheckServiceHandler(self, request, response, header
             response.error_codes[i] = codes.STATE_VALID
         end
         response.success = true
-        print(response)
     end
     return true
 end

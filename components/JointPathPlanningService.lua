@@ -38,9 +38,6 @@ local function initializeMoveGroup(self, group_id, velocity_scaling)
         local cs = manipulator:getCurrentState()
         manipulator:setStartStateToCurrentState()
         local currentPose = manipulator:getCurrentPose():toTensor()
-        print('Current robot pose:')
-        print(currentPose)
-
         printf('MoveIt! initialization done. Current end effector link: "%s"', manipulator:getEndEffectorLink())
         return manipulator
     end

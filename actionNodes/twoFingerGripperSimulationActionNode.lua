@@ -127,8 +127,8 @@ end
 
 local function generateSimpleTvpTrajectory(start, goal, max_velocities, max_accelerations, dt)
     local dim = goal:size(1)
-    print('dim', dim)
-    print('goal', goal)
+    --print('dim', dim)
+    --print('goal', goal)
     local controller = require 'xamlamoveit.controller'.TvpController(dim)
     controller.max_vel:copy(max_velocities)
     controller.max_acc:copy(max_accelerations)

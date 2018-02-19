@@ -73,7 +73,6 @@ local function getControllerConfig(self)
         end
     end
     for i, v in ipairs(config) do
-        print(v)
         for ii, vv in ipairs(v.joints) do
             if table.indexof(self.joint_names, vv) == -1 then
                 self.joint_names[#self.joint_names + 1] = vv
