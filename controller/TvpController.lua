@@ -55,7 +55,7 @@ function TvpController:update(target, dt)
 
         v = math.min(math.max(v, -vmax), vmax) -- limit velocity to max velocity, constant velocity
         v = math.min(math.max(v, v0 - amax * dt), v0 + amax * dt) -- limit acceleration to max acceleration, accelerating
-        
+
         a0[i] = (v - v0) / dt
     end
 
@@ -97,6 +97,16 @@ function TvpController:generateOfflineTrajectory(start, goal, dt, start_vel)
     end
 
     local final_delta = goal - self.state.pos
+    if final_delta:norm() >= self.convergence_threshold then
+        local correction_counter = 0
+        while final_delta:norm() >= self.convergence_threshold and correction_counter < 33 do
+            T = self:update(goal, dt)
+            result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
+            counter = counter + 1
+            final_delta = goal - self.state.pos
+            correction_counter = correction_counter + 1
+        end
+    end
     assert(final_delta:norm() < self.convergence_threshold, 'Goal distance of generated TVP trajectory is too high. ' .. final_delta:norm())
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
     return result, final_delta
