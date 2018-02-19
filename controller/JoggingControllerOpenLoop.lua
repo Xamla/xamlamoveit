@@ -560,7 +560,7 @@ function JoggingControllerOpenLoop:update()
     local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
 
     if self.dt:toSec() * 2 < (ros.Time.now() - self.start_time):toSec() then
-        ros.INFO('reset goals')
+        ros.DEBUG('reset goals')
         resetGoals(self)
     end
 
@@ -722,6 +722,7 @@ function JoggingControllerOpenLoop:reset()
     self.controller.max_vel = self.max_vel
     self.controller.max_acc = self.max_acc
     self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+    resetGoals(self)
     ros.INFO('resetting finished successfully')
     return true
 end
