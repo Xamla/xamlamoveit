@@ -10,19 +10,22 @@ local function queryServiceHandler(self, request, response, header)
         l.name = v
         l.sub_move_group_ids = self.robot_model:getJointModelSubGroupNames(v)
         l.joint_names = self.robot_model:getGroupJointNames(v)
-        local test = {} --self.robot_model:getAttachedEndEffectorNames(v)
+        local attached_end_effectors = self.robot_model:getAttachedEndEffectorNames(v)
         l.end_effector_names = {}
-        local link_name = self.robot_model:getEndEffectorLinkName(v)
-        if #link_name > 0 then
-            table.insert(l.end_effector_names, link_name)
-        end
-        if #test > 0 then
-            for ii, vv in pairs(test) do
-                link_name = vv
-                if #link_name > 0 then
-                    local index = table.indexof(l.end_effector_names, link_name)
-                    if index < 0 then
-                        table.insert(l.end_effector_names, link_name)
+        l.end_effector_link_names = {}
+
+        local name, suc = self.robot_model:getGroupEndEffectorName(v)
+        if suc then
+            if name == '' and #attached_end_effectors > 0 then
+                name = attached_end_effectors[1]
+            end
+            if name ~= '' then
+                local link_name, suc = self.robot_model:getEndEffectorLinkName(name)
+                if suc then
+                    print('GroupName:', v, 'EndEffectorName', name, 'LinkName:', link_name)
+                    if #link_name > 0 then
+                        table.insert(l.end_effector_link_names, link_name)
+                        table.insert(l.end_effector_names, name)
                     end
                 end
             end

@@ -142,7 +142,8 @@ function MotionService:queryAvailableMoveGroups()
             details[v.name] = {
                 sub_move_group_ids = v.sub_move_group_ids,
                 joint_names = v.joint_names,
-                end_effector_names = v.end_effector_names
+                end_effector_names = v.end_effector_names,
+                end_effector_link_names = v.end_effector_link_names
             }
             names[i] = v.name
         end
