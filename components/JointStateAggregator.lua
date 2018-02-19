@@ -110,7 +110,7 @@ end
 function JointStateAggregator:onProcess()
     local ok, p = self.joint_monitor:getNextPositionsTensor(0.1)
     if not ok then
-        ros.ERROR('[onProcess] exceeded timeout for next robot joint state!!!!!!!!!!!')
+        ros.ERROR_THROTTLE('JointStateAggregator:onProcess', 1, '[onProcess] exceeded timeout for next robot joint state!')
     end
     if self.last_joint_state then
         self.last_joint_state:copy(p)

@@ -624,7 +624,7 @@ function JoggingControllerOpenLoop:update()
 
         local rel_poseAB = rel_tmp_pose:clone()
         if rel_poseAB:getOrigin():norm() > self.command_distance_threshold * dt * 2 then
-            print(rel_poseAB:toTensor())
+            --print(rel_poseAB:toTensor())
             local off = rel_poseAB:getOrigin()
             off:div(off:norm()):mul(self.command_distance_threshold * dt * 2 )
             rel_poseAB:setOrigin(off)
@@ -642,7 +642,6 @@ function JoggingControllerOpenLoop:update()
         end
 
         local rel_poseAB = self.target_pose:mul(self.current_pose:inverse())
-        print(self.lastCommandJointPositions)
         if q_dot.values:norm() > 1 or rel_poseAB:getOrigin():norm() > self.command_distance_threshold then
             ros.ERROR('detected jump in IK. ')
             self.feedback_message.error_code = -1
