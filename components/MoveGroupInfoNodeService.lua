@@ -10,7 +10,7 @@ local function queryServiceHandler(self, request, response, header)
         l.name = v
         l.sub_move_group_ids = self.robot_model:getJointModelSubGroupNames(v)
         l.joint_names = self.robot_model:getGroupJointNames(v)
-        local test = self.robot_model:getAttachedEndEffectorNames(v)
+        local test = {} --self.robot_model:getAttachedEndEffectorNames(v)
         l.end_effector_names = {}
         local link_name = self.robot_model:getEndEffectorLinkName(v)
         if #link_name > 0 then
