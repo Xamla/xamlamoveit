@@ -10,7 +10,7 @@ local function queryServiceHandler(self, request, response, header)
         l.name = v
         l.sub_move_group_ids = self.robot_model:getJointModelSubGroupNames(v)
         l.joint_names = self.robot_model:getGroupJointNames(v)
-        local test = self.robot_model:getGroupEndEffectorNames(v)
+        local test = self.robot_model:getAttachedEndEffectorNames(v)
         l.end_effector_names = {}
         local link_name = self.robot_model:getEndEffectorLinkName(v)
         if #link_name > 0 then
@@ -108,7 +108,7 @@ function MoveGroupInfoNodeService:onInitialize()
     self.all_EE_parent_group_names, self.all_EE_parent_link_names = self.robot_model:getEndEffectorParentGroups()
     self.all_group_joint_names = self.robot_model:getJointModelGroupNames()
     local pos_lim, vel_lim, acc_lim = self.robot_model:getVariableBounds()
-    self.variable_names = self.robot_model:getVariableNames()
+    self.variable_names = self.robot_model:getActiveJointNames()
     setLimits2ParmeterServer(self, pos_lim, vel_lim, acc_lim)
 end
 

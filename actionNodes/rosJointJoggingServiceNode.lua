@@ -169,7 +169,7 @@ local function joggingServer(name)
     local nh = node_handle
     local ns = nh:getNamespace()
     local psi = moveit.PlanningSceneInterface()
-    local dt = ros.Duration(1 / 125)
+    local dt = ros.Rate(125)
     ros.INFO('Get robot description for robot model.')
     local robot_model_loader = moveit.RobotModelLoader('robot_description')
     local robot_model = robot_model_loader:getModel()
@@ -195,7 +195,7 @@ local function joggingServer(name)
     ros.INFO('get move group interface')
 
 
-    local joint_monitor = core.JointMonitor(robot_model:getVariableNames():totable())
+    local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable())
     local ready = false
     local once = true
     while not ready and ros.ok() do

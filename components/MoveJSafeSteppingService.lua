@@ -95,7 +95,7 @@ function MoveJSafeSteppingService:onInitialize()
         l.name = v
         l.sub_move_group_ids = self.robot_model:getJointModelSubGroupNames(v)
         l.joint_names = self.robot_model:getGroupJointNames(v)
-        l.end_effector_names = self.robot_model:getGroupEndEffectorNames(v)
+        l.end_effector_names = {self.robot_model:getGroupEndEffectorName(v)}
         table.insert(self.detailed_moveit_setup, l)
     end
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)

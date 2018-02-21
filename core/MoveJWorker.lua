@@ -105,7 +105,7 @@ function MoveJWorker:__init(nh)
     self.robot_model = self.robot_model_loader:getModel()
     self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
     self.plan_scene:syncPlanningScene()
-    self.joint_monitor = core.JointMonitor(self.robot_model:getVariableNames():totable())
+    self.joint_monitor = core.JointMonitor(self.robot_model:getActiveJointNames():totable())
     local once = true
     local ready = false
     while not ready and ros.ok() do
