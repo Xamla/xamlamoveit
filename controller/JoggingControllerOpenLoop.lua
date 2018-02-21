@@ -4,8 +4,8 @@ local tf = ros.tf
 local planning = require 'xamlamoveit.planning'
 local core = require 'xamlamoveit.core'
 local datatypes = require 'xamlamoveit.datatypes'
---local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
-local tvpController = require 'xamlamoveit.controller.MultiAxisCppController'
+local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
+local tvpPoseController = require 'xamlamoveit.controller.MultiAxisCppController'
 local xutils = require 'xamlamoveit.xutils'
 local transformListener
 function math.sign(x)
@@ -121,6 +121,7 @@ local function sendFeedback(self)
     local tmp = torch.zeros(6)
     tmp[{{1, 3}}]:copy(rel_pose:getOrigin())
     tmp[{{4, 6}}]:copy(rel_pose:getRotation():getAxisAngle())
+    tmp:apply(function(x) if x ~= x then return 0 end end)           -- replace nan values by 0
     self.feedback_message.cartesian_distance:set(tmp)
     self.feedback_message.converged = self.controller.converged
     self.publisher_feedback:publish(self.feedback_message)
@@ -166,6 +167,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
         self.joint_monitor:getPositionsOrderedTensor(self.joint_set.joint_names)
     )
     self.controller = tvpController.new(#self.joint_set.joint_names)
+    self.position_controller = tvpPoseController.new(3)
 
     if torch.type(dt) == 'number' or torch.type(dt) == 'nil' then
         self.dt = ros.Duration(dt)
@@ -190,7 +192,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.subscriber_twist_goal = nil
     self.publisher_feedback = nil
     self.mode = 0
-    self.opt = {stiffness = 10.0, damping = 2.0}
+    self.opt = {stiffness = 1.0, damping = 2.0}
     self.max_vel = nil
     self.max_acc = nil
     self.max_speed_scaling = 0.75 --50% of the max constraints allowed for jogging
@@ -286,8 +288,8 @@ function JoggingControllerOpenLoop:getTwistGoal()
             local transform
             success, transform = lookupPose(msg.header.frame_id, 'world')
             if success then
-                twist[{{1, 3}}] = transform:getBasis() * twist[{{1, 3}}]
-                twist[{{4, 6}}] = transform:getBasis() * twist[{{4, 6}}]
+                twist[{{1, 3}}] = transform:getBasis() * twist[{{1, 3}}] * 0.1
+                twist[{{4, 6}}] = transform:getBasis() * twist[{{4, 6}}] * math.rad(5)
                 twist:mul(self.speed_scaling)
             else
                 twist:zero()
@@ -400,6 +402,13 @@ function JoggingControllerOpenLoop:setSpeedScaling(value)
     self.speed_scaling = math.max(0.001, math.min(1, value))
     self.controller.max_vel = self.max_vel * self.speed_scaling
     self.controller.max_acc = self.max_acc
+    self.position_controller.max_vel[1] = 0.01 --1cm/s
+    self.position_controller.max_vel[2] = 0.01 --1cm/s
+    self.position_controller.max_vel[3] = 0.01 --1cm/s
+    self.position_controller.max_acc[1] = 0.001 --1cm/s^2
+    self.position_controller.max_acc[2] = 0.001 --1cm/s^2
+    self.position_controller.max_acc[3] = 0.001 --1cm/s^2
+    self.controller.max_vel:mul(self.speed_scaling)
 end
 
 function JoggingControllerOpenLoop:connect(joint_topic, pose_topic, twist_topic)
@@ -463,12 +472,12 @@ function JoggingControllerOpenLoop:getStep(D_force, D_torques, timespan)
     --stiffness and damping
     local s = timespan or ros.Duration(0.0)
     local offset = -D_force / (K + D * s:toSec())
-    local x_rot_des = (-D_torques / (K + D * s:toSec())) -- want this in EE KO
+    local rot_offset = (-D_torques / (K + D * s:toSec())) -- want this in EE KO
     local suc
 
     local vel6D = torch.DoubleTensor(6)
     vel6D[{{1, 3}}]:copy(offset)
-    vel6D[{{4, 6}}]:copy(x_rot_des)
+    vel6D[{{4, 6}}]:copy(rot_offset)
     local q_dot_des, jacobian = self:getQdot(vel6D * self.dt:toSec())
 
     ros.DEBUG(string.format('-------------> time: %d', s:toSec()))
@@ -521,6 +530,16 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
     if #link_name > 0 then
         self.start_time = ros.Time.now()
         self.target_pose = pose_goal:clone()
+        self.position_controller:update(pose_goal:getOrigin(), self.dt:toSec())
+
+        local current_rotation = self.current_pose:getRotation()
+        local target_rotation = pose_goal:getRotation()
+        local to_go = (pose_goal:getOrigin() - self.current_pose:getOrigin()):norm()
+        local step = (self.current_pose:getOrigin() - self.position_controller.state.pos):norm() / to_go
+        local result_rotation = current_rotation:slerp(target_rotation, step)
+        self.target_pose:setOrigin(self.position_controller.state.pos)
+        self.target_pose:setRotation(result_rotation)
+
         local state = self.state:clone()
         state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), pose_goal:toTransform())
         posture_goal =
@@ -543,6 +562,8 @@ function JoggingControllerOpenLoop:update()
         --self.target_pose = self.current_pose:clone()
         self.controller:reset()
         self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+        self.position_controller:reset()
+        self.position_controller.state.pos:copy(self.current_pose:getOrigin())
     else
         self.state:setVariablePositions(
             self.lastCommandJointPositions.values,
@@ -587,7 +608,7 @@ function JoggingControllerOpenLoop:update()
             ros.ERROR('transformation from pose to posture failed')
         end
 
-        if q_dot.values:norm() > 1 then
+        if torch.abs(q_dot.values):gt(math.pi/2):sum() > 1 then
             ros.ERROR('detected jump in IK. ')
             self.feedback_message.error_code = -1
             q_dot.values:zero()
@@ -615,12 +636,15 @@ function JoggingControllerOpenLoop:update()
         local rel_tmp_pose = tf.StampedTransform()
         local dt = self.dt:toSec()
 
+        local pos_offset = twist_goal[{{1, 3}}]
+        local rot_offset = twist_goal[{{4, 6}}]
+
         local quaternion = rel_tmp_pose:getRotation()
-        if (twist_goal[{{4, 6}}]):norm() > 0 then
-            quaternion:setRotation(twist_goal[{{4, 6}}] * dt, (twist_goal[{{4, 6}}] * dt):norm())
+        if (rot_offset):norm() > 0 then
+            quaternion:setRotation(rot_offset * dt, (rot_offset * dt):norm())
         end
         rel_tmp_pose:setRotation(quaternion)
-        rel_tmp_pose:setOrigin(twist_goal[{{1, 3}}])
+        rel_tmp_pose:setOrigin(pos_offset * dt)
 
         local rel_poseAB = rel_tmp_pose:clone()
         if rel_poseAB:getOrigin():norm() > self.command_distance_threshold * dt * 2 then
@@ -641,8 +665,7 @@ function JoggingControllerOpenLoop:update()
             ros.ERROR('transformation from pose to posture failed')
         end
 
-        local rel_poseAB = self.target_pose:mul(self.current_pose:inverse())
-        if q_dot.values:norm() > 1 or rel_poseAB:getOrigin():norm() > self.command_distance_threshold then
+        if torch.abs(q_dot.values):gt(math.pi/2):sum() > 1 then
             ros.ERROR('detected jump in IK. ')
             self.feedback_message.error_code = -1
             q_dot.values:zero()
@@ -660,6 +683,8 @@ function JoggingControllerOpenLoop:update()
         self.lastCommandJointPositions.values:copy(self.controller.state.pos)
         self.controller:reset()
         self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+        self.position_controller:reset()
+        self.position_controller.state.pos:copy(self.current_pose:getOrigin())
         q_dot.values:zero()
         timeout_b = true
         ros.DEBUG('timeout')
