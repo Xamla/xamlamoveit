@@ -1,6 +1,7 @@
 local ros = require 'ros'
 local moveit = require 'moveit'
 require 'xamlamoveit.core.MoveJWorker'
+require 'xamlamoveit.xutils'
 local TrajectoryExecutionRequest = require 'xamlamoveit.components.TrajectoryExecutionRequest'
 
 require 'ros.actionlib.ActionServer'
@@ -32,7 +33,7 @@ local function CancelCallBack(self, goal_handle)
         ros.INFO('\tCancel queued trajectory')
         -- check if trajectory is in trajectoryQueue
         local i =
-            findIndex(
+            table.findIndex(
             self.worker.trajectoryQueue,
             function(x)
                 return x.goal_handle == goal_handle

@@ -193,7 +193,7 @@ local function FollowJointTrajectory_Cancel(goal_handle)
         ros.INFO('\tCancel queued trajectory')
         -- check if trajectory is in trajectoryQueue
         local i =
-            findIndex(
+            table.findIndex(
             worker.trajectoryQueue,
             function(x)
                 return x.goal_handle == goal_handle
