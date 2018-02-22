@@ -173,13 +173,15 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
         self.dt = ros.Duration(dt)
     elseif torch.type(dt) == 'nil' then
         self.dt = ros.Duration(0.01)
-    elseif torch.type(dt) == 'ros.Duration' then
+    elseif torch.isTypeOf(dt, ros.Rate) then
+        self.dt = ros.Duration(dt:expectedCycleTime())
+    elseif torch.type(dt, ros.Duration) then
         self.dt = dt
     else
         error('dt has unsupported type')
     end
 
-    self.ctrl = planning.MoveitPlanning(node_handle, move_group, dt)
+    self.ctrl = planning.MoveitPlanning(node_handle, move_group, self.dt)
     self.start_time = ros.Time.now()
 
     self.controller_list = ctr_list
