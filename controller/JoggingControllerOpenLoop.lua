@@ -5,7 +5,9 @@ local planning = require 'xamlamoveit.planning'
 local core = require 'xamlamoveit.core'
 local datatypes = require 'xamlamoveit.datatypes'
 local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
-local tvpPoseController = require 'xamlamoveit.controller.MultiAxisCppController'
+--local tvpController = require 'xamlamoveit.controller.MultiAxisCppController'
+local tvpPoseController = require 'xamlamoveit.controller.MultiAxisTvpController2'
+--local tvpPoseController = require 'xamlamoveit.controller.MultiAxisCppController'
 local xutils = require 'xamlamoveit.xutils'
 local transformListener
 function math.sign(x)
@@ -404,13 +406,15 @@ function JoggingControllerOpenLoop:setSpeedScaling(value)
     self.speed_scaling = math.max(0.001, math.min(1, value))
     self.controller.max_vel = self.max_vel * self.speed_scaling
     self.controller.max_acc = self.max_acc
+    self.controller.max_vel:mul(self.speed_scaling)
+
     self.position_controller.max_vel[1] = 0.01 --1cm/s
     self.position_controller.max_vel[2] = 0.01 --1cm/s
     self.position_controller.max_vel[3] = 0.01 --1cm/s
-    self.position_controller.max_acc[1] = 0.001 --1cm/s^2
-    self.position_controller.max_acc[2] = 0.001 --1cm/s^2
-    self.position_controller.max_acc[3] = 0.001 --1cm/s^2
-    self.controller.max_vel:mul(self.speed_scaling)
+    self.position_controller.max_acc[1] = 0.1 --1cm/s^2
+    self.position_controller.max_acc[2] = 0.1 --1cm/s^2
+    self.position_controller.max_acc[3] = 0.1 --1cm/s^2
+    self.position_controller.max_vel:mul(self.speed_scaling)
 end
 
 function JoggingControllerOpenLoop:connect(joint_topic, pose_topic, twist_topic)
@@ -532,20 +536,27 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
     if #link_name > 0 then
         self.start_time = ros.Time.now()
         self.target_pose = pose_goal:clone()
-        self.position_controller:update(pose_goal:getOrigin(), self.dt:toSec())
+        self.position_controller:update(pose_goal:getOrigin(), self.dt:toSec()*4)
 
         local current_rotation = self.current_pose:getRotation()
         local target_rotation = pose_goal:getRotation()
         local to_go = (pose_goal:getOrigin() - self.current_pose:getOrigin()):norm()
-        local step = (self.current_pose:getOrigin() - self.position_controller.state.pos):norm() / to_go
-        local result_rotation = current_rotation:slerp(target_rotation, step)
-        self.target_pose:setOrigin(self.position_controller.state.pos)
-        self.target_pose:setRotation(result_rotation)
-
+        if to_go > 0 then
+            local step = (self.current_pose:getOrigin() - self.position_controller.state.pos):norm() / to_go
+            local result_rotation = current_rotation:slerp(target_rotation, step)
+            self.target_pose:setOrigin(self.position_controller.state.pos)
+            self.target_pose:setRotation(result_rotation)
+        else
+            --todo what about rotation??
+        end
         local state = self.state:clone()
-        state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), pose_goal:toTransform())
+        local suc = state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), self.target_pose:toTransform())
+        if suc then
         posture_goal =
             createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(joint_names)
+        else
+            ros.ERROR("Could not set IK solution.")
+        end
     else
         ros.WARN("Cannot uses this move group: '%s' since it has no EndEffector Link. ")
     end
@@ -558,7 +569,7 @@ function JoggingControllerOpenLoop:update()
     local status_msg = 'OK'
     local q_dot = self.lastCommandJointPositions:clone()
     q_dot.values:zero()
-    if self.controller.converged then
+    if self.controller.converged == true and self.dt:toSec()  < (ros.Time.now() - self.start_time):toSec() then
         self.mode = 0
         self:getNewRobotState()
         --self.target_pose = self.current_pose:clone()
@@ -573,6 +584,7 @@ function JoggingControllerOpenLoop:update()
         )
         self.state:update()
         self.current_pose = self:getCurrentPose()
+        self.position_controller.state.pos:copy(self.current_pose:getOrigin()) --feedback current position to xyz controller
     end
     local curr_time = ros.Time.now()
     -- Handle goals
@@ -596,13 +608,14 @@ function JoggingControllerOpenLoop:update()
         end
         local rel_poseAB = pose_goal:clone()
         rel_poseAB = rel_poseAB:mul(self.current_pose:inverse())
-        if rel_poseAB:getOrigin():norm() > self.command_distance_threshold then
+        local thresh = self.command_distance_threshold * self.speed_scaling *10
+        if rel_poseAB:getOrigin():norm() > thresh then
             local off = rel_poseAB:getOrigin()
-            off:div(off:norm()):mul(self.command_distance_threshold)
+            off:div(off:norm()):mul(thresh)
             rel_poseAB:setOrigin(off)
         end
         local tmp = tf.StampedTransform(rel_poseAB:mul(self.current_pose))
-        local posture_tmp_goal = transformPose2PostureTarget(self,tmp , q_dot:getNames())
+        local posture_tmp_goal = transformPose2PostureTarget(self, tmp, q_dot:getNames())
         if posture_tmp_goal and self.lastCommandJointPositions then
             q_dot = posture_tmp_goal - self.lastCommandJointPositions
             self.mode = 1
@@ -635,6 +648,10 @@ function JoggingControllerOpenLoop:update()
         elseif self.goals.twist_goal then
             twist_goal = self.goals.twist_goal:clone()
         end
+        if twist_goal:norm() < 1e-12 then
+            self.position_controller:reset()
+            self.position_controller.state.pos:copy(self.current_pose:getOrigin())
+        end
         local rel_tmp_pose = tf.StampedTransform()
         local dt = self.dt:toSec()
 
@@ -649,13 +666,14 @@ function JoggingControllerOpenLoop:update()
         rel_tmp_pose:setOrigin(pos_offset * dt)
 
         local rel_poseAB = rel_tmp_pose:clone()
-        if rel_poseAB:getOrigin():norm() > self.command_distance_threshold * dt * 2 then
+        local thresh = self.command_distance_threshold * self.speed_scaling
+        if rel_poseAB:getOrigin():norm() > thresh then
             --print(rel_poseAB:toTensor())
             local off = rel_poseAB:getOrigin()
-            off:div(off:norm()):mul(self.command_distance_threshold * dt * 2 )
+            off:mul(thresh/off:norm())
             rel_poseAB:setOrigin(off)
         end
-        local tmp = tf.StampedTransform(rel_poseAB:mul(self.current_pose))
+        local tmp = tf.StampedTransform()
         tmp:setOrigin(rel_poseAB:getOrigin() + self.current_pose:getOrigin() )
         tmp:setRotation(rel_poseAB:getRotation() * self.current_pose:getRotation())
         local posture_tmp_goal = transformPose2PostureTarget(self, tmp, q_dot:getNames())
@@ -668,7 +686,7 @@ function JoggingControllerOpenLoop:update()
         end
 
         if torch.abs(q_dot.values):gt(math.pi/2):sum() > 1 then
-            ros.ERROR('detected jump in IK. ')
+            ros.ERROR('[twist] detected jump in IK. In %d number of joints threshold was exceeded.', torch.abs(q_dot.values):gt(math.pi/2):sum())
             self.feedback_message.error_code = -1
             q_dot.values:zero()
         end
@@ -693,15 +711,18 @@ function JoggingControllerOpenLoop:update()
     end
 
     local q_des = self.lastCommandJointPositions:clone()
-    if not self.controller.converged and not timeout_b then
+    if self.controller.converged == false and timeout_b == false then
         q_des:add(q_dot)
+        ros.DEBUG('Locking')
     else
         self.mode = 0
     end
-    ros.DEBUG('Locking')
-    if tryLock(self) then
+    if self.mode > 0 and tryLock(self) then
         self:tracking(q_des)
+    else
+        tryLock(self) -- lock resouce since jogging node is still active
     end
+
     ros.DEBUG('Feedback')
     sendFeedback(self)
     return true, status_msg
@@ -748,6 +769,8 @@ function JoggingControllerOpenLoop:reset()
     self.controller.max_vel = self.max_vel
     self.controller.max_acc = self.max_acc
     self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+    self.position_controller:reset()
+    self.position_controller.state.pos:copy(self.current_pose:getOrigin())
     resetGoals(self)
     ros.INFO('resetting finished successfully')
     return true

@@ -169,7 +169,7 @@ local function joggingServer(name)
     local nh = node_handle
     local ns = nh:getNamespace()
     local psi = moveit.PlanningSceneInterface()
-    local dt = ros.Rate(125)
+    local dt = ros.Rate(33)
     ros.INFO('Get robot description for robot model.')
     local robot_model_loader = moveit.RobotModelLoader('robot_description')
     local robot_model = robot_model_loader:getModel()
