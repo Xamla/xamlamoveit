@@ -11,6 +11,7 @@ GenericRosGripperClient.ERROR_TYPE = {
   GRIPPER_STALLED = "GRIPPER_STALLED",
   DID_NOT_REACH_GOAL = "DID_NOT_REACH_GOAL",
   NO_RESULT_RECEIVED = "NO_RESULT_RECEIVED",
+  INITIALIZATION_FAILED = "INITIALIZATION_FAILED",
   UNKNOWN_ERROR = "UNKOWN_ERROR"
 }
 
@@ -25,7 +26,8 @@ function GenericRosGripperClient:__init(node_handle, gripper_action_name)
 
   local ok, err = pcall(function() initializeActionClient(self, gripper_action_name) end)
   if not ok then
-    error('Initialization of gripper action client has failed: ' .. err)
+    ros.ERROR('Initialization of gripper action client has failed: ' .. err)
+    error(GenericRosGripperClient.ERROR_TYPE.INITIALIZATION_FAILED)
   end
 end
 
