@@ -47,30 +47,30 @@ end
 
 
 function GenericRosGripperClient:waitForMove(execute_timeout_in_s)
-    local state = self:waitForResult(execute_timeout_in_s)
-    local result = self.action_client:getResult()
+  local state = self:waitForResult(execute_timeout_in_s)
+  local result = self.action_client:getResult()
 
-    -- Check if gripper has been homed successful
-    if state == 7 and result ~= nil and result.stalled == false and result.reached_goal == true then
-      ros.INFO("Executed move command successfully")
+  -- Check if gripper has been homed successful
+  if state == 7 and result ~= nil and result.stalled == false and result.reached_goal == true then
+    ros.INFO("Executed move command successfully")
+  else
+    if result == nil then
+      ros.ERROR("Result message from action server was empty.")
+      error(GenericRosGripperClient.error_type.NO_RESULT_RECEIVED)
+    elseif state ~= 7 then
+      ros.ERROR("Action has not been suceeded and is in state: %s", SimpleClientGoalState[state])
+      error(GenericRosGripperClient.error_type.ACTION_NOT_DONE)
+    elseif result.stalled == true then
+      ros.ERROR("Gripper reports that it is stalled.")
+      error(GenericRosGripperClient.error_type.GRIPPER_STALLED)
+    elseif result.reached_goal == false then
+      ros.ERROR("Gripper reports that it has not reached the goal.")
+      error(GenericRosGripperClient.error_type.DID_NOT_REACH_GOAL)
     else
-      if result == nil then
-        ros.ERROR("Result message from action server was empty.")
-        error(GenericRosGripperClient.error_type.NO_RESULT_RECEIVED)
-      elseif state ~= 7 then
-        ros.ERROR("Action has not been suceeded and is in state: %s", SimpleClientGoalState[state])
-        error(GenericRosGripperClient.error_type.ACTION_NOT_DONE)
-      elseif result.stalled == true then
-        ros.ERROR("Gripper reports that it is stalled.")
-        error(GenericRosGripperClient.error_type.GRIPPER_STALLED)
-      elseif result.reached_goal == false then
-        ros.ERROR("Gripper reports that it has not reached the goal.")
-        error(GenericRosGripperClient.error_type.DID_NOT_REACH_GOAL)
-      else
-        ros.ERROR("An unkown error has ocurred.")
-        error(GenericRosGripperClient.error_type.UNKNOWN_ERROR)
-      end
+      ros.ERROR("An unkown error has ocurred.")
+      error(GenericRosGripperClient.error_type.UNKNOWN_ERROR)
     end
+  end
 end
 
 
