@@ -82,7 +82,7 @@ local function initializeActionServerAndServices(self)
   )
 
   -- Intialize action server
-  self.action_server = actionlib.ActionServer(self.node_handle, 'gripper_command', 'wsg_50_common/Command')
+  self.action_server = actionlib.ActionServer(self.node_handle, 'gripper_control', 'wsg_50_common/Command')
   self.action_server:registerGoalCallback(
     function(goal_handle) self:handleGoalCallback(goal_handle) end
   )
