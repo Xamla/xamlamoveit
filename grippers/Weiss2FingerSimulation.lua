@@ -4,14 +4,14 @@ local core = xamlamoveit.core
 local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
 local grippers = require 'xamlamoveit.grippers.env'
-local Weiss2FingerSimActionServer = torch.class('xamlamoveit.grippers.Weiss2FingerSimulation', grippers)
+local WeissTwoFingerSimulation = torch.class('xamlamoveit.grippers.WeissTwoFingerSimulation', grippers)
 
-Weiss2FingerSimActionServer.ERROR_TYPE = {
+WeissTwoFingerSimulation.ERROR_TYPE = {
   INITIALIZATION_FAILED = 'INITIALIZATION_FAILED',
   JOINT_MONITOR_NOT_READY = 'JOINT_MONITOR_NOT_READY'
 }
 
-Weiss2FingerSimActionServer.GRASPING_STATE_ID = {
+WeissTwoFingerSimulation.GRASPING_STATE_ID = {
   IDLE = 0,
   GRASPING = 1,
   NO_PART_FOUND = 2,
@@ -22,18 +22,18 @@ Weiss2FingerSimActionServer.GRASPING_STATE_ID = {
   ERROR = 7
 }
 
-Weiss2FingerSimActionServer.GRASPING_STATE = {
+WeissTwoFingerSimulation.GRASPING_STATE = {
   "IDLE", "GRASPING", "NO_PART_FOUND", "PART_LOST", "HOLDING", "RELEASING", "RELEASING", "ERROR"
 }
 
-Weiss2FingerSimActionServer.COMMAND_ID = {
+WeissTwoFingerSimulation.COMMAND_ID = {
   MOVE = 101,
   GRASP = 102,
   RELEASE = 103,
   HOMING = 104
 }
 
-Weiss2FingerSimActionServer.WORKER_RESPONSE = {
+WeissTwoFingerSimulation.WORKER_RESPONSE = {
   COMPLETED = 0,
   ABORTED = 1,
   CANCELED = 2
@@ -106,7 +106,7 @@ local function initializeActionServerAndServices(self)
       end
       if counter > 30 then
           ros.ERROR('Joint monitor did not get ready in the desired time. Failed to receive update for joint: %s', gripper_joint_name)
-          error(Weiss2FingerSimActionServer.ERROR_TYPE.JOINT_MONITOR_NOT_READY)
+          error(WeissTwoFingerSimulation.ERROR_TYPE.JOINT_MONITOR_NOT_READY)
       end
   end
 
@@ -115,13 +115,13 @@ local function initializeActionServerAndServices(self)
 end
 
 
-function Weiss2FingerSimActionServer:__init(node_handle, joint_command_namespace, actuated_joint_name)
+function WeissTwoFingerSimulation:__init(node_handle, joint_command_namespace, actuated_joint_name)
   self.joint_command_namespace = joint_command_namespace
   self.actuated_joint_name = actuated_joint_name
   self.node_handle = node_handle
   self.gripper_sim = gripper_sim
   self.current_state = {
-    grasping_state_id = Weiss2FingerSimActionServer.GRASPING_STATE_ID.IDLE,
+    grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE,
     moving_gripper = false
   }
   self.default_values = {
@@ -130,20 +130,20 @@ function Weiss2FingerSimActionServer:__init(node_handle, joint_command_namespace
 
   local ok, err = pcall(function() initializeActionServerAndServices(self) end)
   if not ok then
-    ros.ERROR(string.format('Initialization of Weiss2FingerSimActionServer has failed: %s', err))
-    error(Weiss2FingerSimActionServer.ERROR_TYPE.INITIALIZATION_FAILED)
+    ros.ERROR(string.format('Initialization of WeissTwoFingerSimulation has failed: %s', err))
+    error(WeissTwoFingerSimulation.ERROR_TYPE.INITIALIZATION_FAILED)
   end
 end
 
 
-function Weiss2FingerSimActionServer:dispatchJointCommand(joint_value)
+function WeissTwoFingerSimulation:dispatchJointCommand(joint_value)
   local callbacks = {
     accept = function() return true end,
     proceed = function() return self.current_state.proceed end,
-    cancel = function() self:handleJointCommandFinished(Weiss2FingerSimActionServer.WORKER_RESPONSE.CANCELED) end,
-    abort = function() self:handleJointCommandFinished(Weiss2FingerSimActionServer.WORKER_RESPONSE.ABORTED) end,
+    cancel = function() self:handleJointCommandFinished(WeissTwoFingerSimulation.WORKER_RESPONSE.CANCELED) end,
+    abort = function() self:handleJointCommandFinished(WeissTwoFingerSimulation.WORKER_RESPONSE.ABORTED) end,
     completed = function(traj)
-      self:handleJointCommandFinished(Weiss2FingerSimActionServer.WORKER_RESPONSE.COMPLETED, traj)
+      self:handleJointCommandFinished(WeissTwoFingerSimulation.WORKER_RESPONSE.COMPLETED, traj)
     end
   }
   self.joint_command_worker:setCallbacks(callbacks)
@@ -151,25 +151,25 @@ function Weiss2FingerSimActionServer:dispatchJointCommand(joint_value)
 end
 
 
-function Weiss2FingerSimActionServer:handleCancleCallback(goal_handle)
+function WeissTwoFingerSimulation:handleCancleCallback(goal_handle)
   if self.current_state.moving_gripper == true then
     self.current_state.proceed = false
   end
 end
 
 
-function Weiss2FingerSimActionServer:handleEmptyService(request, response, header)
+function WeissTwoFingerSimulation:handleEmptyService(request, response, header)
   return true
 end
 
 
-function Weiss2FingerSimActionServer:handleGetStatus(request, response, header)
+function WeissTwoFingerSimulation:handleGetStatus(request, response, header)
   response.status = self.gripper_sim:getStatusResponse()
   return true
 end
 
 
-function Weiss2FingerSimActionServer:handleGoalCallback(goal_handle)
+function WeissTwoFingerSimulation:handleGoalCallback(goal_handle)
   if goal_handle ~= nil and goal_handle.goal ~= nil then
     print(goal_handle.goal)
     if self.current_state.moving_gripper == true then
@@ -177,20 +177,20 @@ function Weiss2FingerSimActionServer:handleGoalCallback(goal_handle)
       return
     end
 
-    if self.current_state.grasping_state_id == Weiss2FingerSimActionServer.GRASPING_STATE_ID.ERROR then
+    if self.current_state.grasping_state_id == WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR then
       goal_command:setRejected('Gripper is in error state. You need to call the acknowlede_error service.')
       return
     end
 
     print(goal_handle.goal.goal.command)
     local goal_command = goal_handle.goal.goal.command
-    if goal_command.command_id == Weiss2FingerSimActionServer.COMMAND_ID.MOVE then
+    if goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.MOVE then
       self:handleMoveCommand(goal_handle)
-    elseif goal_command.command_id == Weiss2FingerSimActionServer.COMMAND_ID.GRASP then
+    elseif goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.GRASP then
       self:handleGraspCommand(goal_handle)
-    elseif goal_command.command_id == Weiss2FingerSimActionServer.COMMAND_ID.RELEASE then
+    elseif goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.RELEASE then
       self:handleMoveCommand(goal_handle)
-    elseif goal_command.command_id == Weiss2FingerSimActionServer.COMMAND_ID.HOMING then
+    elseif goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.HOMING then
       goal_handle.goal.goal.command.width = 0
       self:handleMoveCommand(goal_handle)
     else
@@ -203,9 +203,9 @@ function Weiss2FingerSimActionServer:handleGoalCallback(goal_handle)
 end
 
 
-function Weiss2FingerSimActionServer:handleGraspCommand(goal_handle)
+function WeissTwoFingerSimulation:handleGraspCommand(goal_handle)
   local goal_command = goal_handle.goal.goal.command
-  self.current_state.target_grasping_state_id = Weiss2FingerSimActionServer.GRASPING_STATE_ID.HOLDING
+  self.current_state.target_grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.HOLDING
   self.current_state.target_force = self.default_values.grasping_force
   self.current_state.time_of_joint_command = ros.Time.now()
   self.current_state.goal_handle = goal_handle
@@ -216,7 +216,7 @@ function Weiss2FingerSimActionServer:handleGraspCommand(goal_handle)
 end
 
 
-function Weiss2FingerSimActionServer:handleJointCommandFinished(worker_response, trajectory)
+function WeissTwoFingerSimulation:handleJointCommandFinished(worker_response, trajectory)
   self.current_state.moving_gripper = false
 
   if self.current_state.goal_handle == nil then
@@ -230,20 +230,20 @@ function Weiss2FingerSimActionServer:handleJointCommandFinished(worker_response,
   result.status.return_code = 0
   result.status.connection_state = 1
 
-  if worker_response == Weiss2FingerSimActionServer.WORKER_RESPONSE.COMPLETED then
+  if worker_response == WeissTwoFingerSimulation.WORKER_RESPONSE.COMPLETED then
     self.current_state.grasping_state_id = self.current_state.target_grasping_state_id
     result.status.current_force = self.current_state.target_force
     result.status.grasping_state_id = self.current_state.target_grasping_state_id
-    result.status.grasping_state = Weiss2FingerSimActionServer.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
+    result.status.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
 
     self.current_state.goal_handle:setSucceeded(result)
   else
-    self.current_state.grasping_state_id = Weiss2FingerSimActionServer.GRASPING_STATE_ID.ERROR
+    self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
     result.status.current_force = 0
-    result.status.grasping_state_id = Weiss2FingerSimActionServer.GRASPING_STATE_ID.ERROR
-    result.status.grasping_state = Weiss2FingerSimActionServer.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
+    result.status.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
+    result.status.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
 
-    if worker_response == Weiss2FingerSimActionServer.WORKER_RESPONSE.CANCELED then
+    if worker_response == WeissTwoFingerSimulation.WORKER_RESPONSE.CANCELED then
       self.current_state.goal_handle:setCanceled(result)
     else
       self.current_state.goal_handle:setAborted(result)
@@ -256,9 +256,9 @@ function Weiss2FingerSimActionServer:handleJointCommandFinished(worker_response,
 end
 
 
-function Weiss2FingerSimActionServer:handleMoveCommand(goal_handle)
+function WeissTwoFingerSimulation:handleMoveCommand(goal_handle)
   local goal_command = goal_handle.goal.goal.command
-  self.current_state.target_grasping_state_id = Weiss2FingerSimActionServer.GRASPING_STATE_ID.IDLE
+  self.current_state.target_grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
   self.current_state.target_force = 0
   self.current_state.time_of_joint_command = ros.Time.now()
   self.current_state.goal_handle = goal_handle
@@ -269,13 +269,13 @@ function Weiss2FingerSimActionServer:handleMoveCommand(goal_handle)
 end
 
 
-function Weiss2FingerSimActionServer:handleSetService(request, response, header)
+function WeissTwoFingerSimulation:handleSetService(request, response, header)
   response.error = 0
   return true
 end
 
 
-function Weiss2FingerSimActionServer:shutdown()
+function WeissTwoFingerSimulation:shutdown()
   if self.action_server ~= nil then
     self.action_server:shutdown()
   end
@@ -296,9 +296,9 @@ function Weiss2FingerSimActionServer:shutdown()
 end
 
 
-function Weiss2FingerSimActionServer:spin()
+function WeissTwoFingerSimulation:spin()
   self.joint_command_worker:spin()
 end
 
 
-return Weiss2FingerSimActionServer
+return WeissTwoFingerSimulation

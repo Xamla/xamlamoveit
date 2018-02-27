@@ -16,7 +16,7 @@ initSetup(parameter['__name'], parameter)
 
 local joint_command_namespace = node_handle:getParamString('joint_command_namespace')
 local actuated_joint_name = node_handle:getParamString('actuated_joint_name')
-local action_server = grippers.Weiss2FingerSimulation.new(node_handle, joint_command_namespace, actuated_joint_name)
+local action_server = grippers.WeissTwoFingerSimulation.new(node_handle, joint_command_namespace, actuated_joint_name)
 
 print('Spinning')
 local rate = ros.Rate(10)
