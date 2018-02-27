@@ -638,10 +638,10 @@ end
 local function detectNan(vector)
     for i = 1, vector:size(1) do
         if vector[i] ~= vector[i] then
-            return false
+            return true
         end
     end
-    return true
+    return false
 end
 
 function JoggingControllerOpenLoop:update()
@@ -661,7 +661,7 @@ function JoggingControllerOpenLoop:update()
     --update state
     if self.controller.converged == true and self.dt:toSec() < (ros.Time.now() - self.start_time):toSec() then
         --sync with real world
-        
+
         self.mode = 0
         if self.synced == false  or new_pose_message or new_posture_message or new_twist_message then
             self.synced = true
@@ -862,6 +862,13 @@ function JoggingControllerOpenLoop:reset()
 
     self.time_last = ros.Time.now()
     self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
+
+    self.lastCommandJointPositions =
+        createJointValues(
+        self.joint_set.joint_names,
+        self.joint_monitor:getPositionsOrderedTensor(self.joint_set.joint_names)
+    )
+    self.controller = tvpController.new(#self.joint_set.joint_names)
     createPublisher(self, self.joint_set.joint_names)
     self:getNewRobotState()
     self.target_pose = self.current_pose:clone()
@@ -915,6 +922,7 @@ function JoggingControllerOpenLoop:setMoveGroupInterface(name)
         self.curr_move_group_name = last_move_group_name
         return false, string.format('Could not set moveGroup with name: %s. ', name)
     end
+    self:reset()
 end
 
 function JoggingControllerOpenLoop:getCurrentMoveGroup()
