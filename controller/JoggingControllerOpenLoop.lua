@@ -235,19 +235,20 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.mode = 0
     self.max_vel = nil
     self.max_acc = nil
-    self.taskspace_max_vel = torch.ones(3) * 0.05 --m/s
-    self.taskspace_max_acc = torch.ones(3) * 0.1 --m/s^2
+    self.taskspace_max_vel = torch.ones(3) * 0.2 --m/s
+    self.taskspace_max_acc = torch.ones(3) * 0.8 --m/s^2
 
     self.max_speed_scaling = 0.85 --50% of the max constraints allowed for jogging
     self.speed_scaling = 1.0
     --(joint_max, joint_min, position_max, position_min, rotation_max, rotation_min)
     self.step_width_model = nil
-    self:setStepWidthModel(math.rad(5), math.rad(0.1), 0.05, 0.001, math.rad(10), math.rad(0.1))
+    self:setStepWidthModel(math.rad(3), math.rad(0.1), 0.05, 0.001, math.rad(3), math.rad(0.1))
     self.command_distance_threshold, self.command_rotation_threshold = self.step_width_model.taskspace.scaling_fkt(1)
     self.joint_step_width = self.step_width_model.joint_space.scaling_fkt(1)
     self.current_pose = nil --tf.Transform()
     self.target_pose = nil -- tf.Transform()
     self.timeout = ros.Duration(1.0)
+    self.synced = false
 
     transformListener = tf.TransformListener()
     self.feedback_message = nil
@@ -537,7 +538,7 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
         duration = ros.Duration(duration)
     end
 
-    duration = ros.Duration(0.0) --self.dt
+    duration = self.dt
 
     if self:isValid(q_des.values, self.lastCommandJointPositions.values, self.lastCommandJointPositions:getNames()) then
         assert(
@@ -641,18 +642,30 @@ function JoggingControllerOpenLoop:update()
     local q_dot = self.lastCommandJointPositions:clone()
     q_dot.values:zero()
 
+    local curr_time = ros.Time.now()
+    -- Handle goals
+    local new_pose_message, pose_goal = self:getPoseGoal()
+
+    local new_posture_message, posture_goal = self:getPostureGoal()
+
+    local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
     --update state
     if self.controller.converged == true and self.dt:toSec() < (ros.Time.now() - self.start_time):toSec() then
         --sync with real world
+        
         self.mode = 0
-        self:getNewRobotState()
-        --self.target_pose = self.current_pose:clone()
+        if self.synced == false  or new_pose_message or new_posture_message or new_twist_message then
+            self.synced = true
+            self:getNewRobotState()
+            --self.target_pose = self.current_pose:clone()
 
-        self.controller:reset()
-        self.controller.state.pos:copy(self.lastCommandJointPositions.values)
-        self.taskspace_controller:reset()
-        self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+            self.controller:reset()
+            self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+            self.taskspace_controller:reset()
+            self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+        end
     else
+        self.synced = false
         --open loop control. Use state from controllers
         self.state:setVariablePositions(
             self.lastCommandJointPositions.values,
@@ -662,13 +675,7 @@ function JoggingControllerOpenLoop:update()
         self.current_pose = self:getCurrentPose()
         self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin()) --feedback current position to xyz controller
     end
-    local curr_time = ros.Time.now()
-    -- Handle goals
-    local new_pose_message, pose_goal = self:getPoseGoal()
 
-    local new_posture_message, posture_goal = self:getPostureGoal()
-
-    local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
 
     if self.dt:toSec() * 2 < (ros.Time.now() - self.start_time):toSec() then
         ros.DEBUG('reset goals')
@@ -794,7 +801,7 @@ function JoggingControllerOpenLoop:update()
         self.mode = 0
     end
 
-    if self.mode > 0 then
+    if self.mode > -1 then
         --resorces are blocked ready to sent commands to robot
         if tryLock(self) then
             self:tracking(q_des)
@@ -865,6 +872,7 @@ function JoggingControllerOpenLoop:reset()
     self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
     self:setSpeedScaling(self.speed_scaling)
     resetGoals(self)
+    self.synced = false
     ros.INFO('resetting finished successfully')
     return true
 end
