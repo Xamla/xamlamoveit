@@ -145,8 +145,10 @@ local function sendPositionCommand(self, q_des, q_dot, names, dt)
     mPoint.velocities:set(q_dot)
     mPoint.time_from_start = dt
     m.points = {mPoint}
-    publisherPointPositionCtrl[self.current_id]:publish(m)
-    ros.DEBUG('sendPositionCommand to: ' .. publisherPointPositionCtrl[self.current_id]:getTopic())
+    if publisherPointPositionCtrl[self.current_id] then
+        publisherPointPositionCtrl[self.current_id]:publish(m)
+        ros.DEBUG('sendPositionCommand to: ' .. publisherPointPositionCtrl[self.current_id]:getTopic())
+    end
 end
 
 local function sendFeedback(self)
@@ -668,8 +670,8 @@ function JoggingControllerOpenLoop:update()
             self:getNewRobotState()
             --self.target_pose = self.current_pose:clone()
 
-            self.controller:reset()
-            self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+            --self.controller:reset()
+            --self.controller.state.pos:copy(self.lastCommandJointPositions.values)
             self.taskspace_controller:reset()
             self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
         end
