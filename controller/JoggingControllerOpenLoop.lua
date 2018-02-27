@@ -96,13 +96,10 @@ local function queryTaskSpaceLimits(node_handle, namespace)
     return success, max_vel, max_acc
 end
 
----
---@param desired joint angle position
-local function sendPositionCommand(self, q_des, q_dot, names, dt)
-    assert(torch.isTypeOf(dt, ros.Duration))
+local function createPublisher(self, names)
     for i, v in ipairs(self.controller_list) do
         if table.isSimilar(names, v.joints) then
-            local current_id = v.name
+            self.current_id = v.name
             local myTopic = string.format('/%s/joint_command', v.name)
             --ros.WARN(myTopic)
             if publisherPointPositionCtrl[v.name] == nil then
@@ -116,34 +113,40 @@ local function sendPositionCommand(self, q_des, q_dot, names, dt)
                     publisherPointPositionCtrl[ns[1]] = self.nh:advertise(myTopic, joint_pos_spec)
                     if publisherPointPositionCtrl[ns[1]]:getNumSubscribers() >= 0 then
                         --ros.INFO('found alternative topic at: %s', myTopic)
-                        current_id = ns[1]
+                        self.current_id = ns[1]
                     else
                         publisherPointPositionCtrl[ns[1]]:shutdown()
                         publisherPointPositionCtrl[ns[1]] = nil
                         myTopic = string.format('/%s/joint_command', v.name)
                         publisherPointPositionCtrl[v.name] = self.nh:advertise(myTopic, joint_pos_spec)
-                        current_id = v.name
+                        self.current_id = v.name
                     end
                 end
             end
-
-            local m = ros.Message(joint_pos_spec)
-            local mPoint = ros.Message(joint_point_spec)
-
-            m.joint_names = {}
-            for ii = 1, q_des:size(1) do
-                m.joint_names[ii] = names[ii]
-            end
-            mPoint.positions:set(q_des)
-            mPoint.velocities:set(q_dot)
-            mPoint.time_from_start = dt
-            m.points = {mPoint}
-            publisherPointPositionCtrl[current_id]:publish(m)
-            ros.DEBUG('sendPositionCommand to: ' .. publisherPointPositionCtrl[current_id]:getTopic())
             return
         end
     end
     --TODO find correct publisher for corresponding joint value set controllers
+end
+
+---
+--@param desired joint angle position
+local function sendPositionCommand(self, q_des, q_dot, names, dt)
+    assert(torch.isTypeOf(dt, ros.Duration))
+
+    local m = ros.Message(joint_pos_spec)
+    local mPoint = ros.Message(joint_point_spec)
+
+    m.joint_names = {}
+    for ii = 1, q_des:size(1) do
+        m.joint_names[ii] = names[ii]
+    end
+    mPoint.positions:set(q_des)
+    mPoint.velocities:set(q_dot)
+    mPoint.time_from_start = dt
+    m.points = {mPoint}
+    publisherPointPositionCtrl[self.current_id]:publish(m)
+    ros.DEBUG('sendPositionCommand to: ' .. publisherPointPositionCtrl[self.current_id]:getTopic())
 end
 
 local function sendFeedback(self)
@@ -178,14 +181,12 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     if self.debug then
         ros.console.set_logger_level(nil, ros.console.Level.Debug)
     end
-    self.FIRSTPOINT = true
-    self.dt_monitor = core.MonitorBuffer(100, 1)
     self.nh = node_handle
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.kinematic_model = self.robot_model_loader:getModel()
     self.planning_scene = moveit.PlanningScene(self.kinematic_model)
     self.lock_client = core.LeasedBaseLockClient(node_handle)
-
+    self.current_id = ''
     self.joint_monitor = joint_monitor
 
     self.move_groups = {}
@@ -220,7 +221,6 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
         error('dt has unsupported type')
     end
 
-    self.ctrl = planning.MoveitPlanning(node_handle, move_group, self.dt)
     self.start_time = ros.Time.now()
 
     self.controller_list = ctr_list
@@ -245,14 +245,8 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self:setStepWidthModel(math.rad(5), math.rad(0.1), 0.05, 0.001, math.rad(10), math.rad(0.1))
     self.command_distance_threshold, self.command_rotation_threshold = self.step_width_model.taskspace.scaling_fkt(1)
     self.joint_step_width = self.step_width_model.joint_space.scaling_fkt(1)
-    local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
-    if #link_name > 0 then
-        self.current_pose = self.state:getGlobalLinkTransform(link_name)
-        self.target_pose = self.state:getGlobalLinkTransform(link_name)
-    else
-        self.current_pose = tf.Transform()
-        self.target_pose = tf.Transform()
-    end
+    self.current_pose = nil --tf.Transform()
+    self.target_pose = nil -- tf.Transform()
     self.timeout = ros.Duration(1.0)
 
     transformListener = tf.TransformListener()
@@ -513,37 +507,7 @@ function JoggingControllerOpenLoop:connect(joint_topic, pose_topic, twist_topic)
     self.publisher_feedback = self.nh:advertise('feedback', feedback_spec, 1)
     self.feedback_message = self.publisher_feedback:createMessage()
 
-    self:getNewRobotState()
-
-    self.max_vel,
-        self.max_acc =
-        queryJointLimits(self.nh, self.lastCommandJointPositions:getNames(), '/robot_description_planning')
-
-    local success, taskspace_max_vel, taskspace_max_acc = queryTaskSpaceLimits(self.nh)
-    if success == true then
-        self.taskspace_max_vel = taskspace_max_vel
-        self.taskspace_max_acc = taskspace_max_acc
-    else
-        ros.WARN('No taskspace limits found in namespace using default configuration.')
-    end
-
-    self.max_vel = self.max_vel * self.max_speed_scaling
-    self.max_acc = self.max_acc --* self.max_speed_scaling
-
-
-    self.controller:reset()
-    self.controller.state.pos:copy(self.lastCommandJointPositions.values)
-    self.taskspace_controller:reset()
-    self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
-
     self:reset()
-
-    local file = io.open('logged_positions.log', "w")
-    file:write(createJointStateString(self.taskspace_controller.state.pos))
-    file:close()
-    local file2 = io.open('logged_joint_states.log', "w")
-    file2:write(createJointStateString(self.controller.state.pos))
-    file2:close()
     return true
 end
 
@@ -562,7 +526,7 @@ local function getPostureForFullStop(cntr, q_desired, dt, msg)
     local trunc_dt = 2 * dt
     if torch.abs(delta):gt(1e-3):sum() > 0 and minTime > trunc_dt then
         -- truncate goal
-        ros.DEBUG('truncate goal: %f, %s',trunc_dt / minTime, msg or '')
+        ros.DEBUG('truncate goal: %f, %s', trunc_dt / minTime, msg or '')
         q_desired = q_actual + delta * math.min(1, trunc_dt / minTime)
     end
     return q_desired
@@ -573,7 +537,7 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
         duration = ros.Duration(duration)
     end
 
-    duration = self.dt --ros.Duration(0.0)
+    duration = ros.Duration(0.0) --self.dt
 
     if self:isValid(q_des.values, self.lastCommandJointPositions.values, self.lastCommandJointPositions:getNames()) then
         assert(
@@ -581,21 +545,14 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
             string.format('inconsistent size: %dx%d', self.controller.state.pos:size(1), q_des.values:size(1))
         )
         self.controller:update(q_des.values, self.dt:toSec())
-        sendPositionCommand(self, self.controller.state.pos, self.controller.state.vel * self.dt:toSec(), q_des:getNames(), duration)
-
-        local file = io.open('logged_positions.log', "a")
-        file:write(createJointStateString(self.taskspace_controller.state.pos))
-        file:close()
-        local file2 = io.open('logged_joint_states.log', "a")
-        file2:write(createJointStateString(self.controller.state.pos))
-        file2:close()
+        sendPositionCommand(self, self.controller.state.pos, self.controller.state.vel * 0, q_des:getNames(), duration)
         self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
     else
-        for i, v in pairs(publisherPointPositionCtrl) do
-            v:shutdown()
-            v = nil
-        end
-        publisherPointPositionCtrl = {}
+        --for i, v in pairs(publisherPointPositionCtrl) do
+        --    v:shutdown()
+        --    v = nil
+        --end
+        --publisherPointPositionCtrl = {}
         ros.ERROR('command is not valid!!!')
     end
     self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
@@ -644,10 +601,10 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
     if #link_name > 0 then
         local dt = self.dt:toSec()
         self.start_time = ros.Time.now()
-        self.target_pose = pose_goal:clone()
         pose_goal:setOrigin(
             getPostureForFullStop(self.taskspace_controller, pose_goal:getOrigin(), dt, 'position control')
         )
+        self.target_pose = pose_goal:clone()
         self.taskspace_controller:update(pose_goal:getOrigin(), dt)
 
         local current_rotation = self.current_pose:getRotation()
@@ -665,6 +622,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
         local suc =
             state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), self.target_pose:toTransform())
         if suc then
+            state:update()
             posture_goal =
                 createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(joint_names)
         else
@@ -684,17 +642,16 @@ function JoggingControllerOpenLoop:update()
     q_dot.values:zero()
 
     --update state
-    if self.controller.converged == true and self.dt:toSec() * 4 < (ros.Time.now() - self.start_time):toSec() then
+    if self.controller.converged == true and self.dt:toSec() < (ros.Time.now() - self.start_time):toSec() then
         --sync with real world
         self.mode = 0
         self:getNewRobotState()
         --self.target_pose = self.current_pose:clone()
+
         self.controller:reset()
         self.controller.state.pos:copy(self.lastCommandJointPositions.values)
         self.taskspace_controller:reset()
         self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
-        --self.taskspace_controller:update(self.current_pose:getOrigin(), self.dt:toSec())
-        --self.controller:update(self.taskspace_controller.state.pos, self.dt:toSec())
     else
         --open loop control. Use state from controllers
         self.state:setVariablePositions(
@@ -843,7 +800,23 @@ function JoggingControllerOpenLoop:update()
             self:tracking(q_des)
         end
     else
-        tryLock(self) -- lock resouce since jogging node is still active
+        if tryLock(self) then -- lock resouce since jogging node is still active
+            if
+                self:isValid(
+                    q_des.values,
+                    self.lastCommandJointPositions.values,
+                    self.lastCommandJointPositions:getNames()
+                )
+             then
+                assert(
+                    self.controller.state.pos:size(1) == q_des.values:size(1),
+                    string.format('inconsistent size: %dx%d', self.controller.state.pos:size(1), q_des.values:size(1))
+                )
+                self.controller:update(q_des.values, self.dt:toSec())
+                self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
+            end
+        end
+        self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
     end
 
     ros.DEBUG('Feedback')
@@ -861,24 +834,16 @@ function JoggingControllerOpenLoop:reset()
         end
     end
     publisherPointPositionCtrl = {}
+
     local move_group = self:getCurrentMoveGroup()
     --self.state = move_group:getCurrentState()
+
     self.time_last = ros.Time.now()
     self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
-    ros.INFO('Start Joint Monitor with %d joint names', #self.joint_set.joint_names)
-    local link_name = move_group:getEndEffectorLink()
-    if #link_name > 0 then
-        ros.INFO('Found link_name: %s', link_name)
-        self.current_pose = self.state:getGlobalLinkTransform(link_name)
-        self.target_pose = self.state:getGlobalLinkTransform(link_name)
-    else
-        ros.WARN('no end effector')
-        self.current_pose = tf.Transform()
-        self.target_pose = tf.Transform()
-    end
-    local ok, p = self.joint_monitor:getNextPositionsOrderedTensor(0.1, self.joint_set.joint_names)
-    assert(ok, '[reset] exceeded timeout for next robot joint state.')
-    self.lastCommandJointPositions = createJointValues(self.joint_set.joint_names, p)
+    createPublisher(self, self.joint_set.joint_names)
+    self:getNewRobotState()
+    self.target_pose = self.current_pose:clone()
+
     self.max_vel, self.max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
     self.max_vel = self.max_vel * self.max_speed_scaling
     self.max_acc = self.max_acc --* self.max_speed_scaling
