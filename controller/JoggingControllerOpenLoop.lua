@@ -635,6 +635,15 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
     return posture_goal
 end
 
+local function detectNan(vector)
+    for i = 1, vector:size(1) do
+        if vector[i] ~= vector[i] then
+            return false
+        end
+    end
+    return true
+end
+
 function JoggingControllerOpenLoop:update()
     -- Handle feedback
     self.feedback_message.error_code = 1
@@ -689,6 +698,12 @@ function JoggingControllerOpenLoop:update()
             self.goals.pose_goal = pose_goal:clone()
         elseif self.goals.pose_goal then
             pose_goal = self.goals.pose_goal:clone()
+        end
+        if (new_pose_message and detectNan(pose_goal:getOrigin())) or self.mode == 0 then
+            ros.INFO('[twist] Received stop signal')
+            self.taskspace_controller:reset()
+            self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+            pose_goal = self.current_pose:clone()
         end
         local rel_poseAB = pose_goal:clone()
         rel_poseAB = rel_poseAB:mul(self.current_pose:inverse())
