@@ -254,11 +254,11 @@ local function joggingServer(name)
 
     cntr:setStepWidthModel(
         joint_max or math.rad(5),
-        joint_min or math.rad(0.1),
+        joint_min or math.rad(0.01),
         position_max or cntr.command_distance_threshold,
         position_min or cntr.command_distance_threshold/100,
         rotation_max or math.rad(10),
-        rotation_min or math.rad(0.1)
+        rotation_min or math.rad(0.01)
     )
 
     value, suc = nh:getParamDouble('timeout')

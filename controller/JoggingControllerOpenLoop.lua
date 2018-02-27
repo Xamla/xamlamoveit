@@ -244,7 +244,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.speed_scaling = 1.0
     --(joint_max, joint_min, position_max, position_min, rotation_max, rotation_min)
     self.step_width_model = nil
-    self:setStepWidthModel(math.rad(3), math.rad(0.1), 0.05, 0.001, math.rad(3), math.rad(0.1))
+    self:setStepWidthModel(math.rad(5), math.rad(0.1), 0.2, 0.001, math.rad(5), math.rad(0.1))
     self.command_distance_threshold, self.command_rotation_threshold = self.step_width_model.taskspace.scaling_fkt(1)
     self.joint_step_width = self.step_width_model.joint_space.scaling_fkt(1)
     self.current_pose = nil --tf.Transform()
@@ -661,7 +661,7 @@ function JoggingControllerOpenLoop:update()
 
     local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
     --update state
-    if self.controller.converged == true and self.dt:toSec() < (ros.Time.now() - self.start_time):toSec() then
+    if self.controller.converged == true and 0.16 < (ros.Time.now() - self.start_time):toSec() then
         --sync with real world
 
         self.mode = 0
@@ -753,8 +753,8 @@ function JoggingControllerOpenLoop:update()
         local rel_tmp_pose = tf.StampedTransform()
         local dt = self.dt:toSec()
 
-        local pos_offset = twist_goal[{{1, 3}}] * self.command_distance_threshold
-        local rot_offset = twist_goal[{{4, 6}}] * self.command_rotation_threshold
+        local pos_offset = twist_goal[{{1, 3}}] * self.command_distance_threshold * dt
+        local rot_offset = twist_goal[{{4, 6}}] * self.command_rotation_threshold * dt
 
         local quaternion = rel_tmp_pose:getRotation()
         if (rot_offset):norm() > 0 then
