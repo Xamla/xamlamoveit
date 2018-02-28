@@ -114,16 +114,49 @@ local function createPublisher(self, names)
                     if publisherPointPositionCtrl[ns[1]]:getNumSubscribers() >= 0 then
                         --ros.INFO('found alternative topic at: %s', myTopic)
                         self.current_id = ns[1]
+                        return
                     else
                         publisherPointPositionCtrl[ns[1]]:shutdown()
                         publisherPointPositionCtrl[ns[1]] = nil
                         myTopic = string.format('/%s/joint_command', v.name)
                         publisherPointPositionCtrl[v.name] = self.nh:advertise(myTopic, joint_pos_spec)
                         self.current_id = v.name
+                        return
                     end
                 end
             end
-            return
+
+        end
+    end
+    for i, v in ipairs(self.controller_list) do
+        if table.isSubset(names, v.joints) then
+            self.current_id = v.name
+            local myTopic = string.format('/%s/joint_command', v.name)
+            --ros.WARN(myTopic)
+            if publisherPointPositionCtrl[v.name] == nil then
+                publisherPointPositionCtrl[v.name] = self.nh:advertise(myTopic, joint_pos_spec)
+                if publisherPointPositionCtrl[v.name]:getNumSubscribers() == 0 then
+                    publisherPointPositionCtrl[v.name]:shutdown()
+                    publisherPointPositionCtrl[v.name] = nil
+                    --ros.WARN('Special case detected. Subscriber on %s is not available. Searching in namespace for alternatives.', myTopic)
+                    local ns = string.split(v.name, '/')
+                    myTopic = string.format('/%s/joint_command', ns[1])
+                    publisherPointPositionCtrl[ns[1]] = self.nh:advertise(myTopic, joint_pos_spec)
+                    if publisherPointPositionCtrl[ns[1]]:getNumSubscribers() >= 0 then
+                        --ros.INFO('found alternative topic at: %s', myTopic)
+                        self.current_id = ns[1]
+                        return
+                    else
+                        publisherPointPositionCtrl[ns[1]]:shutdown()
+                        publisherPointPositionCtrl[ns[1]] = nil
+                        myTopic = string.format('/%s/joint_command', v.name)
+                        publisherPointPositionCtrl[v.name] = self.nh:advertise(myTopic, joint_pos_spec)
+                        self.current_id = v.name
+                        return
+                    end
+                end
+            end
+
         end
     end
     --TODO find correct publisher for corresponding joint value set controllers
@@ -147,7 +180,9 @@ local function sendPositionCommand(self, q_des, q_dot, names, dt)
     m.points = {mPoint}
     if publisherPointPositionCtrl[self.current_id] then
         publisherPointPositionCtrl[self.current_id]:publish(m)
-        ros.DEBUG('sendPositionCommand to: ' .. publisherPointPositionCtrl[self.current_id]:getTopic())
+        --ros.INFO('sendPositionCommand to: ' .. publisherPointPositionCtrl[self.current_id]:getTopic())
+    else
+        ros.WARN('could not find topic at: %s', self.current_id)
     end
 end
 
@@ -633,7 +668,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             ros.ERROR('[transformPose2PostureTarget] Could not set IK solution.')
         end
     else
-        ros.WARN("[transformPose2PostureTarget] Cannot uses this move group: '%s' since it has no EndEffector Link. ")
+        ros.WARN("[transformPose2PostureTarget] Cannot uses this move group: '%s' since it has no EndEffector Link. ", self.curr_move_group_name or '?')
     end
     return posture_goal
 end
