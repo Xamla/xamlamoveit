@@ -85,6 +85,7 @@ end
 
 local function stopJogging()
     run = false
+    cntr:reset()
 end
 
 local function setMoveGroupHandler(request, response, header)

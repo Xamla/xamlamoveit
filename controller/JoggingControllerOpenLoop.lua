@@ -250,6 +250,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.current_pose = nil --tf.Transform()
     self.target_pose = nil -- tf.Transform()
     self.timeout = ros.Duration(1.0)
+    self.cool_down_timeout = ros.Duration(0.16)
     self.synced = false
 
     transformListener = tf.TransformListener()
@@ -373,7 +374,7 @@ function JoggingControllerOpenLoop:getPostureGoal()
         elseif msg.points[1].velocities:nElement() > 0 then
             local vel = msg.points[1].velocities
             for i, v in ipairs(joint_set.joint_names) do
-                vel[i] = math.sign(vel[i]) * self.joint_step_width
+                vel[i] = math.sign(vel[i]) * self.joint_step_width * self.dt:toSec()
             end
             local q_dot = datatypes.JointValues(joint_set, vel)
             joint_posture:add(q_dot)
@@ -661,7 +662,7 @@ function JoggingControllerOpenLoop:update()
 
     local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
     --update state
-    if self.controller.converged == true and 0.16 < (ros.Time.now() - self.start_time):toSec() then
+    if self.controller.converged == true and self.cool_down_timeout:toSec() < (ros.Time.now() - self.start_time):toSec() then
         --sync with real world
 
         self.mode = 0
@@ -850,6 +851,11 @@ end
 
 function JoggingControllerOpenLoop:reset()
     ros.DEBUG('resetting ....')
+    while self.cool_down_timeout:toSec() > (ros.Time.now() - self.start_time):toSec() do
+        ros.INFO("[JoggingControllerOpenLoop] need to cool down first")
+        ros.spinOnce()
+        self.dt:sleep()
+    end
     if publisherPointPositionCtrl then
         for i, v in pairs(publisherPointPositionCtrl) do
             ros.INFO('shutting down publisher for topic: %s', v:getTopic())
@@ -896,7 +902,7 @@ function JoggingControllerOpenLoop:reset()
     self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
     self:setSpeedScaling(self.speed_scaling)
     resetGoals(self)
-    self.synced = false
+    self.synced = true
     ros.INFO('resetting finished successfully')
     return true
 end
