@@ -194,7 +194,8 @@ function WeissTwoFingerSimulation:handleGoalCallback(goal_handle)
       goal_handle.goal.goal.command.width = 0
       self:handleMoveCommand(goal_handle)
     else
-      ros.WARN('Received invalid command id: %d', goal_command)
+      local out = goal_command or -1
+      ros.WARN('Received invalid command id: %d', out)
       goal_handle:setRejected()
     end
   else
