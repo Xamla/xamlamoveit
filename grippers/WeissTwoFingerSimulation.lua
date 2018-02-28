@@ -27,10 +27,12 @@ WeissTwoFingerSimulation.GRASPING_STATE = {
 }
 
 WeissTwoFingerSimulation.COMMAND_ID = {
+  STOP = 100,
   MOVE = 101,
   GRASP = 102,
   RELEASE = 103,
-  HOMING = 104
+  HOMING = 104,
+  ACKNOWLEDGE_ERROR = 105,
 }
 
 WeissTwoFingerSimulation.WORKER_RESPONSE = {
@@ -136,6 +138,17 @@ function WeissTwoFingerSimulation:__init(node_handle, joint_command_namespace, a
 end
 
 
+function WeissTwoFingerSimulation:createResult(goal_handle)
+  local result = goal_handle:createResult()
+  local current_positions = self.joint_monitor:getPositionsOrderedTensor(joint_names)
+  result.status.width = current_positions[1] * 2.0
+  result.status.return_code = 0
+  result.status.connection_state = 1
+
+  return result;
+end
+
+
 function WeissTwoFingerSimulation:dispatchJointCommand(joint_value)
   local callbacks = {
     accept = function() return true end,
@@ -193,6 +206,12 @@ function WeissTwoFingerSimulation:handleGoalCallback(goal_handle)
     elseif goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.HOMING then
       goal_handle.goal.goal.command.width = 0
       self:handleMoveCommand(goal_handle)
+    elseif goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.STOP or
+      goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.ACKNOWLEDGE_ERROR
+    then
+      goal_handle:setAccepted()
+      local result = self:createResult(goal_handle)
+      goal_handle:setSucceeded(result)
     else
       local out = goal_command or -1
       ros.WARN('Received invalid command id: %d', out)
@@ -206,6 +225,7 @@ end
 
 function WeissTwoFingerSimulation:handleGraspCommand(goal_handle)
   local goal_command = goal_handle.goal.goal.command
+  self.current_state.moving_gripper = true
   self.current_state.target_grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.HOLDING
   self.current_state.target_force = self.default_values.grasping_force
   self.current_state.time_of_joint_command = ros.Time.now()
@@ -225,11 +245,7 @@ function WeissTwoFingerSimulation:handleJointCommandFinished(worker_response, tr
     return
   end
 
-  local result = self.current_state.goal_handle:createResult()
-  local current_positions = self.joint_monitor:getPositionsOrderedTensor(joint_names)
-  result.status.width = current_positions[1] * 2.0
-  result.status.return_code = 0
-  result.status.connection_state = 1
+  local result = self:createResult(self.current_state.goal_handle)
 
   if worker_response == WeissTwoFingerSimulation.WORKER_RESPONSE.COMPLETED then
     self.current_state.grasping_state_id = self.current_state.target_grasping_state_id
@@ -259,6 +275,7 @@ end
 
 function WeissTwoFingerSimulation:handleMoveCommand(goal_handle)
   local goal_command = goal_handle.goal.goal.command
+  self.current_state.moving_gripper = true
   self.current_state.target_grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
   self.current_state.target_force = 0
   self.current_state.time_of_joint_command = ros.Time.now()
