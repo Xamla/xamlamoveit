@@ -61,7 +61,7 @@ function table.tolookup(t, keySelector)
     for k, x in pairs(t) do
         local key = keySelector(x)
         if m[key] then
-            error(stirng.format('Duplicate key: %s', key))
+            error(string.format('Duplicate key: %s', key))
         end
         m[key] = x
     end
