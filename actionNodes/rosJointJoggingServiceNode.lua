@@ -218,50 +218,6 @@ local function joggingServer(name)
         ros.spinOnce()
     end
 
-    ros.INFO('Get node parameters.')
-    local joint_max, joint_min, position_max, position_min, rotation_max, rotation_min
-    local     value, suc = nh:getParamDouble('max_speed_scaling')
-    if suc then
-        cntr.max_speed_scaling = math.min(1.0, math.max(0.001, value))
-    end
-
-    value, suc = nh:getParamDouble('step_width_xyz_position_max')
-    if suc then
-        position_max = math.max(value, 0.0001)
-    end
-    value, suc = nh:getParamDouble('step_width_xyz_position_min')
-    if suc then
-        position_min = math.max(value, 0.0001)
-    end
-
-
-    value, suc = nh:getParamDouble('step_width_joint_max')
-    if suc then
-        joint_max = math.max(0.001, value)
-    end
-    value, suc = nh:getParamDouble('step_width_joint_min')
-    if suc then
-        joint_min = math.max(0.0, value)
-    end
-
-    value, suc = nh:getParamDouble('step_width_rotation_max')
-    if suc then
-        rotation_max = math.max(0.001, value)
-    end
-    value, suc = nh:getParamDouble('step_width_rotation_min')
-    if suc then
-        rotation_min = math.max(0.0, value)
-    end
-
-    cntr:setStepWidthModel(
-        joint_max or math.rad(5),
-        joint_min or math.rad(0.01),
-        position_max or cntr.command_distance_threshold,
-        position_min or cntr.command_distance_threshold/100,
-        rotation_max or math.rad(10),
-        rotation_min or math.rad(0.01)
-    )
-
     value, suc = nh:getParamDouble('timeout')
     if suc then
         cntr:setTimeout(value)
