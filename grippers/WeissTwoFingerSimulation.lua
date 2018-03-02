@@ -1,6 +1,6 @@
 local ros = require 'ros'
 require 'ros.actionlib.SimpleActionClient'
-local core = xamlamoveit.core
+local core = require 'xamlamoveit.core'
 local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
 local grippers = require 'xamlamoveit.grippers.env'
