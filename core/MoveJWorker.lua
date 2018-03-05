@@ -110,7 +110,7 @@ function MoveJWorker:__init(nh)
     local ready = false
     while not ready and ros.ok() do
         if once then
-            ros.ERROR('joint states not ready')
+            ros.ERROR('[MoveJWorker] joint states not ready')
             once = false
         end
         ready = self.joint_monitor:waitReady(20.0)

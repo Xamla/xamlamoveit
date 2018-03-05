@@ -21,8 +21,7 @@ function JointValues:getValue(name)
     return self.values[self.joint_set:getIndexOf(name)]
 end
 
-function JointValues:getValues(names)
-    local result = torch.zeros(#names)
+function JointValues:getValues()
     return self.values:clone()
 end
 

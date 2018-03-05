@@ -4,7 +4,7 @@ local ros = require 'ros'
 local xamlamoveit = require 'xamlamoveit'
 local jtps = xamlamoveit.components.JointTrajectoryPlanningService
 local jpps = xamlamoveit.components.JointPathPlanningService
-local cpps = xamlamoveit.components.LinearCartesianPathPlanningService
+local cpps = xamlamoveit.components.LinearCartesianTrajectoryPlanningService
 local xamla_sysmon = require 'xamla_sysmon'
 
 local cmd = torch.CmdLine()

@@ -76,6 +76,7 @@ add_service_files(
    GetIKSolution.srv
    GetFKSolution.srv
    GetCartesianPath.srv
+   GetLinearCartesianTrajectory.srv
    GetLinearCartesianPath.srv
    SetJointPosture.srv
 )

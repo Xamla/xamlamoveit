@@ -9,6 +9,7 @@ require 'xamlamoveit.components.JointPositionCollisionCheckService'
 require 'xamlamoveit.components.JointPathPlanningService'
 require 'xamlamoveit.components.MoveGroupInfoNodeService'
 require 'xamlamoveit.components.LinearCartesianPathPlanningService'
+require 'xamlamoveit.components.LinearCartesianTrajectoryPlanningService'
 require 'xamlamoveit.components.JointStateAggregator'
 require 'xamlamoveit.components.MoveJSafeSteppingService'
 return components

@@ -51,7 +51,7 @@ local function sample(traj, dt)
 end
 
 local function checkPathLength(waypoints)
-    assert(torch.isTypeOf(waypoints, torch.DoubleTensor), "wong type")
+    assert(torch.isTypeOf(waypoints, torch.DoubleTensor), "wrong type")
     local length = 0
     for i = 1, waypoints:size(1) do
         local j = math.min(i + 1, waypoints:size(1))

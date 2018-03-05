@@ -4,4 +4,5 @@ require 'xamlamoveit.controller.TvpController'
 require 'xamlamoveit.controller.MultiAxisTvpController'
 require 'xamlamoveit.controller.MultiAxisTvpController2'
 require 'xamlamoveit.controller.MultiAxisCppController'
+require 'xamlamoveit.controller.TaskSpaceController'
 return controller
