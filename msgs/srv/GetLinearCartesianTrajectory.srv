@@ -11,11 +11,13 @@ float64 max_angular_velocity
 float64 max_angular_acceleration
 
 float64 dt
-
-string[] joint_names
+float64 ik_jump_threshold
 
 # seed for the start point
+string[] joint_names
 JointPathPoint seed
+
+bool collision_check
 
 ---
 

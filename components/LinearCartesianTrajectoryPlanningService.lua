@@ -5,6 +5,8 @@ local optimplan = require 'optimplan'
 local Controller = require 'xamlamoveit.controller'
 local Datatypes = require 'xamlamoveit.datatypes'
 local Xutils = require 'xamlamoveit.xutils'
+local error_codes = require 'xamlamoveit.core.ErrorCodes'.error_codes
+error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
 local TvpController = Controller.TaskSpaceController
 --require 'xamlamoveit.components.RosComponent'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetLinearCartesianTrajectory')
@@ -18,6 +20,11 @@ local function table_concat(dst, src)
 end
 
 local function createJointValues(names, values)
+    assert(
+        torch.type(names) == 'table',
+        string.format('Joint names should be of type table but has type %s', torch.type(names))
+    )
+    assert(torch.isTypeOf(values, torch.DoubleTensor))
     local joint_set = Datatypes.JointSet(names)
     local joint_values = Datatypes.JointValues(joint_set, values)
     return joint_values
@@ -130,7 +137,19 @@ local function convertTwist2Pose(twists)
     return result
 end
 
-local function pose2jointTrajectory(self, seed, joint_names, poses6D, end_effector_name)
+local function pose2jointTrajectory(
+    self,
+    seed,
+    joint_names,
+    poses6D,
+    end_effector_name,
+    max_deviation,
+    collision_check,
+    ik_jump_threshold)
+    local code = error_codes.SUCCESS
+    if collision_check == false then
+        ros.WARN('[pose2jointTrajectory]Collision checks are disabled')
+    end
     local move_group = self.end_effector_map[end_effector_name]
     local result = {}
     if not move_group then
@@ -140,25 +159,50 @@ local function pose2jointTrajectory(self, seed, joint_names, poses6D, end_effect
     self.robot_state:setVariablePositions(seed, joint_names)
     self.robot_state:update()
     for i, pose in ipairs(poses6D) do
+        --ros.INFO('set IK')
+        local old_state = self.robot_state:copyJointGroupPositions(move_group)
         local suc = self.robot_state:setFromIK(move_group, tensor6DToPose(pose.pos):toTensor())
         if suc then
             self.robot_state:update()
-            local jac = self.robot_state:getJacobian(move_group)
-            local tmp =
-                createJointValues(
-                self.robot_state:getVariableNames():totable(),
-                self.robot_state:getVariablePositions()
-            )
-            result[i] = {}
-            result[i].pos = tmp:select(joint_names):getValues()
-            result[i].vel = torch.inverse(jac) * poseTo6DTensor(pose.vel)
+            local colliding = false
+            if collision_check then
+                colliding = self.planning_scene:isStateColliding(move_group, self.robot_state, true)
+            end
+            if not colliding then
+                local new_state = self.robot_state:copyJointGroupPositions(move_group)
+                if torch.abs(old_state - new_state):gt(ik_jump_threshold):sum() > 0 then
+                    ros.ERROR(
+                        '[pose2jointTrajectory] Jump in IK detected. In move_group %s. Transformed %f%% of trajectory',
+                        move_group,
+                        100 * i / #poses6D
+                    )
+                    return result, error_codes.PLANNING_FAILED
+                end
+                local jac = self.robot_state:getJacobian(move_group)
+                local tmp =
+                    createJointValues(
+                    self.robot_model:getGroupJointNames(move_group):totable(),
+                    new_state
+                )
+                result[i] = {}
+                result[i].pos = tmp:select(joint_names):getValues()
+                result[i].vel = torch.inverse(jac) * poseTo6DTensor(pose.vel)
+            else
+                ros.ERROR(
+                    '[pose2jointTrajectory] Collision detected in move_group %s. Transformed %f%% of trajectory',
+                    move_group,
+                    100 * i / #poses6D
+                )
+
+                return result, error_codes.GOAL_IN_COLLISION
+            end
         else
             ros.ERROR(
                 '[pose2jointTrajectory] Could not set IK solution for move_group %s. Transformed %f%% of trajectory',
                 move_group,
                 100 * i / #poses6D
             )
-            return result, i / #poses6D
+            return result, error_codes.NO_IK_SOLUTION
         end
     end
     return result, 1
@@ -201,51 +245,10 @@ local function getLinearPath(
     return result
 end
 
-local function sample(traj, dt)
-    ros.INFO('Resample Trajectory with dt = %f', dt)
-    local time, pos, vel, acc
-    if type(traj) == 'table' then
-        time, pos, vel, acc = {}, {}, {}, {}
-        for i, v in ipairs(traj) do
-            time[i], pos[i], vel[i], acc[i] = v:sample(dt or 0.01)
-        end
-
-        for i = 2, #time do
-            local j = i - 1
-            time[i]:add(time[j][time[j]:size(1)])
-        end
-        time = torch.cat(time, 1)
-        pos = torch.cat(pos, 1)
-        acc = torch.cat(acc, 1)
-        vel = torch.cat(vel, 1)
-    else
-        time, pos, vel, acc = traj:sample(dt or 0.01)
-    end
-    ros.INFO('Trajectory num points = %d, duration %s', time:size(1), tostring(time[time:size(1)]))
-    return time, pos, vel, acc
-end
-
-local function checkPathLength(waypoints)
-    assert(
-        torch.isTypeOf(waypoints, torch.DoubleTensor),
-        string.format('wrong type: expected [torch.DoubleTensor] but got [%s]', torch.type(waypoints))
-    )
-    local length = 0
-    for i = 1, waypoints:size(1) do
-        local j = math.min(i + 1, waypoints:size(1))
-        length = (waypoints[j] - waypoints[i]):norm() + length
-    end
-    return length
-end
-
-local function generateTrajectory(waypoints, max_velocities, max_accelerations, max_deviation, dt)
-    max_deviation = max_deviation or 1e-5
-    max_deviation = max_deviation < 1e-5 and 1e-5 or max_deviation
-
+local function generateTrajectory(waypoints, dt)
     local time_step = dt or 0.008
     time_step = math.max(time_step, 0.001)
-    ros.INFO('generateTrajectory from waypoints with max dev: %08f, dt %08f', max_deviation, time_step)
-    ros.ERROR(#waypoints)
+
     local time = torch.zeros(#waypoints)
     valid = true
     local pos = torch.zeros(#waypoints, 6)
@@ -265,6 +268,8 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         request.error_code.val = -2
         return true
     end
+    tic('generateTrajectory')
+    self.planning_scene:syncPlanningScene()
     local g_path = {}
     if 2 == #request.waypoints then
         ros.INFO('only start und goal received. Controller runs with dt = %f', request.dt)
@@ -303,39 +308,27 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
     ros.INFO('got taskspace trajectory. Next convert to joint trajectory')
     local dim = request.seed.positions:size(1)
     local waypoints,
-        suc =
+        code =
         pose2jointTrajectory(
         self,
         request.seed.positions,
         request.joint_names,
         g_path,
-        request.end_effector_name or 'EE_manipulator'
-    )
-    if suc < 1 then
-        response.error_code.val = -2
-        return true
-    end
-    tic('generateTrajectory')
-    local valid,
-        time,
-        pos,
-        vel,
-        acc =
-        generateTrajectory(
-        waypoints,
-        self.joint_limits.vel[{{}, 1}],
-        self.joint_limits.acc[{{}, 1}],
+        request.end_effector_name,
         request.max_deviation,
-        request.dt
+        request.collision_check,
+        request.ik_jump_threshold
     )
-    toc('generateTrajectory')
-    if not valid then
-        ros.ERROR('Generated Trajectory is not valid!')
-        response.error_code.val = -2
+    if code < 0 then
+        response.error_code.val = code
         return true
-    else
-        ros.INFO('Generated Trajectory is valid!')
     end
+
+    local valid, time, pos, vel, acc = generateTrajectory(waypoints, request.dt)
+    toc('generateTrajectory')
+
+    ros.INFO('Generated Trajectory is valid!')
+
 
     response.solution.joint_names = request.joint_names
     for i = 1, time:size(1) do
@@ -368,6 +361,7 @@ function LinearCartesianTrajectoryPlanningService:__init(node_handle)
     self.callback_queue = ros.CallbackQueue()
     self.info_server = nil
     self.robot_model = nil
+    self.planning_scene = nil
     self.robot_state = nil
     self.all_group_joint_names = nil
     self.joint_limits = {}
@@ -378,11 +372,16 @@ end
 function LinearCartesianTrajectoryPlanningService:onInitialize()
     local robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.robot_model = robot_model_loader:getModel()
+    self.planning_scene = moveit.PlanningScene(self.robot_model)
+    self.planning_scene:syncPlanningScene()
     self.end_effector_map = getEndEffectorMoveGroupMap(self.robot_model)
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
     self.all_group_joint_names = self.robot_model:getJointModelGroupNames()
     self.joint_limits.pos, self.joint_limits.vel, self.joint_limits.acc = self.robot_model:getVariableBounds()
-    self.variable_names = self.robot_model:getActiveJointNames()
+    self.variable_names = self.robot_model:getActiveJointNames():totable()
+    self.joint_limits.pos = createJointValues(self.variable_names, self.joint_limits.pos[{{}, 1}])
+    self.joint_limits.vel = createJointValues(self.variable_names, self.joint_limits.vel[{{}, 1}])
+    self.joint_limits.acc = createJointValues(self.variable_names, self.joint_limits.acc[{{}, 1}])
     collectgarbage()
 end
 
