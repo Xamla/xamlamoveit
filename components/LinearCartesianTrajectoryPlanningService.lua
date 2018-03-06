@@ -87,13 +87,33 @@ local function poses2MsgArray(points)
     return result
 end
 
-local function poseStampedMsg2StampedTransform(msg)
+local function lookupPose(self, link_name, base_link_name)
+    local base_link_name = base_link_name or 'base_link'
+    if self.transformListener:frameExists(base_link_name) and self.transformListener:frameExists(link_name) then
+        self.transformListener:waitForTransform(base_link_name, link_name, ros.Time(0), ros.Duration(0.1), true)
+        return true, self.transformListener:lookupTransform(base_link_name, link_name, ros.Time(0))
+    else
+        return false, tf.StampedTransform()
+    end
+end
+
+local function poseStampedMsg2StampedTransform(self, msg)
     local result = tf.StampedTransform()
     result:setOrigin(torch.Tensor {msg.pose.position.x, msg.pose.position.y, msg.pose.position.z})
     result:setRotation(
         tf.Quaternion(msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w)
     )
-    return result
+    result:set_frame_id(msg.header.frame_id)
+    local success = true
+    if #msg.header.frame_id > 0 then
+        local transform
+        success, transform = lookupPose(self, msg.header.frame_id, 'world')
+        if success then
+            result = transform:mul(result:toTransform())
+        end
+    end
+
+    return success, result
 end
 
 local function poseTo6DTensor(input)
@@ -128,15 +148,6 @@ local function tensor6DToPose(vector6D)
     return end_pose
 end
 
-local function convertTwist2Pose(twists)
-    local result = {}
-    for i, twist in ipairs(twists) do
-        result[i] = tensor6DToPose(twist.pos)
-        result[i]:set_frame_id('world')
-    end
-    return result
-end
-
 local function pose2jointTrajectory(
     self,
     seed,
@@ -158,10 +169,12 @@ local function pose2jointTrajectory(
 
     self.robot_state:setVariablePositions(seed, joint_names)
     self.robot_state:update()
+    local traj_joint_names = self.robot_model:getGroupJointNames(move_group):totable()
+    local velocity_limits = self.joint_limits.vel:select(traj_joint_names):getValues()
     for i, pose in ipairs(poses6D) do
         --ros.INFO('set IK')
         local old_state = self.robot_state:copyJointGroupPositions(move_group)
-        local suc = self.robot_state:setFromIK(move_group, tensor6DToPose(pose.pos):toTensor())
+        local suc = self.robot_state:setFromIK(move_group, tensor6DToPose(pose.pos):toTensor(), 5, 0.02)
         if suc then
             self.robot_state:update()
             local colliding = false
@@ -179,14 +192,18 @@ local function pose2jointTrajectory(
                     return result, error_codes.PLANNING_FAILED
                 end
                 local jac = self.robot_state:getJacobian(move_group)
-                local tmp =
-                    createJointValues(
-                    self.robot_model:getGroupJointNames(move_group):totable(),
-                    new_state
-                )
+                local tmp = createJointValues(traj_joint_names, new_state)
                 result[i] = {}
-                result[i].pos = tmp:select(joint_names):getValues()
+                result[i].pos = tmp:select(traj_joint_names):getValues()
                 result[i].vel = torch.inverse(jac) * poseTo6DTensor(pose.vel)
+                if torch.abs(result[i].vel):gt(velocity_limits):sum() > 0 then
+                    ros.ERROR(
+                        '[pose2jointTrajectory] Exceeded joint limits in move_group %s. Transformed %f%% of trajectory',
+                        move_group,
+                        100 * i / #poses6D
+                    )
+                    return result, error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS
+                end
             else
                 ros.ERROR(
                     '[pose2jointTrajectory] Collision detected in move_group %s. Transformed %f%% of trajectory',
@@ -209,16 +226,27 @@ local function pose2jointTrajectory(
 end
 
 local function getLinearPath(
+    self,
     start,
     goal,
     dt,
     max_xyz_velocity,
-    max_xyz_accelaration,
+    max_xyz_acceleration,
     max_angular_velocity,
-    max_angular_accelaration)
+    max_angular_acceleration)
+    assert(max_xyz_velocity > 0)
+    assert(max_xyz_acceleration > 0)
+    assert(max_angular_velocity > 0)
+    assert(max_angular_acceleration > 0)
     tic('getLinearPath')
-    local start = poseStampedMsg2StampedTransform(start)
-    local goal = poseStampedMsg2StampedTransform(goal)
+    local suc, start = poseStampedMsg2StampedTransform(self, start)
+    if suc == false then
+        return {}, error_codes.FRAME_TRANSFORM_FAILURE
+    end
+    local suc, goal = poseStampedMsg2StampedTransform(self, goal)
+    if suc == false then
+        return {}, error_codes.FRAME_TRANSFORM_FAILURE
+    end
     local controller = TvpController()
     local taskspace_max_vel = torch.ones(6) * 0.2 --m/s
     taskspace_max_vel[{{4, 6}}]:fill(math.pi / 2)
@@ -227,22 +255,22 @@ local function getLinearPath(
     if max_xyz_velocity then
         taskspace_max_vel[{{1, 3}}]:fill(max_xyz_velocity)
     end
-    if max_xyz_accelaration then
-        taskspace_max_acc[{{1, 3}}]:fill(max_xyz_accelaration)
+    if max_xyz_acceleration then
+        taskspace_max_acc[{{1, 3}}]:fill(max_xyz_acceleration)
     end
     if max_angular_velocity then
         taskspace_max_vel[{{4, 6}}]:fill(max_angular_velocity)
     end
-    if max_angular_accelaration then
-        taskspace_max_acc[{{4, 6}}]:fill(max_angular_accelaration)
+    if max_angular_acceleration then
+        taskspace_max_acc[{{4, 6}}]:fill(max_angular_acceleration)
     end
     controller.max_vel:copy(taskspace_max_vel)
     controller.max_acc:copy(taskspace_max_acc)
-    print(start, goal, controller.max_vel, controller.max_acc)
-    local result = controller:generateOfflineTrajectory(start, goal, dt or 0.01)
+    print('parameter for offline generation', dt, start, goal, controller.max_vel, controller.max_acc)
+    local result = controller:generateOfflineTrajectory(start, goal, dt)
     assert(#result > 1)
     toc('getLinearPath')
-    return result
+    return result, error_codes.SUCCESS
 end
 
 local function generateTrajectory(waypoints, dt)
@@ -273,40 +301,50 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
     local g_path = {}
     if 2 == #request.waypoints then
         ros.INFO('only start und goal received. Controller runs with dt = %f', request.dt)
-        local traj =
+        local traj, code =
             getLinearPath(
+            self,
             request.waypoints[1],
             request.waypoints[2],
             request.dt,
             request.max_xyz_velocity,
-            request.max_xyz_accelaration,
+            request.max_xyz_acceleration,
             request.max_angular_velocity,
-            request.max_angular_accelaration
+            request.max_angular_acceleration
         )
+        if code < 0 then
+            response.error_code.val = code
+            return true
+        end
         if #traj > 0 then
             table_concat(g_path, traj)
         end
     else
-        for i, v in ipairs(request.waypoints) do
+        for i = 1, #request.waypoints - 1 do
             local k = math.min(#request.waypoints, i + 1)
+            local v = request.waypoints[i]
             local w = request.waypoints[k]
-            local traj =
+            local traj, code =
                 getLinearPath(
+                self,
                 v,
                 w,
                 request.dt,
                 request.max_xyz_velocity,
-                request.max_xyz_accelaration,
+                request.max_xyz_acceleration,
                 request.max_angular_velocity,
-                request.max_angular_accelaration
+                request.max_angular_acceleration
             )
+            if code < 0 then
+                response.error_code.val = code
+                return true
+            end
             if #traj > 0 then
                 table_concat(g_path, traj)
             end
         end
     end
     ros.INFO('got taskspace trajectory. Next convert to joint trajectory')
-    local dim = request.seed.positions:size(1)
     local waypoints,
         code =
         pose2jointTrajectory(
@@ -329,7 +367,6 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
 
     ros.INFO('Generated Trajectory is valid!')
 
-
     response.solution.joint_names = request.joint_names
     for i = 1, time:size(1) do
         response.solution.points[i] = ros.Message('trajectory_msgs/JointTrajectoryPoint')
@@ -337,8 +374,6 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         response.solution.points[i].velocities = vel[i]
         if acc then
             response.solution.points[i].accelerations = acc[i]
-        else
-            response.solution.points[i].accelerations = vel[i]:zero()
         end
         response.solution.points[i].time_from_start = ros.Duration(time[i])
     end
@@ -360,18 +395,20 @@ function LinearCartesianTrajectoryPlanningService:__init(node_handle)
     self.node_handle = node_handle
     self.callback_queue = ros.CallbackQueue()
     self.info_server = nil
+    self.robot_model_loader = nil
     self.robot_model = nil
     self.planning_scene = nil
     self.robot_state = nil
     self.all_group_joint_names = nil
     self.joint_limits = {}
     self.end_effector_map = nil
+    self.transformListener = nil
     parent.__init(self, node_handle)
 end
 
 function LinearCartesianTrajectoryPlanningService:onInitialize()
-    local robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = robot_model_loader:getModel()
+    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+    self.robot_model = self.robot_model_loader:getModel()
     self.planning_scene = moveit.PlanningScene(self.robot_model)
     self.planning_scene:syncPlanningScene()
     self.end_effector_map = getEndEffectorMoveGroupMap(self.robot_model)
@@ -382,6 +419,7 @@ function LinearCartesianTrajectoryPlanningService:onInitialize()
     self.joint_limits.pos = createJointValues(self.variable_names, self.joint_limits.pos[{{}, 1}])
     self.joint_limits.vel = createJointValues(self.variable_names, self.joint_limits.vel[{{}, 1}])
     self.joint_limits.acc = createJointValues(self.variable_names, self.joint_limits.acc[{{}, 1}])
+    self.transformListener = tf.TransformListener()
     collectgarbage()
 end
 

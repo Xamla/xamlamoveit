@@ -39,6 +39,10 @@ function TaskSpacePlanParameters:toTable()
         max_velocity = self.max_velocity,
         max_acceleration = self.max_acceleration,
         ik_jump_threshold = self.ik_jump_threshold,
+        max_xyz_velocity = self.max_xyz_velocity,
+        max_xyz_acceleration = self.max_xyz_acceleration,
+        max_angular_velocity = self.max_angular_velocity,
+        max_angular_acceleration = self.max_angular_acceleration,
         dt = self.dt
     }
 end

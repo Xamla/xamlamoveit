@@ -5,7 +5,7 @@ local TaskSpaceController,
     TvpController =
     torch.class(
     'xamlamoveit.controller.TaskSpaceController',
-    'xamlamoveit.controller.MultiAxisTvpController2',
+    'xamlamoveit.controller.MultiAxisTvpController',
     controller
 )
 

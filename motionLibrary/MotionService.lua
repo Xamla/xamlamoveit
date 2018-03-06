@@ -3,6 +3,7 @@ local ros = require 'ros'
 
 local datatypes = require 'xamlamoveit.datatypes'
 local PlanParameters = datatypes.PlanParameters
+local TaskSpacePlanParameters = datatypes.TaskSpacePlanParameters
 
 local ac
 local actionlib = ros.actionlib
@@ -16,10 +17,10 @@ error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
 
 local function getServiceConnectionLostErrorMsg(service)
     return string.format(
-                'Connection lost to service: %s, Error: "%s"',
-                service:getService(),
-                error_codes[error_codes.SIGNAL_LOST]
-            )
+        'Connection lost to service: %s, Error: "%s"',
+        service:getService(),
+        error_codes[error_codes.SIGNAL_LOST]
+    )
 end
 
 function MotionService:__init(node_handle)
@@ -82,6 +83,64 @@ local function stampedMessages2PoseArray(msgs)
     return result
 end
 
+-- get Trajectory from service
+local function queryTaskSpaceTrajectory(
+    self,
+    end_effector_name,
+    waypoints,
+    max_deviation,
+    max_xyz_vel,
+    max_xyz_acc,
+    max_angular_vel,
+    max_angular_acc,
+    seed,
+    ik_jump_threshold,
+    collision_check,
+    dt)
+    local generate_trajectory_interface =
+        self.node_handle:serviceClient(
+        'xamlaPlanningServices/query_cartesian_trajectory',
+        'xamlamoveit_msgs/GetLinearCartesianTrajectory'
+    )
+    local request = generate_trajectory_interface:createRequest()
+    request.dt = dt > 1.0 and 1 / dt or dt
+    request.max_xyz_velocity = max_xyz_vel
+    request.max_xyz_acceleration = max_xyz_acc
+    request.max_angular_velocity = max_angular_vel
+    request.max_angular_acceleration = max_angular_acc
+    request.end_effector_name = end_effector_name
+    request.ik_jump_threshold = math.max(ik_jump_threshold, 0.0)
+    for i, pose in ipairs(waypoints) do
+        request.waypoints[i] =  pose:toStampedPoseMsg()
+    end
+    request.seed = ros.Message('xamlamoveit_msgs/JointPathPoint')
+    request.seed.positions = seed:getValues()
+    request.joint_names = seed:getNames()
+    request.max_deviation = max_deviation or 0.0
+    request.collision_check = collision_check == nil or collision_check
+
+    local response = nil
+    if generate_trajectory_interface:exists() then
+        ros.DEBUG('found service: .. %s', generate_trajectory_interface:getService())
+        response = generate_trajectory_interface:call(request)
+    else
+        ros.INFO('could not find service: %s ', generate_trajectory_interface:getService())
+    end
+    local trajectory, error_code
+    if response then
+        error_code = response.error_code.val
+        if error_code == 1 then
+            trajectory = response.solution
+        else
+            ros.ERROR('No valid taskspace trajectory found: %d, %s', error_code, error_codes[error_code])
+        end
+        return error_code, trajectory
+    else
+        ros.ERROR(getServiceConnectionLostErrorMsg(generate_trajectory_interface))
+        return error_codes.SIGNAL_LOST
+    end
+end
+
 function MotionService:queryCartesianPath(waypoints, sample_resolution)
     local compute_cartesian_path_interface =
         self.node_handle:serviceClient(
@@ -122,7 +181,7 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     if response then
         return response.error_codes, response.solutions
     else
-        ros.ERROR(ros.ERROR(getServiceConnectionLostErrorMsg(self.compute_ik_interface)))
+        ros.ERROR(getServiceConnectionLostErrorMsg(self.compute_ik_interface))
         return {val = error_codes.SIGNAL_LOST}, nil, getServiceConnectionLostErrorMsg(self.compute_ik_interface)
     end
 end
@@ -279,7 +338,9 @@ function MotionService:queryStateCollision(move_group_name, joint_names, points)
         if response then
             return response.success, response.in_collision, response.error_codes, response.messages
         else
-            return false, false, { val = error_codes.SIGNAL_LOST}, getServiceConnectionLostErrorMsg(collision_check_interface)
+            return false, false, {val = error_codes.SIGNAL_LOST}, getServiceConnectionLostErrorMsg(
+                collision_check_interface
+            )
         end
     else
         local error_msg = getServiceConnectionLostErrorMsg(collision_check_interface)
@@ -319,7 +380,7 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints)
             return response.error_code.val
         end
     else
-        ros.ERROR( getServiceConnectionLostErrorMsg(generate_path_interface) )
+        ros.ERROR(getServiceConnectionLostErrorMsg(generate_path_interface))
         return error_codes.SIGNAL_LOST
     end
 end
@@ -428,8 +489,8 @@ function MotionService:executeJointTrajectory(traj, check_collision)
     end
 end
 
-local function planMoveCartesian_1(self, start, goal, parameters)
-    ros.INFO('planMoveCartesian_1')
+local function planMoveP_1(self, start, goal, parameters)
+    ros.INFO('planMoveP_1')
     assert(torch.isTypeOf(start, datatypes.Pose))
     assert(torch.isTypeOf(goal, datatypes.Pose))
     assert(
@@ -460,8 +521,8 @@ local function planMoveCartesian_1(self, start, goal, parameters)
     return self:planMoveJoint(torch.cat(start[1].positions, goal[1].positions, 2):t(), parameters)
 end
 
-local function planMoveCartesian_2(self, waypoints, parameters)
-    ros.INFO('planMoveCartesian_2')
+local function planMoveP_2(self, waypoints, parameters)
+    ros.INFO('planMoveP_2')
     assert(torch.type(waypoints) == 'table')
     assert(
         torch.isTypeOf(parameters, datatypes.PlanParameters),
@@ -487,12 +548,12 @@ local function planMoveCartesian_2(self, waypoints, parameters)
     return self:planMoveJoint(torch.cat(result, 2):t(), parameters)
 end
 
-function MotionService:planMoveCartesian(_1, _2, _3)
-    ros.INFO('planMoveCartesian')
+function MotionService:planMoveP(_1, _2, _3)
+    ros.INFO('planMoveP')
     if torch.isTypeOf(_1, datatypes.Pose) then
-        return planMoveCartesian_1(self, _1, _2, _3)
+        return planMoveP_1(self, _1, _2, _3)
     elseif torch.type(_1) == 'table' then
-        return planMoveCartesian_2(self, _1, _2)
+        return planMoveP_2(self, _1, _2)
     end
 end
 
@@ -578,6 +639,60 @@ function MotionService:getDefaultPlanParameters(
         collision_check,
         max_deviation,
         dt
+    )
+end
+
+function MotionService:planMoveLinear(joint_value_seed, path, parameters)
+    ros.DEBUG('planMoveLinear')
+    assert(torch.isTypeOf(joint_value_seed, datatypes.JointValues))
+    assert(torch.type(path) == 'table')
+    assert(
+        torch.isTypeOf(parameters, datatypes.TaskSpacePlanParameters),
+        string.format(
+            'Input argument exception: parameters need to be from type [TaskSpacePlanParameters] but is from type %s',
+            torch.type(parameters)
+        )
+    )
+
+    local error_code,
+        trajectory =
+        queryTaskSpaceTrajectory(
+        self,
+        parameters.end_effector_name,
+        path,
+        parameters.max_deviation,
+        parameters.max_xyz_velocity * self.global_veloctiy_scaling,
+        parameters.max_xyz_acceleration * self.global_acceleration_scaling,
+        parameters.max_angular_velocity * self.global_veloctiy_scaling,
+        parameters.max_angular_acceleration * self.global_acceleration_scaling,
+        joint_value_seed,
+        parameters.ik_jump_threshold,
+        parameters.collision_check,
+        parameters.dt or 0.008
+    )
+    return error_code, trajectory
+end
+
+function MotionService:getDefaultTaskSpacePlanParameters(
+    end_effector_name,
+    max_deviation,
+    max_xyz_velocity,
+    max_xyz_acceleration,
+    max_angular_velocity,
+    max_angular_acceleration,
+    collision_check,
+    ik_jump_threshold,
+    dt)
+    return TaskSpacePlanParameters.new(
+        end_effector_name or 'EE_manipulator',
+        max_deviation or 0.0,
+        max_xyz_velocity or 0.01,
+        max_xyz_acceleration or 0.04,
+        max_angular_velocity or math.rad(1.5),
+        max_angular_acceleration or math.rad(1.5) * 4,
+        collision_check or true,
+        ik_jump_threshold or 0.1,
+        dt or 0.08
     )
 end
 
