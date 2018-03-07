@@ -24,7 +24,7 @@ function PlanParameters:__init(
     self.dt = dt or 0.008
 end
 
-function PlanParameters:setFromTable(t)
+function PlanParameters:fromTable(t)
     assert(type(t) == 'table', 'Source table argument must not be nil.')
     for k, v in pairs(t) do
         self[k] = v
@@ -45,7 +45,7 @@ end
 
 function PlanParameters:clone()
     local result = PlanParameters.new()
-    result:setFromTable(self:toTable())
+    result:fromTable(self:toTable())
     return result
 end
 

@@ -63,7 +63,6 @@ local function poses2MsgArray(points)
     local result = {}
     if torch.type(points) == 'table' then
         for i, v in ipairs(points) do
-            print(v)
             assert(
                 torch.isTypeOf(v, tf.StampedTransform),
                 string.format('points need to be type of tf.StampedTransform, but is of type: [%s]', torch.type(v))
@@ -266,7 +265,6 @@ local function getLinearPath(
     end
     controller.max_vel:copy(taskspace_max_vel)
     controller.max_acc:copy(taskspace_max_acc)
-    print('parameter for offline generation', dt, start, goal, controller.max_vel, controller.max_acc)
     local result = controller:generateOfflineTrajectory(start, goal, dt)
     assert(#result > 1)
     toc('getLinearPath')

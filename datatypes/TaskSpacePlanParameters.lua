@@ -24,7 +24,7 @@ function TaskSpacePlanParameters:__init(
     self.dt = dt or 0.008
 end
 
-function TaskSpacePlanParameters:setFromTable(t)
+function TaskSpacePlanParameters:fromTable(t)
     assert(type(t) == 'table', 'Source table argument must not be nil.')
     for k, v in pairs(t) do
         self[k] = v
@@ -49,7 +49,7 @@ end
 
 function TaskSpacePlanParameters:clone()
     local result = TaskSpacePlanParameters.new()
-    result:setFromTable(self:toTable())
+    result:fromTable(self:toTable())
     return result
 end
 
