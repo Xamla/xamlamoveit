@@ -25,7 +25,7 @@ function TrajectoryExecutionRequest:accept()
     if self.goal_handle:getGoalStatus().status == GoalStatus.PENDING then
         self.goal_handle:setAccepted('Starting trajectory execution')
         self.starttime_debug = ros.Time.now()
-        return true
+        return self.joint_monitor:waitReady(10.0)
     else
         ros.WARN('Status of queued trajectory is not pending but %d.', self.goal_handle:getGoalStatus().status)
         return false
@@ -113,6 +113,7 @@ function TrajectoryExecutionRequest:proceed()
             '[TrajectoryExecutionRequest] Goal status of current trajectory no longer ACTIVE (actual: %d).',
             self.goal_handle:getGoalStatus().status
         )
+        self.status = errorCodes.SIGNAL_LOST
         return false
     end
 end

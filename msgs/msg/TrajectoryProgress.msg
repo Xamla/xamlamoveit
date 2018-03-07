@@ -1,0 +1,6 @@
+uint64 index
+uint64 num_of_points
+float64 progress
+float64 control_frequency
+string error_msg
+int64 error_code

@@ -11,8 +11,9 @@ local components = require 'xamlamoveit.components.env'
 local MoveJActionServer,
     parent = torch.class('xamlamoveit.components.MoveJActionServer', 'xamlamoveit.components.RosComponent', components)
 
-function MoveJActionServer:__init(nh)
+function MoveJActionServer:__init(nh, joint_monitor)
     self.node_handle = nh
+    self.joint_monitor = joint_monitor
     self.worker = nil
     self.action_server = nil
     parent.__init(self, nh)
@@ -50,7 +51,7 @@ local function CancelCallBack(self, goal_handle)
 end
 
 function MoveJActionServer:onInitialize()
-    self.worker = MoveJWorker(self.node_handle)
+    self.worker = MoveJWorker(self.node_handle, self.joint_monitor)
     self.action_server = actionlib.ActionServer(self.node_handle, 'moveJ_action', 'xamlamoveit_msgs/moveJ')
     self.action_server:registerGoalCallback(
         function(gh)

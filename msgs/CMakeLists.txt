@@ -57,6 +57,7 @@ add_message_files(
   MoveGroupInterfaceDescription.msg
   ControllerState.msg
   JointPathPoint.msg
+  TrajectoryProgress.msg
 )
 
 ## Generate services in the 'srv' folder

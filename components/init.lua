@@ -1,6 +1,7 @@
 local components = require 'xamlamoveit.components.env'
 require 'xamlamoveit.components.RosComponent'
 require 'xamlamoveit.components.TrajectoryExecutionRequest'
+require 'xamlamoveit.components.TrajectorySteppingExecutionRequest'
 require 'xamlamoveit.components.PositionStateInfoService'
 require 'xamlamoveit.components.MoveJActionServer'
 require 'xamlamoveit.components.LeaseBasedLockService'
@@ -12,4 +13,5 @@ require 'xamlamoveit.components.LinearCartesianPathPlanningService'
 require 'xamlamoveit.components.LinearCartesianTrajectoryPlanningService'
 require 'xamlamoveit.components.JointStateAggregator'
 require 'xamlamoveit.components.MoveJSafeSteppingService'
+require 'xamlamoveit.components.MoveJSafeSteppingActionServer'
 return components
