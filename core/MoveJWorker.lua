@@ -268,7 +268,10 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     local dt = trajectory.points[1].time_from_start:toSec()
     start_state:setVariablePositions(trajectory.points[1].positions, trajectory.joint_names)
     start_state:setVariableVelocities(trajectory.points[1].velocities, trajectory.joint_names)
-    start_state:setVariableAccelerations(trajectory.points[1].accelerations, trajectory.joint_names)
+    if trajectory.points[1].accelerations:size() == trajectory.points[1].positions:size() then
+        ros.INFO('Set Accelerations')
+        start_state:setVariableAccelerations(trajectory.points[1].accelerations, trajectory.joint_names)
+    end
     start_state:update()
 
     local distance = ori_start_state:distance(start_state)
@@ -292,7 +295,9 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
 
         p:setVariablePositions(trajectory.points[i].positions, trajectory.joint_names)
         p:setVariableVelocities(trajectory.points[i].velocities, trajectory.joint_names)
-        p:setVariableAccelerations(trajectory.points[i].accelerations, trajectory.joint_names)
+        if trajectory.points[i].accelerations:size() == trajectory.points[i].positions:size() then
+            p:setVariableAccelerations(trajectory.points[i].accelerations, trajectory.joint_names)
+        end
         p:update()
         traj:addSuffixWayPoint(p, dt)
     end

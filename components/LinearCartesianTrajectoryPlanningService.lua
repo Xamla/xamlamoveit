@@ -415,7 +415,7 @@ function LinearCartesianTrajectoryPlanningService:onInitialize()
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
     self.all_group_joint_names = self.robot_model:getJointModelGroupNames()
     self.joint_limits.pos, self.joint_limits.vel, self.joint_limits.acc = self.robot_model:getVariableBounds()
-    self.variable_names = self.robot_model:getActiveJointNames():totable()
+    self.variable_names = self.robot_model:getVariableNames():totable() --Note that this also includes mimic joints
     self.joint_limits.pos = createJointValues(self.variable_names, self.joint_limits.pos[{{}, 1}])
     self.joint_limits.vel = createJointValues(self.variable_names, self.joint_limits.vel[{{}, 1}])
     self.joint_limits.acc = createJointValues(self.variable_names, self.joint_limits.acc[{{}, 1}])
