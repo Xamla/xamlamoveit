@@ -182,8 +182,8 @@ local function releaseResource(self, id_resources, id_lock)
 end
 
 
-function MoveJWorker:cancelCurrent_plan(abortMsg, code)
-    ros.DEBUG('MoveJWorker:cancelCurrent_plan %s', abortMsg)
+function MoveJWorker:cancelCurrentPlan(abortMsg, code)
+    ros.DEBUG('MoveJWorker:cancelCurrentPlan %s', abortMsg)
     if self.current_plan ~= nil then
         local traj = self.current_plan.traj
 
@@ -423,7 +423,7 @@ local function dispatchTrajectory(self)
             if suc == false then
                 status = self.error_codes.PREEMPTED
                 ros.ERROR('Stop plan execution. Lock failed.')
-                self:cancelCurrent_plan('Stop plan execution. Lock failed.', status)
+                self:cancelCurrentPlan('Stop plan execution. Lock failed.', status)
             end
 
             if traj.duration == nil then
@@ -435,7 +435,7 @@ local function dispatchTrajectory(self)
                 -- robot not ready or proceed callback returned false
                 status = traj.status
                 ros.ERROR('Stop plan execution. proceed method returned false')
-                self:cancelCurrent_plan(string.format('Stop plan execution. %s', self.error_codes[status]), status)
+                self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.error_codes[status]), status)
             end
         end
         -- execute main update call

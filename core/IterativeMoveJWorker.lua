@@ -99,7 +99,7 @@ function IterativeMoveJWorker:sync()
     return true
 end
 
-function IterativeMoveJWorker:cancelCurrent_plan(abortMsg)
+function IterativeMoveJWorker:cancelCurrentPlan(abortMsg)
     if self.current_plan ~= nil then
         local traj = self.current_plan.traj
         if traj.cancel ~= nil then
@@ -175,7 +175,7 @@ local function dispatchTrajectory(self)
                 -- robot not ready or proceed callback returned false
                 status = traj.status
                 ros.ERROR('Stop plan execution. proceed method returned false')
-                self:cancelCurrent_plan(string.format('Stop plan execution. %s', self.error_codes[status]), status)
+                self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.error_codes[status]), status)
             end
         end
         -- execute main update call
