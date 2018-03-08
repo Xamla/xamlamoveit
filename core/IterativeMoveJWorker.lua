@@ -174,8 +174,9 @@ local function dispatchTrajectory(self)
             if traj:proceed() == false then
                 -- robot not ready or proceed callback returned false
                 status = traj.status
-                ros.ERROR('Stop plan execution. proceed method returned false')
-                self:cancelCurrentPlan(string.format('Stop plan execution. %s', self.error_codes[status]), status)
+                local msg = string.format('Stop plan execution. %s', self.error_codes[status])
+                ros.ERROR('Proceed method returned false. ' .. msg)
+                self:cancelCurrentPlan(msg, status)
             end
         end
         -- execute main update call

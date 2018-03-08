@@ -101,7 +101,7 @@ function JointMonitor:waitReady(timeout)
     while not self:isReady() do
         local elapsed = ros.Time.now() - start
         if (not ros.ok()) or ((timeout ~= nil) and (elapsed > timeout)) then
-            ros.DEBUG(string.format('Joint states not available during: %s sec', tostring(elapsed)))
+            ros.DEBUG_NAMED('JointMonitor', string.format('Joint states not available during: %s sec', tostring(elapsed)))
             return false
         end
         ros.spinOnce()

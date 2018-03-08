@@ -17,19 +17,17 @@ errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
 local function checkStatusJoggingNode(self)
     local req = self.jogging_status_service:createRequest()
     local res = self.jogging_status_service:call(req)
-    print("res", res)
-    if res then
 
+    if res then
         return res.is_running, res.status_message_tracking
     else
         return false
     end
 end
 
-local function connect_cb(self, name, topic)
-    print('subscriber connected: ' .. name .. " (topic: '" .. topic .. "')")
+local function setJoggingServiceStatus(self, status)
     local req = self.jogging_activation_service:createRequest()
-    req.data = true
+    req.data = status
     local res = self.jogging_activation_service:call(req)
     if res then
         self.abort_action = not res.success
@@ -38,16 +36,12 @@ local function connect_cb(self, name, topic)
     end
 end
 
-local function disconnect_cb(self, name, topic)
-    print('subscriber diconnected: ' .. name .. " (topic: '" .. topic .. "')")
-    local req = self.jogging_activation_service:createRequest()
-    req.data = false
-    local res = self.jogging_activation_service:call(req)
-    if res then
-        self.abort_action = not res.success
-    else
-        self.abort_action = true
-    end
+local function activateJoggingService(self)
+    setJoggingServiceStatus(self, true)
+end
+
+local function deactivateJoggingService(self)
+    setJoggingServiceStatus(self, false)
 end
 
 function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
@@ -59,8 +53,8 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.joint_monitor = nil
     self.goal = goal_handle:getGoal()
     self.error_codes = errorCodes
-    self.check_collision = self.goal_handle.goal.goal.check_collision
-    self.position_deviation_threshold = 50.3
+    self.check_collision = self.goal.goal.check_collision
+    self.position_deviation_threshold = math.rad(1)
     self.publisher = nil
     self.subscriber_next = nil
     self.subscriber_prev = nil
@@ -70,60 +64,87 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.status = 0
     self.index = 1
     self.progress_topic = 'feedback'
+    self.allow_index_switch = false
 end
 
 local function next(self, msg, header)
-    ros.WARN('NEXT: %d/%d', self.index + 1, #self.goal.goal.trajectory.points)
-    self.index = math.min(self.index + 1, #self.goal.goal.trajectory.points)
+    if self.goal_handle:getGoalID().id == msg.id and self.allow_index_switch then
+        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'NEXT: %d/%d', self.index + 1, #self.goal.goal.trajectory.points)
+        self.index = math.min(self.index + 1, #self.goal.goal.trajectory.points)
+        self.allow_index_switch = false
+    end
 end
 
 local function prev(self, msg, header)
-    ros.WARN('PREV')
-    self.index = math.max(self.index - 1, 1)
+    if self.goal_handle:getGoalID().id == msg.id and self.allow_index_switch then
+        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'PREV: %d/%d', self.index - 1, #self.goal.goal.trajectory.points)
+        self.index = math.max(self.index - 1, 1)
+        self.allow_index_switch = false
+    end
 end
 
 function TrajectorySteppingExecutionRequest:connect(jogging_topic, start_stop_service, status_service)
-    ros.INFO('Create service client for jogging node.')
+    ros.INFO('[TrajectorySteppingExecutionRequest] Create service client for jogging node.')
     self.jogging_activation_service = ros.ServiceClient(start_stop_service, set_bool_spec)
     self.jogging_status_service = ros.ServiceClient(status_service, get_status_spec)
-
-    local function ccb(name, topic)
-        connect_cb(self, name, topic)
+    local is_running, status_msg = checkStatusJoggingNode(self)
+    if is_running then
+        return false
     end
-    local function dcb(name, topic)
-        disconnect_cb(self, name, topic)
-    end
-    ros.INFO('Create command publisher')
-    self.publisher = self.node_handle:advertise(jogging_topic, joint_pos_spec, 1, false, ccb, dcb)
+    activateJoggingService(self)
+    ros.INFO('[TrajectorySteppingExecutionRequest] Create command publisher')
+    self.publisher = self.node_handle:advertise(jogging_topic, joint_pos_spec, 1, false)
     self.feedback = self.node_handle:advertise(self.progress_topic, progress_spec )
 
-    self.subscriber_next = self.node_handle:subscribe('next', 'std_msgs/Empty', 16)
+    self.subscriber_next = self.node_handle:subscribe('next', 'actionlib_msgs/GoalID', 2)
     self.subscriber_next:registerCallback(
         function(msg, header)
             next(self, msg, header)
         end
     )
-    self.subscriber_prev = self.node_handle:subscribe('prev', 'std_msgs/Empty', 16)
+    self.subscriber_prev = self.node_handle:subscribe('prev', 'actionlib_msgs/GoalID', 2)
     self.subscriber_prev:registerCallback(
         function(msg, header)
             prev(self, msg, header)
         end
     )
+    return true
 end
 
 function TrajectorySteppingExecutionRequest:accept()
     if self.goal_handle:getGoalStatus().status == GoalStatus.PENDING then
-        self.goal_handle:setAccepted('Starting trajectory execution')
         self.starttime_debug = ros.Time.now()
-        self:connect(
+        self.status = 0
+        local ok = self:connect(
             '/xamlaJointJogging/jogging_command',
             '/xamlaJointJogging/start_stop_tracking',
             '/xamlaJointJogging/status'
         )
 
-        return self.joint_monitor:waitReady(10.0)
+        if not ok then
+            local code = errorCodes.PREEMPTED
+            self.status = code
+            local r = self.goal_handle:createResult()
+            r.result = code
+            self.goal_handle:setRejected(r, 'Jogging node is not ready.')
+            self:shutdown()
+            return false
+        end
+
+        ok = self.joint_monitor:waitReady(10.0)
+        if not ok then
+            local code = errorCodes.PREEMPTED
+            self.status = code
+            local r = self.goal_handle:createResult()
+            r.result = code
+            self.goal_handle:setRejected(r, 'Joint state is not ready.')
+            self:shutdown()
+            return false
+        end
+        self.goal_handle:setAccepted('Starting trajectory execution')
+        return true
     else
-        ros.WARN('Status of queued trajectory is not pending but %d.', self.goal_handle:getGoalStatus().status)
+        ros.WARN_NAMED('TrajectorySteppingExecutionRequest','Status of queued trajectory is not pending but %d.', self.goal_handle:getGoalStatus().status)
         return false
     end
 end
@@ -131,31 +152,25 @@ end
 function TrajectorySteppingExecutionRequest:proceed()
     local status = self.goal_handle:getGoalStatus().status
     if  status == GoalStatus.ACTIVE or status == GoalStatus.PENDING or status == GoalStatus.PREEMPTING then
-        --[[
-        local is_running, status_msg = checkStatusJoggingNode(self)
-        if not is_running or status_msg ~= 'IDLE'then
-            print(is_running, status_msg)
-            --self.abort_action = true
-        end
-        ]]
-
-        if self.abort_action == true then
-            self.status = errorCodes.ABORT
+        self.status = 0
+        local is_running, msg = checkStatusJoggingNode(self)
+        if self.abort_action == true or is_running == false then
+            if self.abort_action then
+                ros.WARN('[TrajectorySteppingExecutionRequest] could not set status on Jogging node')
+            end
+            if is_running == false then
+                ros.WARN('[TrajectorySteppingExecutionRequest] Jogging node should be running but is not.')
+            end
+            self.status = errorCodes.PREEMPTED
             return false
         elseif self.joint_monitor then
             local traj = self.goal.goal.trajectory
-            local ok, p = self.joint_monitor:getNextPositionsTensor(0.1, traj.joint_names)
-            if not ok then
-                ros.ERROR('[TrajectorySteppingExecutionRequest] joint tracking could not get actual joint states.')
-                self.status = errorCodes.CONTROL_FAILED
-                return false
-            end
+            local p = self.joint_monitor:getPositionsOrderedTensor(traj.joint_names)
+
             local q_dot = traj.points[self.index].positions - p
             local dist = torch.abs(q_dot)
-            if dist:gt(self.position_deviation_threshold):sum() > 0 then
-                ros.ERROR('[TrajectorySteppingExecutionRequest] joint tracking error is too big!!')
-                self.status = errorCodes.GOAL_VIOLATES_PATH_CONSTRAINTS
-                return false
+            if dist:gt(self.position_deviation_threshold):sum() < 1 then
+                self.allow_index_switch = true
             end
 
             local mPoint = ros.Message(joint_point_spec)
@@ -165,7 +180,7 @@ function TrajectorySteppingExecutionRequest:proceed()
             mPoint.time_from_start = ros.Duration(0.0)
             m.points = {mPoint}
             self.publisher:publish(m)
-            if self.index == #traj.points then
+            if self.index >= #traj.points and self.allow_index_switch then
                 self.status = errorCodes.SUCCESS
             end
             local fb = ros.Message(progress_spec)
@@ -195,21 +210,21 @@ function TrajectorySteppingExecutionRequest:abort(msg, code)
         local code = code or errorCodes.FAILURE
         local r = self.goal_handle:createResult()
         r.result = code
-        ros.WARN(tostring(r))
-        ros.WARN(tostring(msg))
-        ros.WARN(tostring(code))
+        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', tostring(r))
+        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', tostring(msg))
+        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', tostring(code))
         self.goal_handle:setAborted(r, msg or 'Error')
     elseif status == GoalStatus.PREEMPTING then
-        ros.INFO("Notifying client about PREEMTING state")
+        ros.INFO("[TrajectorySteppingExecutionRequest] Notifying client about PREEMTING state")
         local code = code or errorCodes.PREEMPTED
         local r = self.goal_handle:createResult()
         r.result = code
         self.goal_handle:setAborted(r, msg or 'Abort')
     elseif status == GoalStatus.RECALLING then
-        ros.INFO("Notifying client about RECALLING state")
+        ros.INFO("[TrajectorySteppingExecutionRequest] Notifying client about RECALLING state")
         self.goal_handle:setCanceled(nil, msg or 'Canceled')
     else
-        ros.INFO("nothing to be done")
+        ros.INFO("[TrajectorySteppingExecutionRequest] nothing to be done")
     end
     self:shutdown()
     collectgarbage()
@@ -251,9 +266,7 @@ function TrajectorySteppingExecutionRequest:shutdown()
     self.subscriber_prev = nil
 
     if self.jogging_activation_service then
-        local req = self.jogging_activation_service:createRequest()
-        req.data = false
-        local res = self.jogging_activation_service:call(req)
+        deactivateJoggingService(self)
         self.jogging_activation_service:shutdown()
     end
     self.jogging_activation_service = nil

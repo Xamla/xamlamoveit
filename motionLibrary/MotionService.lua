@@ -30,13 +30,16 @@ function MotionService:__init(node_handle)
     local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
     self.compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
     self.execution_action_client = nil
+    self.execution_step_action_client = nil
 end
 
 function MotionService:shutdown()
     if self.execution_action_client ~= nil then
         self.execution_action_client:shutdown()
     end
-
+    if self.execution_step_action_client ~= nil then
+        self.execution_step_action_client:shutdown()
+    end
     self.compute_ik_interface:shutdown()
     self.node_handle:shutdown()
 end
@@ -111,7 +114,7 @@ local function queryTaskSpaceTrajectory(
     request.end_effector_name = end_effector_name
     request.ik_jump_threshold = math.max(ik_jump_threshold, 0.0)
     for i, pose in ipairs(waypoints) do
-        request.waypoints[i] =  pose:toStampedPoseMsg()
+        request.waypoints[i] = pose:toStampedPoseMsg()
     end
     request.seed = ros.Message('xamlamoveit_msgs/JointPathPoint')
     request.seed.positions = seed:getValues()
@@ -421,6 +424,94 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
     else
         ros.ERROR(getServiceConnectionLostErrorMsg(generate_trajectory_interface))
         return error_codes.SIGNAL_LOST
+    end
+end
+
+function MotionService:executeSteppedJointTrajectory(traj, check_collision)
+    if self.execution_step_action_client == nil then
+        self.execution_step_action_client =
+            actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_step_action', self.node_handle)
+        self.execution_step_action_client:waitForServer(ros.Duration(2.5))
+    elseif not self.execution_step_action_client:isServerConnected() then
+        self.execution_step_action_client:shutdown()
+        self.execution_step_action_client = nil
+        self.execution_step_action_client =
+            actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_step_action', self.node_handle)
+        self.execution_step_action_client:waitForServer(ros.Duration(2.5))
+    end
+    local action_client = self.execution_step_action_client
+    ros.spinOnce()
+    assert(action_client:isServerConnected(), 'could not reach moveJ_step_action')
+
+    local g = action_client:createGoal()
+    g.trajectory.joint_names = traj.joint_names
+    g.trajectory.points = traj.points
+    g.check_collision = check_collision or false
+    local doInteraction = true
+    local result_state = 1
+    local result_payload = ''
+    local function done_cb(state, result)
+        doInteraction = false
+        result_state = state
+        result_payload = result
+    end
+    action_client:sendGoal(g, done_cb)
+    local goal_id_spec = ros.MsgSpec('actionlib_msgs/GoalID')
+
+    local function readKeySpinning()
+        local function spin()
+            if not ros.ok() then
+                return false, 'ros shutdown requested'
+            else
+                ros.spinOnce()
+                return true
+            end
+        end
+        return xutils.waitKey(spin)
+    end
+    local stepping_next_topic = '/xamlaMoveActions/next'
+    local stepping_prev_topic = '/xamlaMoveActions/prev'
+    local publisherNext = self.node_handle:advertise(stepping_next_topic, goal_id_spec)
+    local publisherPrev = self.node_handle:advertise(stepping_prev_topic, goal_id_spec)
+    local goal_id_msg = ros.Message(goal_id_spec)
+    goal_id_msg.id = action_client.gh.id
+    xutils.enableRawTerminal()
+    local input = ''
+    local run = true
+    local canceled = false
+    while ros.ok() and doInteraction do
+        print('Step through planned trajectory:')
+        print('=====')
+        print("'+'             next position")
+        print("'-'             previous position")
+        print("'ESC' or 'q'    quit")
+        print()
+        input = readKeySpinning()
+        if input == '+' then
+            publisherNext:publish(goal_id_msg)
+        elseif input == '-' then
+            publisherPrev:publish(goal_id_msg)
+        elseif string.byte(input) == 27 or input == 'q' then
+            doInteraction = false
+            canceled = true
+            action_client:cancelAllGoals()
+        end
+    end
+    xutils.restoreTerminalAttributes()
+    publisherNext:shutdown()
+    publisherPrev:shutdown()
+
+    local ok = action_client:waitForResult()
+    local state, state_msg = action_client:getState()
+    local answere = action_client:getResult()
+    ros.INFO('moveJ_action returned: %s, [%d]', state_msg, state)
+    if answere == nil then
+        answere = {result = state}
+    end
+    if ok and state == SimpleClientGoalState.SUCCEEDED or canceled then
+        return true, state_msg
+    else
+        return false, string.format('%s, Result: %s (%d)', state_msg, error_codes[answere.result], answere.result)
     end
 end
 
