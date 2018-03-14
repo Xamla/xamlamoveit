@@ -7,3 +7,5 @@ string[] sub_move_group_ids
 string[] joint_names
 
 string[] end_effector_names
+
+string[] end_effector_link_names
