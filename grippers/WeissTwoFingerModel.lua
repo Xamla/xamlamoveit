@@ -295,4 +295,43 @@ function WeissTwoFingerModel:closeGripperSync(width, force, speed, acceleration,
 end
 
 
+--[[
+    tentative gripper interface:
+        connect(gripper_action_name)
+        openSync(width, force, speed, acceleration, execute_timeout)
+        closeSync(width, force, speed, acceleration, execute_timeout)
+        disconnect()    
+]]
+
+
+function WeissTwoFingerModel:connect()
+    print('calling interface method WeissTwoFingerModel:connect()')
+end
+
+
+function WeissTwoFingerModel:disconnect()
+    
+end
+
+
+function WeissTwoFingerModel:open()
+    local width_open = 0.065    
+    local force = 50
+    local speed = 1
+    local acceleration = 1
+    local execute_timeout = 5
+    self:openGripperSync(width_open, force, speed, acceleration, execute_timeout)
+end
+
+
+function WeissTwoFingerModel:close()
+    local width_close = 0.015
+    local force = 50
+    local speed = 1
+    local acceleration = 1
+    local execute_timeout = 5
+    self:closeGripperSync(width_close, force, speed, acceleration, execute_timeout)
+end
+
+
 return WeissTwoFingerModel

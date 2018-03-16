@@ -18,12 +18,13 @@ GenericRosGripperClient.ERROR_TYPE = {
 
 local function initializeActionClient(self, gripper_action_name)
   self.action_client = actionlib.SimpleActionClient('control_msgs/GripperCommand', gripper_action_name, self.node_handle)
+  print('initializeActionClient')
 end
 
 
 function GenericRosGripperClient:__init(node_handle, gripper_action_name)
   self.node_handle = node_handle
-
+  print('GenericRosGripperClient:__init')
   local ok, err = pcall(function() initializeActionClient(self, gripper_action_name) end)
   if not ok then
     ros.ERROR('Initialization of gripper action client has failed: ' .. err)
@@ -114,6 +115,41 @@ function GenericRosGripperClient:shutdown()
   if self.action_client ~= nil then
     self.action_client:shutdown()
   end
+end
+
+
+--[[
+    tentative gripper interface:
+        connect()
+        openSync(width, force, speed, acceleration, execute_timeout)
+        closeSync(width, force, speed, acceleration, execute_timeout)
+        disconnect()    
+]]
+
+
+function GenericRosGripperClient:connect()
+    print('calling interface method GenericRosGripperClient:connect()')
+end
+
+
+function GenericRosGripperClient:disconnect()
+    self:shutdown()
+end
+
+
+function GenericRosGripperClient:open()
+    local width_open = 0.065    
+    local force = 50   
+    local execute_timeout = 5
+    self:tryMoveGripperSync(width_open, force, execute_timeout)
+end
+
+
+function GenericRosGripperClient:close()
+    local width_close = 0.0025    
+    local force = 50   
+    local execute_timeout = 5
+    self:tryMoveGripperSync(width_close, force, execute_timeout)
 end
 
 
