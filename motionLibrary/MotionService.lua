@@ -737,7 +737,7 @@ end
 function MotionService:planMoveLinear(joint_value_seed, path, parameters)
     ros.DEBUG('planMoveLinear')
     assert(torch.isTypeOf(joint_value_seed, datatypes.JointValues))
-    assert(torch.type(path) == 'table')
+    assert(torch.type(path) == 'table', string.format('[MotionService:planMoveLinear] path is not of type [table] bus [%s]',torch.type(path)))
     assert(
         torch.isTypeOf(parameters, datatypes.TaskSpacePlanParameters),
         string.format(
@@ -760,7 +760,7 @@ function MotionService:planMoveLinear(joint_value_seed, path, parameters)
         joint_value_seed,
         parameters.ik_jump_threshold,
         parameters.collision_check,
-        parameters.dt or 0.008
+        parameters.dt
     )
     return error_code, trajectory
 end
@@ -784,7 +784,7 @@ function MotionService:getDefaultTaskSpacePlanParameters(
         max_angular_acceleration or math.rad(1.5) * 4,
         collision_check or true,
         ik_jump_threshold or 0.1,
-        dt or 0.08
+        dt or 0.01
     )
 end
 

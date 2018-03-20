@@ -6,9 +6,10 @@ local motionLibrary = require 'xamlamoveit.motionLibrary.env'
 
 local EndEffector = torch.class('EndEffector', motionLibrary)
 
-function EndEffector:__init(move_group, end_effector_name)
+function EndEffector:__init(move_group, end_effector_name, end_effector_link_name)
     self.move_group = move_group
     self.name = end_effector_name
+    self.link_name = end_effector_name
     self.motion_service = move_group.motion_service
 end
 
@@ -22,7 +23,7 @@ end
 function EndEffector:computePose(joint_values)
     assert(joint_values ~= nil, 'Argument `joint_values` must not be nil.')
     assert(torch.isTypeOf(joint_values, datatypes.JointValues), 'Invalid argument `joint_values`: JointValues object expected.')
-    local error_code, solution, error_msgs = self.motion_service:queryPose(self.move_group.name, joint_values, link_name)
+    local error_code, solution, error_msgs = self.motion_service:queryPose(self.move_group.name, joint_values, self.link_name)
     if error_code.val ~= 1 then
         error(error_msg)
     end
