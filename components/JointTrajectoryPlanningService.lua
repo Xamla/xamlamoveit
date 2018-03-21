@@ -26,29 +26,7 @@ local function generateSimpleTvpTrajectory(waypoints, max_velocities, max_accele
     return time, positions, velocities, accelerations
 end
 
-local function sample(traj, dt)
-    ros.INFO('Resample Trajectory with dt = %f', dt)
-    local time, pos, vel, acc
-    if type(traj) == 'table' then
-        time, pos, vel, acc = {}, {}, {}, {}
-        for i, v in ipairs(traj) do
-            time[i], pos[i], vel[i], acc[i] = v:sample(dt or 0.01)
-        end
 
-        for i = 2, #time do
-            local j = i - 1
-            time[i]:add(time[j][time[j]:size(1)])
-        end
-        time = torch.cat(time, 1)
-        pos = torch.cat(pos, 1)
-        acc = torch.cat(acc, 1)
-        vel = torch.cat(vel, 1)
-    else
-        time, pos, vel, acc = traj:sample(dt or 0.01)
-    end
-    ros.INFO('Trajectory num points = %d, duration %s', time:size(1), tostring(time[time:size(1)]))
-    return time, pos, vel, acc
-end
 
 local function checkPathLength(waypoints)
     assert(torch.isTypeOf(waypoints, torch.DoubleTensor), "wrong type")
@@ -58,87 +36,6 @@ local function checkPathLength(waypoints)
         length = (waypoints[j] - waypoints[i]):norm() + length
     end
     return length
-end
-
-local function generateTrajectory(waypoints, max_velocities, max_accelerations, max_deviation, dt)
-    max_deviation = max_deviation or 1e-5
-    max_deviation = max_deviation < 1e-5 and 1e-5 or max_deviation
-
-    local time_step = dt or 0.008
-    time_step = math.max(time_step, 0.001)
-    ros.INFO('generateTrajectory from waypoints with max dev: %08f, dt %08f', max_deviation, time_step)
-    local path = {}
-    path[1] = optimplan.Path(waypoints, max_deviation)
-
-    local suc, split, skip = path[1]:analyse()
-    waypoints = path[1].waypoints:clone()
-    xutils.tic('generateTrajectory:analysing')
-    if not suc and #skip > 0 then
-        ros.INFO('skipping %d points split %d ', #skip, #split)
-        local indeces = torch.ByteTensor(waypoints:size(1)):fill(1)
-        for i, v in ipairs(skip) do
-            indeces[v] = 0
-        end
-        local newIndeces = {}
-        for i = 1, indeces:size(1) do
-            if indeces[i] == 1 then
-                newIndeces[#newIndeces + 1] = i
-            end
-        end
-        ros.INFO('newIndeces %d points', #newIndeces)
-        waypoints = waypoints:index(1, torch.LongTensor(newIndeces)):clone()
-        path[1] = optimplan.Path(waypoints, max_deviation)
-        waypoints = path[1].waypoints:clone()
-        suc, split, skip = path[1]:analyse()
-        if (#skip > 0) then
-            ros.WARN('check max deviation parameter... can propably be reduced')
-        end
-    end
-    if not suc and #split > 0 then
-        ros.INFO('splitting plan')
-        path = {}
-        local start_index = 1
-        for i, v in ipairs(split) do
-            if start_index < v then
-                path[#path + 1] = optimplan.Path(waypoints[{{start_index, v}, {}}], max_deviation)
-            end
-            start_index = v
-        end
-        path[#path + 1] = optimplan.Path(waypoints[{{start_index, waypoints:size(1)}, {}}], max_deviation)
-    end
-    xutils.toc('generateTrajectory:analysing')
-    local trajectory = {}
-    local valid = true
-
-    local time, pos, vel, acc
-    if #path > 0 then
-        ros.INFO('generating trajectory from %d path segments, with dt = %f', #path, time_step)
-        xutils.tic('generateTrajectory:trajectory')
-        local str = {[1] = 'st', [2] = 'nd', [3] = 'th'}
-        for i = 1, #path do
-            ros.INFO('generating trajectory from %d%s path segments', i, str[math.min(i, 3)])
-            trajectory[i] = optimplan.Trajectory(path[i], max_velocities, max_accelerations, time_step)
-            --trajectory[i]:outputPhasePlaneTrajectory() -- writes trajectory in file
-            if not trajectory[i]:isValid() then
-                valid = false
-            else
-                ros.INFO('Generation of Trajectories: %d%s', i / #path * 100, '%')
-            end
-        end
-
-        if valid then
-            time, pos, vel, acc = sample(trajectory, dt)
-        end
-        xutils.toc('generateTrajectory:trajectory')
-    else
-        time = torch.zeros[1]
-        valid = true
-        pos = waypoints[1]
-        vel = torch.zeros(pos:size())
-        acc = torch.zeros(pos:size())
-    end
-
-    return valid, time, pos, vel, acc
 end
 
 local function queryJointTrajectoryServiceHandler(self, request, response, header)
@@ -182,7 +79,7 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
             pos,
             vel,
             acc =
-            generateTrajectory(
+            optimplan.generateTrajectory(
             waypoints,
             request.max_velocity,
             request.max_acceleration,

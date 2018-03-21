@@ -8,6 +8,7 @@ local Xutils = require 'xamlamoveit.xutils'
 local error_codes = require 'xamlamoveit.core.ErrorCodes'.error_codes
 error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
 local TvpController = Controller.TaskSpaceController
+local optimplan = require 'optimplan'
 --require 'xamlamoveit.components.RosComponent'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetLinearCartesianTrajectory')
 local pose_msg_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
@@ -153,7 +154,6 @@ local function pose2jointTrajectory(
     joint_names,
     poses6D,
     end_effector_name,
-    max_deviation,
     collision_check,
     ik_jump_threshold)
     local code = error_codes.SUCCESS
@@ -271,9 +271,81 @@ local function getLinearPath(
     return result, error_codes.SUCCESS
 end
 
+local function transformInput(input)
+    local new_input
+    if torch.isTypeOf(input, tf.StampedTransform) then
+        input = input:toTransform()
+    end
+
+    if torch.isTypeOf(input, tf.Transform) then
+        new_input = torch.zeros(6)
+        new_input[{{1, 3}}] = input:getOrigin()
+        new_input[{{4, 6}}] = input:getRotation():getAxis() * input:getRotation():getAngle()
+    end
+    if torch.isTypeOf(input, torch.DoubleTensor) then
+        new_input = input
+    end
+    assert(
+        torch.isTypeOf(new_input, torch.DoubleTensor),
+        string.format('Input should be of type [torch.DoubleTensor] but is of type: [%s]', torch.type(new_input))
+    )
+    return new_input
+end
+
+local function getOptimLinearPath(
+    self,
+    waypoints,
+    dt,
+    max_xyz_velocity,
+    max_xyz_acceleration,
+    max_angular_velocity,
+    max_angular_acceleration,
+    max_deviation)
+    assert(max_xyz_velocity > 0)
+    assert(max_xyz_acceleration > 0)
+    assert(max_angular_velocity > 0)
+    assert(max_angular_acceleration > 0)
+    tic('getLinearPath')
+    local tmp_waypoints = {}
+    for i,v in ipairs(waypoints) do
+        local suc, transformed = poseStampedMsg2StampedTransform(self, v)
+        if suc == false then
+            return {}, error_codes.FRAME_TRANSFORM_FAILURE
+        end
+        tmp_waypoints[#tmp_waypoints + 1] = transformInput(transformed)
+    end
+    tmp_waypoints = torch.cat(tmp_waypoints,2):t()
+
+    local taskspace_max_vel = torch.ones(6) * 0.2 --m/s
+    taskspace_max_vel[{{4, 6}}]:fill(math.pi / 2)
+    local taskspace_max_acc = torch.ones(6) * 0.8 --m/s^2
+    taskspace_max_acc[{{4, 6}}]:fill(math.pi)
+    if max_xyz_velocity then
+        taskspace_max_vel[{{1, 3}}]:fill(max_xyz_velocity)
+    end
+    if max_xyz_acceleration then
+        taskspace_max_acc[{{1, 3}}]:fill(max_xyz_acceleration)
+    end
+    if max_angular_velocity then
+        taskspace_max_vel[{{4, 6}}]:fill(max_angular_velocity)
+    end
+    if max_angular_acceleration then
+        taskspace_max_acc[{{4, 6}}]:fill(max_angular_acceleration)
+    end
+
+    local valid, time, pos, vel, acc = optimplan.generateTrajectory(tmp_waypoints, taskspace_max_vel, taskspace_max_acc, max_deviation, dt)
+    local result = {}
+    for i = 1, time:size(1) do
+        result[#result + 1] = {pos = pos[{i,{}}], vel = vel[{i,{}}], acc = acc[{i,{}}]}
+    end
+    assert(valid)
+    toc('getOptimLinearPath')
+    return result, error_codes.SUCCESS
+end
+
 local function generateTrajectory(waypoints, dt)
     local time_step = dt or 0.008
-    time_step = math.max(time_step, 0.001)
+    time_step = math.min(time_step, 1e-4)
 
     local time = torch.zeros(#waypoints)
     valid = true
@@ -317,41 +389,34 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         if #traj > 0 then
             table_concat(g_path, traj)
         end
-    else
-        for i = 1, #request.waypoints - 1 do
-            local k = math.min(#request.waypoints, i + 1)
-            local v = request.waypoints[i]
-            local w = request.waypoints[k]
-            local traj, code =
-                getLinearPath(
-                self,
-                v,
-                w,
-                request.dt,
-                request.max_xyz_velocity,
-                request.max_xyz_acceleration,
-                request.max_angular_velocity,
-                request.max_angular_acceleration
-            )
-            if code < 0 then
-                response.error_code.val = code
-                return true
-            end
-            if #traj > 0 then
-                table_concat(g_path, traj)
-            end
+    elseif #request.waypoints > 1 then
+        local traj, code =
+            getOptimLinearPath(
+            self,
+            request.waypoints,
+            request.dt,
+            request.max_xyz_velocity,
+            request.max_xyz_acceleration,
+            request.max_angular_velocity,
+            request.max_angular_acceleration,
+            request.max_deviation or 0.1
+        )
+        if code < 0 then
+            response.error_code.val = code
+            return true
+        end
+        if #traj > 0 then
+            table_concat(g_path, traj)
         end
     end
     ros.INFO('got taskspace trajectory. Next convert to joint trajectory')
-    local waypoints,
-        code =
+    local waypoints, code =
         pose2jointTrajectory(
         self,
         request.seed.positions,
         request.joint_names,
         g_path,
         request.end_effector_name,
-        request.max_deviation,
         request.collision_check,
         request.ik_jump_threshold
     )
@@ -381,8 +446,7 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
 end
 
 local components = require 'xamlamoveit.components.env'
-local LinearCartesianTrajectoryPlanningService,
-    parent =
+local LinearCartesianTrajectoryPlanningService, parent =
     torch.class(
     'xamlamoveit.components.LinearCartesianTrajectoryPlanningService',
     'xamlamoveit.components.RosComponent',

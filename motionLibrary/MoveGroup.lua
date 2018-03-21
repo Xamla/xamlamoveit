@@ -134,7 +134,7 @@ function MoveGroup:buildTaskSpacePlanParameters(end_effector_name, velocity_scal
     return result
 end
 
-function MoveGroup:planMoveL(end_effector_name, end_effector_link, target, velocity_scaling, collision_check)
+function MoveGroup:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
     local plan_parameters = self:buildTaskSpacePlanParameters(end_effector_name, velocity_scaling, collision_check)
 
     -- get current pose
@@ -149,9 +149,9 @@ function MoveGroup:planMoveL(end_effector_name, end_effector_link, target, veloc
     return ok, joint_trajectory, plan_parameters
 end
 
-function MoveGroup:moveL(end_effector_name, end_effector_link, target, velocity_scaling, collision_check)
+function MoveGroup:moveL(end_effector_name, target, velocity_scaling, collision_check)
     -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, end_effector_link, target, velocity_scaling, collision_check)
+    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveL failed')
 
     -- start synchronous blocking execution
@@ -159,17 +159,17 @@ function MoveGroup:moveL(end_effector_name, end_effector_link, target, velocity_
     assert(ok, 'executeTaskSpaceTrajectory failed. ' .. msg)
 end
 
-function MoveGroup:steppedMoveL(end_effector_name, end_effector_link, target, velocity_scaling, collision_check)
+function MoveGroup:steppedMoveL(end_effector_name, target, velocity_scaling, collision_check)
     -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, end_effector_link, target, velocity_scaling, collision_check)
+    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveL failed')
 
     -- start synchronous blocking execution
-    local ok, msg = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check)
-    assert(ok, 'executeTaskSpaceTrajectory failed. ' .. msg)
+    local action_client, controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check)
+    return action_client, controller_handle
 end
 
-function MoveGroup:planMoveLWaypointList(end_effector_name, end_effector_link, waypoints, velocity_scaling, collision_check, max_deviation)
+function MoveGroup:planMoveLWaypointList(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
     max_deviation = max_deviation or 0.2
     local plan_parameters = self:buildTaskSpacePlanParameters(end_effector_name, velocity_scaling, collision_check)
 
@@ -181,12 +181,12 @@ function MoveGroup:planMoveLWaypointList(end_effector_name, end_effector_link, w
     return ok, joint_trajectory, plan_parameters
 end
 
-function MoveGroup:moveLWaypointList(end_effector_name, end_effector_link, waypoints, velocity_scaling, collision_check, max_deviation)
+function MoveGroup:moveLWaypointList(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
     if #waypoints == 0 then
         return
     end
 
-    local ok, joint_trajectory, plan_parameters = self:planMoveLWaypointList(end_effector_name, end_effector_link, waypoints, velocity_scaling, collision_check, max_deviation)
+    local ok, joint_trajectory, plan_parameters = self:planMoveLWaypointList(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
     assert(ok == 1, 'planMoveLWaypointList failed')
 
     -- start synchronous blocking execution
@@ -194,9 +194,9 @@ function MoveGroup:moveLWaypointList(end_effector_name, end_effector_link, waypo
     assert(ok, 'executeJointTrajectory failed.')
 end
 
-function MoveGroup:moveLAsync(end_effector_name, end_effector_link, target, velocity_scaling, collision_check, done_cb)
+function MoveGroup:moveLAsync(end_effector_name, target, velocity_scaling, collision_check, done_cb)
     -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, end_effector_link, target, velocity_scaling, collision_check)
+    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveL failed')
 
     local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
@@ -279,9 +279,10 @@ function MoveGroup:steppedMoveJ(target, velocity_scaling, collision_check)
     local ok, joint_trajectory, plan_parameters = self:planMoveJ(target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveJ failed')
 
-    -- start synchronous blocking execution
-    local ok, msg = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check)
-    assert(ok, 'executeJointTrajectory failed. ' .. msg)
+    -- start asynchronous execution
+    local simple_action_client, controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
+
+    return simple_action_client, controller_handle
 end
 
 function MoveGroup:planMoveWaypointList(waypoints, velocity_scaling, collision_check, max_deviation)

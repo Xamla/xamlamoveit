@@ -98,18 +98,18 @@ local function queryTaskSpaceLimits(self, name)
 
 
     parameters = parameters[index]
-    if parameters.has_taskspace_vel_limit == true then
-        max_vel:fill(parameters.taskspace_max_vel)
-        print(1.1 * parameters.taskspace_max_vel * self.dt:toSec(), position_max)
-        position_max = math.min(1.1 * parameters.taskspace_max_vel, position_max)
+    if parameters.has_taskspace_xyz_vel_limit == true then
+        max_vel:fill(parameters.taskspace_xyz_max_vel)
+        print(1.1 * parameters.taskspace_xyz_max_vel * self.dt:toSec(), position_max)
+        position_max = math.min(1.1 * parameters.taskspace_xyz_max_vel, position_max)
         position_min = math.min(position_max/10, position_min)
     else
         --m/s
         max_vel:fill(0.2)
     end
-    if parameters.has_taskspace_acc_limit == true then
-        max_acc:fill(parameters.taskspace_max_acc)
-    elseif parameters.has_taskspace_vel_limit == true then
+    if parameters.has_taskspace_xyz_acc_limit == true then
+        max_acc:fill(parameters.taskspace_xyz_max_acc)
+    elseif parameters.has_taskspace_xyz_vel_limit == true then
         max_acc = max_vel * 2.0
     end
 

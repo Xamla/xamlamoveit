@@ -428,7 +428,7 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
     end
 end
 
-function MotionService:executeSteppedJointTrajectory(traj, check_collision)
+function MotionService:executeSteppedJointTrajectory(traj, check_collision, done_cb)
     if self.execution_step_action_client == nil then
         self.execution_step_action_client =
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_step_action', self.node_handle)
@@ -448,72 +448,32 @@ function MotionService:executeSteppedJointTrajectory(traj, check_collision)
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
     g.check_collision = check_collision or false
-    local doInteraction = true
-    local result_state = 1
-    local result_payload = ''
-    local function done_cb(state, result)
-        doInteraction = false
-        result_state = state
-        result_payload = result
-    end
+
     action_client:sendGoal(g, done_cb)
     local goal_id_spec = ros.MsgSpec('actionlib_msgs/GoalID')
-
-    local function readKeySpinning()
-        local function spin()
-            if not ros.ok() then
-                return false, 'ros shutdown requested'
-            else
-                ros.spinOnce()
-                return true
-            end
-        end
-        return xutils.waitKey(spin)
-    end
     local stepping_next_topic = '/xamlaMoveActions/next'
     local stepping_prev_topic = '/xamlaMoveActions/prev'
     local publisherNext = self.node_handle:advertise(stepping_next_topic, goal_id_spec)
     local publisherPrev = self.node_handle:advertise(stepping_prev_topic, goal_id_spec)
     local goal_id_msg = ros.Message(goal_id_spec)
     goal_id_msg.id = action_client.gh.id
-    xutils.enableRawTerminal()
-    local input = ''
-    local run = true
-    local canceled = false
-    while ros.ok() and doInteraction do
-        print('Step through planned trajectory:')
-        print('=====')
-        print("'+'             next position")
-        print("'-'             previous position")
-        print("'ESC' or 'q'    quit")
-        print()
-        input = readKeySpinning()
-        if input == '+' then
+    local controller_handle = {
+        next = function()
             publisherNext:publish(goal_id_msg)
-        elseif input == '-' then
+        end,
+        prev = function()
             publisherPrev:publish(goal_id_msg)
-        elseif string.byte(input) == 27 or input == 'q' then
-            doInteraction = false
-            canceled = true
-            action_client:cancelAllGoals()
+        end,
+        shutdown = function()
+            publisherNext:shutdown()
+            publisherPrev:shutdown()
+        end,
+        abort = function()
+            action_client:cancelGoal()
         end
-    end
-    xutils.restoreTerminalAttributes()
-    publisherNext:shutdown()
-    publisherPrev:shutdown()
+    }
 
-    local ok = action_client:waitForResult()
-    local state, state_msg = action_client:getState()
-    local answere = action_client:getResult()
-    ros.INFO('moveJ_action returned: %s, [%d]', state_msg, state)
-    if answere == nil then
-        answere = {result = state}
-    end
-    if ok and state == SimpleClientGoalState.SUCCEEDED or canceled then
-        return true, state_msg
-    else
-        return false, string.format('%s, Result: %s (%d)', state_msg, error_codes[answere.result], answere.result)
-    end
+    return action_client, controller_handle
 end
 
 function MotionService:executeJointTrajectoryAsync(traj, check_collision, done_cb)
@@ -691,8 +651,7 @@ function MotionService:planMoveJoint(path, parameters)
         )
     )
 
-    local error_code,
-        trajectory =
+    local error_code, trajectory =
         queryJointTrajectory(
         self,
         parameters.joint_names,
@@ -737,7 +696,10 @@ end
 function MotionService:planMoveLinear(joint_value_seed, path, parameters)
     ros.DEBUG('planMoveLinear')
     assert(torch.isTypeOf(joint_value_seed, datatypes.JointValues))
-    assert(torch.type(path) == 'table', string.format('[MotionService:planMoveLinear] path is not of type [table] bus [%s]',torch.type(path)))
+    assert(
+        torch.type(path) == 'table',
+        string.format('[MotionService:planMoveLinear] path is not of type [table] bus [%s]', torch.type(path))
+    )
     assert(
         torch.isTypeOf(parameters, datatypes.TaskSpacePlanParameters),
         string.format(
@@ -746,8 +708,7 @@ function MotionService:planMoveLinear(joint_value_seed, path, parameters)
         )
     )
 
-    local error_code,
-        trajectory =
+    local error_code, trajectory =
         queryTaskSpaceTrajectory(
         self,
         parameters.end_effector_name,

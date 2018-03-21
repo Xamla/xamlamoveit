@@ -9,7 +9,7 @@ local EndEffector = torch.class('EndEffector', motionLibrary)
 function EndEffector:__init(move_group, end_effector_name, end_effector_link_name)
     self.move_group = move_group
     self.name = end_effector_name
-    self.link_name = end_effector_name
+    self.link_name = end_effector_link_name
     self.motion_service = move_group.motion_service
 end
 
