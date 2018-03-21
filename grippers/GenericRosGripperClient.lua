@@ -96,16 +96,16 @@ function GenericRosGripperClient:waitForResult(execute_timeout_in_s)
 end
 
 
-function GenericRosGripperClient:moveGripperSync(width_in_m, force_in_n, execute_timeout_in_s)
+function GenericRosGripperClient:moveGripper(width_in_m, force_in_n, execute_timeout_in_s)
   self:moveGripperAsync(width_in_m, force_in_n)
   self:waitForMove(ros.Duration(execute_timeout_in_s))
 end
 
 
-function GenericRosGripperClient:tryMoveGripperSync(width_in_m, force_in_n, execute_timeout_in_s)
+function GenericRosGripperClient:tryMoveGripper(width_in_m, force_in_n, execute_timeout_in_s)
   return pcall(
     function()
-      self:moveGripperSync(width_in_m, force_in_n, execute_timeout_in_s)
+      self:moveGripper(width_in_m, force_in_n, execute_timeout_in_s)
     end
   )
 end
@@ -116,15 +116,6 @@ function GenericRosGripperClient:shutdown()
     self.action_client:shutdown()
   end
 end
-
-
---[[
-    tentative gripper interface:
-        connect()
-        openSync(width, force, speed, acceleration, execute_timeout)
-        closeSync(width, force, speed, acceleration, execute_timeout)
-        disconnect()    
-]]
 
 
 function GenericRosGripperClient:connect()
@@ -138,18 +129,18 @@ end
 
 
 function GenericRosGripperClient:open()
-    local width_open = 0.065    
-    local force = 50   
+    local width_open = 0.065
+    local force = 50
     local execute_timeout = 5
-    self:tryMoveGripperSync(width_open, force, execute_timeout)
+    self:tryMoveGripper(width_open, force, execute_timeout)
 end
 
 
 function GenericRosGripperClient:close()
-    local width_close = 0.0025    
-    local force = 50   
+    local width_close = 0.0025
+    local force = 50
     local execute_timeout = 5
-    self:tryMoveGripperSync(width_close, force, execute_timeout)
+    self:tryMoveGripper(width_close, force, execute_timeout)
 end
 
 
