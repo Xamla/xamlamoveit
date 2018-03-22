@@ -176,8 +176,8 @@ function TrajectorySteppingExecutionRequest:proceed()
             local mPoint = ros.Message(joint_point_spec)
             local m = ros.Message(joint_pos_spec)
             m.joint_names = traj.joint_names
-            mPoint.positions:set(traj.points[self.index].positions) --TODO this is probably not optimal.
-            mPoint.time_from_start = ros.Duration(0.0)
+            mPoint.positions:set(traj.points[self.index].positions)
+            mPoint.time_from_start = ros.Duration(0.008) --TODO this is probably not optimal.
             m.points = {mPoint}
             self.publisher:publish(m)
             if self.index >= #traj.points and self.allow_index_switch then

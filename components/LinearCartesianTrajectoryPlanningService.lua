@@ -188,7 +188,7 @@ local function pose2jointTrajectory(
                         move_group,
                         100 * i / #poses6D
                     )
-                    return result, error_codes.PLANNING_FAILED
+                    return result, error_codes.NO_IK_SOLUTION
                 end
                 local jac = self.robot_state:getJacobian(move_group)
                 local tmp = createJointValues(traj_joint_names, new_state)
@@ -301,10 +301,22 @@ local function getOptimLinearPath(
     max_angular_velocity,
     max_angular_acceleration,
     max_deviation)
-    assert(max_xyz_velocity > 0)
-    assert(max_xyz_acceleration > 0)
-    assert(max_angular_velocity > 0)
-    assert(max_angular_acceleration > 0)
+    if max_xyz_velocity > 0 then
+        ros.ERROR('[getOptimLinearPath] max_xyz_velocity needs to be greater than 0.')
+        return {}, error_codes.INVALID_GOAL_CONSTRAINTS
+    end
+    if max_xyz_acceleration > 0 then
+        ros.ERROR('[getOptimLinearPath] max_xymax_xyz_acceleration needs to be greater than 0.')
+        return {}, error_codes.INVALID_GOAL_CONSTRAINTS
+    end
+    if max_angular_velocity > 0 then
+        ros.ERROR('[getOptimLinearPath] max_angular_velocity needs to be greater than 0.')
+        return {}, error_codes.INVALID_GOAL_CONSTRAINTS
+    end
+    if max_angular_acceleration > 0 then
+        ros.ERROR('[getOptimLinearPath] max_angular_acceleration needs to be greater than 0.')
+        return {}, error_codes.INVALID_GOAL_CONSTRAINTS
+    end
     tic('getLinearPath')
     local tmp_waypoints = {}
     for i,v in ipairs(waypoints) do

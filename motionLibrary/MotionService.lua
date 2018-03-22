@@ -215,6 +215,24 @@ function MotionService:queryAvailableMoveGroups()
     end
 end
 
+function MotionService:queryEndEffectorLimits(name)
+    local maxXYZVel = 0
+    local maxXYZAcc = 0
+    local maxAngularVel = 0
+    local maxAngularAcc = 0
+    local list = self.node_handle:getParamVariable("xamlaJointJogging/end_effector_list")
+    for i, item in ipairs(list) do
+        if item.name == name then
+            maxXYZVel = item.taskspace_xyz_max_vel
+            maxXYZAcc = item.taskspace_xyz_max_acc
+            maxAngularVel = item.taskspace_angular_max_vel
+            maxAngularAcc = item.taskspace_angular_max_acc
+            return maxXYZVel, maxXYZAcc, maxAngularVel, maxAngularAcc
+        end
+    end
+    return maxXYZVel, maxXYZAcc, maxAngularVel, maxAngularAcc
+end
+
 function MotionService:queryJointLimits(joint_names)
     local max_vel = torch.zeros(#joint_names)
     local max_acc = torch.zeros(#joint_names)
@@ -448,32 +466,76 @@ function MotionService:executeSteppedJointTrajectory(traj, check_collision, done
     g.trajectory.joint_names = traj.joint_names
     g.trajectory.points = traj.points
     g.check_collision = check_collision or false
+    print(g)
 
     action_client:sendGoal(g, done_cb)
     local goal_id_spec = ros.MsgSpec('actionlib_msgs/GoalID')
+    local feedback_spec = ros.MsgSpec('xamlamoveit_msgs/TrajectoryProgress')
     local stepping_next_topic = '/xamlaMoveActions/next'
     local stepping_prev_topic = '/xamlaMoveActions/prev'
+    local stepping_feedback_topic = '/xamlaMoveActions/feedback'
     local publisherNext = self.node_handle:advertise(stepping_next_topic, goal_id_spec)
     local publisherPrev = self.node_handle:advertise(stepping_prev_topic, goal_id_spec)
+
     local goal_id_msg = ros.Message(goal_id_spec)
     goal_id_msg.id = action_client.gh.id
     local controller_handle = {
+        last_progress = 0,
+        last_error_msg = 'OK',
+        canceled = false,
+        subscriber = nil,
+        action_client = action_client,
         next = function()
             publisherNext:publish(goal_id_msg)
         end,
         prev = function()
             publisherPrev:publish(goal_id_msg)
         end,
-        shutdown = function()
+        feedback = function(self)
+            return self.last_progress, self.last_error_msg
+        end,
+        shutdown = function(self)
             publisherNext:shutdown()
             publisherPrev:shutdown()
+            if self.subscriber then
+                self.subscriber:shutdown()
+            end
         end,
-        abort = function()
+        abort = function(self)
             action_client:cancelGoal()
+            self.canceled = true
+        end,
+        getResult = function(self)
+            local ok = action_client:waitForResult()
+            local state, state_msg = action_client:getState()
+            local answere = action_client:getResult()
+            ros.INFO('moveJ_action returned: %s, [%d]', state_msg, state)
+            if answere == nil then
+                answere = {result = state}
+            end
+            if ok and state == SimpleClientGoalState.SUCCEEDED or self.canceled then
+                return true, state_msg
+            else
+                return false, string.format(
+                    '%s, Result: %s (%d)',
+                    state_msg,
+                    error_codes[answere.result],
+                    answere.result
+                )
+            end
+        end,
+        getActionClient = function(self)
+            return self.action_client
         end
     }
+    local feedback_callback = function(msg, header)
+        controller_handle.last_progress = msg.progress
+        controller_handle.last_error_msg = msg.error_msg
+    end
+    controller_handle.subscriber = self.node_handle:subscribe(stepping_feedback_topic, feedback_spec)
+    controller_handle.subscriber:registerCallback(feedback_callback)
 
-    return action_client, controller_handle
+    return controller_handle
 end
 
 function MotionService:executeJointTrajectoryAsync(traj, check_collision, done_cb)

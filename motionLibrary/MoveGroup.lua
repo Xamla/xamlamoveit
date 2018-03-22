@@ -25,6 +25,8 @@ function MoveGroup:__init(motion_service, move_group_name)
     end
     self.end_effectors = end_effectors
     self.default_end_effector_name = #self.details.end_effector_names > 0 and self.details.end_effector_names[1]   -- use first end effector as default
+    local maxXYZVel, maxXYZAcc, maxAngularVel, maxAngularAcc = self.motion_service:queryEndEffectorLimits(self.default_end_effector_name)
+    self.default_task_space_plan_parameters = self.motion_service:getDefaultTaskSpacePlanParameters(self.default_end_effector_name, 0.0, maxXYZVel, maxXYZAcc, maxAngularVel, maxAngularAcc)
 end
 
 function MoveGroup:getEndEffectorNames()
@@ -159,14 +161,14 @@ function MoveGroup:moveL(end_effector_name, target, velocity_scaling, collision_
     assert(ok, 'executeTaskSpaceTrajectory failed. ' .. msg)
 end
 
-function MoveGroup:steppedMoveL(end_effector_name, target, velocity_scaling, collision_check)
+function MoveGroup:steppedMoveL(end_effector_name, target, velocity_scaling, collision_check, done_cb)
     -- plan trajectory
     local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveL failed')
 
     -- start synchronous blocking execution
-    local action_client, controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check)
-    return action_client, controller_handle
+    local controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
+    return controller_handle
 end
 
 function MoveGroup:planMoveLWaypointList(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)

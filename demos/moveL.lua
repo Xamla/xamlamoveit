@@ -22,12 +22,12 @@ local move_group_names, move_group_details = mc:queryAvailableMoveGroups()
 
 --Select one moveit move group
 local move_group = move_group_names[1]
-local end_effector_name = 'EE_manipulator_meca' --Adapt according to your setup
-local end_effector_link_name = 'meca_wrist_3_link' --Adapt according to your setup
 
 --Define Xamla Movegroup
 local xamla_mg = require 'xamlamoveit.motionLibrary'.MoveGroup(mc, move_group) -- motion client
-
+local end_effector = xamla_mg:getEndEffector()
+local end_effector_name = end_effector.name
+local end_effector_link_name = end_effector.link_name
 --Specify targets relative to 'end_effector_link_name'
 local A, B, C, D, E, F
 A = tf.StampedTransform()
