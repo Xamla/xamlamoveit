@@ -166,7 +166,7 @@ function MoveGroup:steppedMoveL(end_effector_name, target, velocity_scaling, col
     local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveL failed')
 
-    -- start synchronous blocking execution
+    -- start asynchronous execution
     local controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
     return controller_handle
 end
@@ -282,9 +282,8 @@ function MoveGroup:steppedMoveJ(target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveJ failed')
 
     -- start asynchronous execution
-    local simple_action_client, controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
-
-    return simple_action_client, controller_handle
+    local controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
+    return controller_handle
 end
 
 function MoveGroup:planMoveWaypointList(waypoints, velocity_scaling, collision_check, max_deviation)

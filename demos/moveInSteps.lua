@@ -31,7 +31,8 @@ local sp = ros.AsyncSpinner() -- background job
 sp:start()
 
 --Create you dedicated motion service
-local mc = require 'xamlamoveit.motionLibrary'.MotionService(nh)
+local motionLibrary = require 'xamlamoveit.motionLibrary'
+local mc = motionLibrary.MotionService(nh)
 
 --Query necessary information about setup
 local move_group_names, move_group_details = mc:queryAvailableMoveGroups()
@@ -39,7 +40,7 @@ local move_group_names, move_group_details = mc:queryAvailableMoveGroups()
 --Select one moveit move group
 local move_group = move_group_names[1]
 --Define Xamla Movegroup
-local xamla_mg = require 'xamlamoveit.motionLibrary'.MoveGroup(mc, move_group) -- motion client
+local xamla_mg = motionLibrary.MoveGroup(mc, move_group) -- motion client
 local end_effector = xamla_mg:getEndEffector()
 local end_effector_name = end_effector.name
 local end_effector_link_name = end_effector.link_name
@@ -52,22 +53,23 @@ target:setOrigin(torch.Tensor {0.02, 0.0, 0.01}) -- meter
 
 local velocity_scaling = 1
 local check_for_collisions = true
-local doInteraction = true
+local do_interaction = true
 local result_state = 1
 local result_payload = ''
 local function done_cb(state, result)
     print('done.')
-    doInteraction = false
+    do_interaction = false
     result_state = state
     result_payload = result
 end
 
 --Start motion
 local handle = xamla_mg:steppedMoveL(end_effector_name, target, velocity_scaling, check_for_collisions, done_cb)
+assert(torch.isTypeOf(handle, motionLibrary.SteppedMotionClient))
 
 xutils.enableRawTerminal()
 local input
-while ros.ok() and doInteraction do
+while ros.ok() and do_interaction do
     print('Step through planned trajectory:')
     print('=====')
     print("'+'             next position")
@@ -78,14 +80,13 @@ while ros.ok() and doInteraction do
     if input == '+' then
         handle:next()
     elseif input == '-' then
-        handle:prev()
+        handle:previous()
     elseif string.byte(input) == 27 or input == 'q' then
-        doInteraction = false
+        do_interaction = false
         handle:abort()
     elseif input == 'f' then
-        print('feedback: ', handle:feedback())
+        print('feedback: ', handle:getFeedback())
     end
-
 end
 xutils.restoreTerminalAttributes()
 
