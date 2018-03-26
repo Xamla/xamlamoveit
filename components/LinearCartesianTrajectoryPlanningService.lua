@@ -301,19 +301,26 @@ local function getOptimLinearPath(
     max_angular_velocity,
     max_angular_acceleration,
     max_deviation)
-    if max_xyz_velocity > 0 then
+    print(
+        dt,
+        max_xyz_velocity,
+        max_xyz_acceleration,
+        max_angular_velocity,
+        max_angular_acceleration,
+        max_deviation)
+    if max_xyz_velocity <= 0 then
         ros.ERROR('[getOptimLinearPath] max_xyz_velocity needs to be greater than 0.')
         return {}, error_codes.INVALID_GOAL_CONSTRAINTS
     end
-    if max_xyz_acceleration > 0 then
+    if max_xyz_acceleration <= 0 then
         ros.ERROR('[getOptimLinearPath] max_xymax_xyz_acceleration needs to be greater than 0.')
         return {}, error_codes.INVALID_GOAL_CONSTRAINTS
     end
-    if max_angular_velocity > 0 then
+    if max_angular_velocity <= 0 then
         ros.ERROR('[getOptimLinearPath] max_angular_velocity needs to be greater than 0.')
         return {}, error_codes.INVALID_GOAL_CONSTRAINTS
     end
-    if max_angular_acceleration > 0 then
+    if max_angular_acceleration <= 0 then
         ros.ERROR('[getOptimLinearPath] max_angular_acceleration needs to be greater than 0.')
         return {}, error_codes.INVALID_GOAL_CONSTRAINTS
     end
@@ -411,7 +418,7 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
             request.max_xyz_acceleration,
             request.max_angular_velocity,
             request.max_angular_acceleration,
-            request.max_deviation or 0.1
+            request.max_deviation or 0.0
         )
         if code < 0 then
             response.error_code.val = code

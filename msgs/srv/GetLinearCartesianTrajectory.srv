@@ -12,6 +12,7 @@ float64 max_angular_acceleration
 
 float64 dt
 float64 ik_jump_threshold
+float64 max_deviation
 
 # seed for the start point
 string[] joint_names
