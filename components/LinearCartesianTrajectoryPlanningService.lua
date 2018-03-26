@@ -301,13 +301,7 @@ local function getOptimLinearPath(
     max_angular_velocity,
     max_angular_acceleration,
     max_deviation)
-    print(
-        dt,
-        max_xyz_velocity,
-        max_xyz_acceleration,
-        max_angular_velocity,
-        max_angular_acceleration,
-        max_deviation)
+
     if max_xyz_velocity <= 0 then
         ros.ERROR('[getOptimLinearPath] max_xyz_velocity needs to be greater than 0.')
         return {}, error_codes.INVALID_GOAL_CONSTRAINTS
