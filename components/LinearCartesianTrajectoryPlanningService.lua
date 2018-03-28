@@ -412,7 +412,7 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
             request.max_xyz_acceleration,
             request.max_angular_velocity,
             request.max_angular_acceleration,
-            request.max_deviation or 0.0
+            request.max_deviation
         )
         if code < 0 then
             response.error_code.val = code
