@@ -206,7 +206,7 @@ function PositionStateInfoService:onInitialize()
     self.planning_scene = moveit.PlanningScene(self.robot_model)
     self.planning_scene:syncPlanningScene()
 
-    self.joint_monitor = core.JointMonitor(self.robot_model:getVariableNames():totable())
+    self.joint_monitor = core.JointMonitor(self.robot_model:getActiveJointNames():totable())
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
 
     local ready = self.joint_monitor:waitReady(2.0) -- it is not important to have the joint monitor ready at start up
