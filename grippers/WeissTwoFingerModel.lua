@@ -310,7 +310,7 @@ function WeissTwoFingerModel:open()
     local force = 50
     local speed = 1
     local acceleration = 1
-    local execute_timeout = 5
+    local execute_timeout = ros.Duration(5)
     self:openGripper(width_open, force, speed, acceleration, execute_timeout)
 end
 
@@ -320,7 +320,7 @@ function WeissTwoFingerModel:close()
     local force = 50
     local speed = 1
     local acceleration = 1
-    local execute_timeout = 5
+    local execute_timeout = ros.Duration(5)
     self:closeGripper(width_close, force, speed, acceleration, execute_timeout)
 end
 
