@@ -222,7 +222,7 @@ function MotionService:queryAvailableEndEffectors()
         local details = {}
         local names = {}
         for i, group in ipairs(group_names) do
-            for j, end_effector in ipairs(group_details[group].endeffector_names) do
+            for j, end_effector in ipairs(group_details[group].end_effector_names or {}) do
                 details[end_effector] = {
                     move_group_name = group,
                     end_effector_link_name = group_details[group].end_effector_link_names[j],

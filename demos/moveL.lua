@@ -53,7 +53,7 @@ local velocity_scaling = 1
 local check_for_collisions = true
 --Start motion
 for i, target in ipairs({A, B, C, D, E, F}) do
-    xamla_mg:moveL(end_effector_name, end_effector_link_name, target, velocity_scaling, check_for_collisions)
+    xamla_mg:moveL(end_effector_name, target, velocity_scaling, check_for_collisions)
 end
 
 -- shutdown ROS
