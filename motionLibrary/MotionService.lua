@@ -211,7 +211,7 @@ function MotionService:queryAvailableMoveGroups()
         end
         return names, details
     else
-        return {''}, {''}
+        return {}, {}
     end
 end
 
@@ -233,7 +233,7 @@ function MotionService:queryAvailableEndEffectors()
         end
         return names, details
     else
-        return {''}, {''}
+        return {}, {}
     end
 end
 

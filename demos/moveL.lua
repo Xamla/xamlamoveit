@@ -1,6 +1,7 @@
 local torch = require 'torch'
 local ros = require 'ros'
 local tf = ros.tf
+local motionLibrary = require 'xamlamoveit.motionLibrary'
 
 --[[
     This example works with meca500
@@ -15,17 +16,17 @@ local sp = ros.AsyncSpinner() -- background job
 sp:start()
 
 --Create you dedicated motion service
-local mc = require 'xamlamoveit.motionLibrary'.MotionService(nh)
+local motion_service = motionLibrary.MotionService(nh)
 
 --Query necessary information about setup
-local end_effector_names, end_effector_details = mc:queryAvailableEndEffectors()
+local end_effector_names, end_effector_details = motion_service:queryAvailableEndEffectors()
 
 --Select one MoveIt end effector
 local end_effector_name = end_effector_names[1]
 
 --Define Xamla move group
 local move_group_name = end_effector_details[end_effector_name].move_group_name
-local xamla_mg = require 'xamlamoveit.motionLibrary'.MoveGroup(mc, move_group_name) -- motion client
+local xamla_mg = motionLibrary.MoveGroup(motion_service, move_group_name) -- motion client
 
 --Specify targets relative to 'end_effector_link_name'
 local end_effector_link_name = end_effector_details[end_effector_name].end_effector_link_name
