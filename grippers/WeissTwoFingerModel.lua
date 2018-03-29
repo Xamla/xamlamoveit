@@ -300,8 +300,10 @@ function WeissTwoFingerModel:connect()
 end
 
 
-function WeissTwoFingerModel:disconnect()
-
+function WeissTwoFingerModel:shutdown()
+  if self.gripper_action_client ~= nil then
+    self.gripper_action_client:shutdown()
+  end
 end
 
 
