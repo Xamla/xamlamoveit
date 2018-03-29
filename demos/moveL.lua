@@ -1,6 +1,6 @@
+local torch = require 'torch'
 local ros = require 'ros'
 local tf = ros.tf
-local xutils = require 'xamlamoveit.xutils'
 
 --[[
     This example works with meca500
@@ -18,17 +18,17 @@ sp:start()
 local mc = require 'xamlamoveit.motionLibrary'.MotionService(nh)
 
 --Query necessary information about setup
-local move_group_names, move_group_details = mc:queryAvailableMoveGroups()
+local end_effector_names, end_effector_details = mc:queryAvailableEndEffectors()
 
---Select one moveit move group
-local move_group = move_group_names[1]
+--Select one MoveIt end effector
+local end_effector_name = end_effector_names[1]
 
---Define Xamla Movegroup
-local xamla_mg = require 'xamlamoveit.motionLibrary'.MoveGroup(mc, move_group) -- motion client
-local end_effector = xamla_mg:getEndEffector()
-local end_effector_name = end_effector.name
-local end_effector_link_name = end_effector.link_name
+--Define Xamla move group
+local move_group_name = end_effector_details[end_effector_name].move_group_name
+local xamla_mg = require 'xamlamoveit.motionLibrary'.MoveGroup(mc, move_group_name) -- motion client
+
 --Specify targets relative to 'end_effector_link_name'
+local end_effector_link_name = end_effector_details[end_effector_name].end_effector_link_name
 local A, B, C, D, E, F
 A = tf.StampedTransform()
 A:set_frame_id(end_effector_link_name)
