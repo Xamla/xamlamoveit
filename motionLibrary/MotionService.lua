@@ -200,7 +200,6 @@ function MotionService:queryAvailableMoveGroups()
     if response then
         local details = {}
         local names = {}
-        local endeffector_details = {}
         for i, v in ipairs(response.move_group_interfaces) do
             details[v.name] = {
                 sub_move_group_ids = v.sub_move_group_ids,
@@ -208,18 +207,31 @@ function MotionService:queryAvailableMoveGroups()
                 end_effector_names = v.end_effector_names,
                 end_effector_link_names = v.end_effector_link_names
             }
-            for j=1,#v.end_effector_names do
-                endeffector_details[v.end_effector_names[j]] = {
-                    move_group_name = v.name,
-                    end_effector_link_name = v.end_effector_link_names[j],
-                    joint_names = v.joint_names
-                }
-            end
             names[i] = v.name
         end
-        return names, details, endeffector_details
+        return names, details
     else
-        return {''}, {''}, {''}
+        return {''}, {''}
+    end
+end
+
+-- get available end effectors
+function MotionService:queryAvailableEndEffectors()
+    local group_names, group_details = self:queryAvailableMoveGroups()
+    if #group_names ~= 0  then
+        local end_effector_details = {}
+        for i, group in ipairs(group_names) do
+            for j, end_effector in ipairs(group_details[group].endeffector_names) do
+                end_effector_details[end_effector] = {
+                    move_group_name = group,
+                    end_effector_link_name = group_details[group].end_effector_link_names[j],
+                    joint_names = group_details[group].joint_names    
+                }
+            end
+        end
+        return end_effector_details
+    else
+        return {''}
     end
 end
 
