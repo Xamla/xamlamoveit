@@ -123,11 +123,6 @@ function GenericRosGripperClient:connect()
 end
 
 
-function GenericRosGripperClient:disconnect()
-    self:shutdown()
-end
-
-
 function GenericRosGripperClient:open()
     local width_open = 0.065
     local force = 50
