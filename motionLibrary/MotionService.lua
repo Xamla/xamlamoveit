@@ -189,7 +189,7 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     end
 end
 
---get Avalable move groups
+-- get available move groups
 function MotionService:queryAvailableMoveGroups()
     local move_group_interface =
         self.node_handle:serviceClient(
@@ -200,6 +200,7 @@ function MotionService:queryAvailableMoveGroups()
     if response then
         local details = {}
         local names = {}
+        local endeffector_details = {}
         for i, v in ipairs(response.move_group_interfaces) do
             details[v.name] = {
                 sub_move_group_ids = v.sub_move_group_ids,
@@ -207,11 +208,18 @@ function MotionService:queryAvailableMoveGroups()
                 end_effector_names = v.end_effector_names,
                 end_effector_link_names = v.end_effector_link_names
             }
+            for j=1,#v.end_effector_names do
+                endeffector_details[v.end_effector_names[j]] = {
+                    move_group_name = v.name,
+                    end_effector_link_name = v.end_effector_link_names[j],
+                    joint_names = v.joint_names
+                }
+            end
             names[i] = v.name
         end
-        return names, details
+        return names, details, endeffector_details
     else
-        return {''}, {''}
+        return {''}, {''}, {''}
     end
 end
 
