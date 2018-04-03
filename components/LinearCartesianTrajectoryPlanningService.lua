@@ -148,6 +148,18 @@ local function tensor6DToPose(vector6D)
     return end_pose
 end
 
+-- calculates the weighted pseudo inverse of a matrix M
+-- @param M: Matrix which needs to be inverted
+-- @param W: Weight matrix (optional)
+local function pseudoInverse(M, W)
+    local weights = W or torch.eye(M:size(1))
+    assert(M:size(1) == weights:size()[1], 'Data matrix M and weight matrix W need to have the same number of cols')
+    local inv = M:t() * weights * M
+    -- make it definite
+    inv:add(1e-15, torch.eye(inv:size(1)))
+    return torch.inverse(inv) * M:t() * weights
+end
+
 local function pose2jointTrajectory(
     self,
     seed,
@@ -194,7 +206,7 @@ local function pose2jointTrajectory(
                 local tmp = createJointValues(traj_joint_names, new_state)
                 result[i] = {}
                 result[i].pos = tmp:select(traj_joint_names):getValues()
-                result[i].vel = torch.inverse(jac) * poseTo6DTensor(pose.vel)
+                result[i].vel = pseudoInverse(jac) * poseTo6DTensor(pose.vel)
                 if torch.abs(result[i].vel):gt(velocity_limits):sum() > 0 then
                     ros.ERROR(
                         '[pose2jointTrajectory] Exceeded joint limits in move_group %s. Transformed %f%% of trajectory',
@@ -362,7 +374,7 @@ local function generateTrajectory(waypoints, dt)
 
     local time = torch.zeros(#waypoints)
     valid = true
-    local pos = torch.zeros(#waypoints, 6)
+    local pos = torch.zeros(#waypoints, waypoints[1].pos:size(1))
     local vel = pos:clone()
 
     for i, point in ipairs(waypoints) do -- TODO check limits
