@@ -450,11 +450,6 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         return true
     end
 
-    if #waypoints == 0 then
-        response.error_code.val = -12 -- GOAL_IN_COLLISION
-        return true
-    end
-
     local valid, time, pos, vel, acc = generateTrajectory(waypoints, request.dt)
     toc('generateTrajectory')
 
