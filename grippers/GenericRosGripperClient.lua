@@ -119,23 +119,22 @@ end
 
 
 function GenericRosGripperClient:connect()
-    print('calling interface method GenericRosGripperClient:connect()')
 end
 
 
-function GenericRosGripperClient:open()
-    local width_open = 0.065
-    local force = 50
-    local execute_timeout = 5
-    self:tryMoveGripper(width_open, force, execute_timeout)
+function GenericRosGripperClient:open(width, force, speed, acceleration, execute_timeout_in_s)
+  width = width or 0.065
+  force = force or 10
+  execute_timeout_in_s = execute_timeout_in_s or 5
+  self:tryMoveGripper(width, force, execute_timeout_in_s)
 end
 
 
-function GenericRosGripperClient:close()
-    local width_close = 0.0025
-    local force = 50
-    local execute_timeout = 5
-    self:tryMoveGripper(width_close, force, execute_timeout)
+function GenericRosGripperClient:close(width, force, speed, acceleration, execute_timeout_in_s)
+  width = width or 0.0025
+  force = force or 10
+  execute_timeout_in_s = execute_timeout_in_s or 5
+  self:tryMoveGripper(width, force, execute_timeout_in_s)
 end
 
 

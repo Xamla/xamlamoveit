@@ -296,7 +296,8 @@ end
 
 
 function WeissTwoFingerModel:connect()
-    print('calling interface method WeissTwoFingerModel:connect()')
+  -- could home the gripper at this point
+  -- self:homeGripper(execute_timeout)
 end
 
 
@@ -307,23 +308,23 @@ function WeissTwoFingerModel:shutdown()
 end
 
 
-function WeissTwoFingerModel:open()
-    local width_open = 0.065
-    local force = 50
-    local speed = 1
-    local acceleration = 1
-    local execute_timeout = ros.Duration(5)
-    self:openGripper(width_open, force, speed, acceleration, execute_timeout)
+function WeissTwoFingerModel:open(width, force, speed, acceleration, execute_timeout_in_s)
+  width = width or 0.05
+  force = force or 10
+  speed = speed or 0.2
+  acceleration = acceleration or 0.8
+  execute_timeout_in_s = execute_timeout_in_s or 5
+  self:openGripper(width, force, speed, acceleration, ros.Duration(execute_timeout_in_s))
 end
 
 
-function WeissTwoFingerModel:close()
-    local width_close = 0.015
-    local force = 50
-    local speed = 1
-    local acceleration = 1
-    local execute_timeout = ros.Duration(5)
-    self:closeGripper(width_close, force, speed, acceleration, execute_timeout)
+function WeissTwoFingerModel:close(width, force, speed, acceleration, execute_timeout_in_s)
+  width = width or 0.001
+  force = force or 10
+  speed = speed or 0.2
+  acceleration = acceleration or 0.8
+  execute_timeout_in_s = execute_timeout_in_s or 5
+  self:closeGripper(width, force, speed, acceleration, ros.Duration(execute_timeout_in_s))
 end
 
 
