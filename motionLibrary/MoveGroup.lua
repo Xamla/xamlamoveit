@@ -183,7 +183,7 @@ function MoveGroup:planMoveLWaypoints(end_effector_name, waypoints, velocity_sca
     return ok, joint_trajectory, plan_parameters
 end
 
-function MoveGroup:moveLWaypointList(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
+function MoveGroup:moveLWaypoints(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
     if #waypoints == 0 then
         return
     end
@@ -307,7 +307,7 @@ function MoveGroup:planMoveJWaypoints(waypoints, velocity_scaling, collision_che
     return ok, joint_trajectory, plan_parameters
 end
 
-function MoveGroup:moveJWaypointList(waypoints, velocity_scaling, collision_check, max_deviation)
+function MoveGroup:moveJWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
     if #waypoints == 0 then
         return
     end
@@ -320,7 +320,7 @@ function MoveGroup:moveJWaypointList(waypoints, velocity_scaling, collision_chec
     assert(ok, 'executeJointTrajectory failed.')
 end
 
-function MoveGroup:moveJWaypointListAsync(waypoints, velocity_scaling, collision_check, max_deviation, done_cb)
+function MoveGroup:moveJWaypointsAsync(waypoints, velocity_scaling, collision_check, max_deviation, done_cb)
     if #waypoints == 0 then
         return nil
     end
