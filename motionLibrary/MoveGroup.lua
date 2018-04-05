@@ -171,7 +171,7 @@ function MoveGroup:steppedMoveL(end_effector_name, target, velocity_scaling, col
     return controller_handle
 end
 
-function MoveGroup:planMoveLWaypointList(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
+function MoveGroup:planMoveLWaypoints(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
     max_deviation = max_deviation or 0.2
     local plan_parameters = self:buildTaskSpacePlanParameters(end_effector_name, velocity_scaling, collision_check)
 
@@ -188,8 +188,8 @@ function MoveGroup:moveLWaypointList(end_effector_name, waypoints, velocity_scal
         return
     end
 
-    local ok, joint_trajectory, plan_parameters = self:planMoveLWaypointList(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
-    assert(ok == 1, 'planMoveLWaypointList failed')
+    local ok, joint_trajectory, plan_parameters = self:planMoveLWaypoints(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
+    assert(ok == 1, 'planMoveLWaypoints failed')
 
     -- start synchronous blocking execution
     local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
@@ -286,7 +286,7 @@ function MoveGroup:steppedMoveJ(target, velocity_scaling, collision_check)
     return controller_handle
 end
 
-function MoveGroup:planMoveWaypointList(waypoints, velocity_scaling, collision_check, max_deviation)
+function MoveGroup:planMoveJWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
     max_deviation = max_deviation or 0.2
     local plan_parameters = self:buildPlanParameters(velocity_scaling, collision_check, max_deviation)
 
@@ -307,26 +307,26 @@ function MoveGroup:planMoveWaypointList(waypoints, velocity_scaling, collision_c
     return ok, joint_trajectory, plan_parameters
 end
 
-function MoveGroup:moveWaypointList(waypoints, velocity_scaling, collision_check, max_deviation)
+function MoveGroup:moveJWaypointList(waypoints, velocity_scaling, collision_check, max_deviation)
     if #waypoints == 0 then
         return
     end
 
-    local ok, joint_trajectory, plan_parameters = self:planMoveWaypointList(waypoints, velocity_scaling, collision_check, max_deviation)
-    assert(ok == 1, 'planMoveWaypointList failed')
+    local ok, joint_trajectory, plan_parameters = self:planMoveJWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
+    assert(ok == 1, 'planMoveJWaypoints failed')
 
     -- start synchronous blocking execution
     local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
     assert(ok, 'executeJointTrajectory failed.')
 end
 
-function MoveGroup:moveWaypointListAsync(waypoints, velocity_scaling, collision_check, max_deviation, done_cb)
+function MoveGroup:moveJWaypointListAsync(waypoints, velocity_scaling, collision_check, max_deviation, done_cb)
     if #waypoints == 0 then
         return nil
     end
 
-    local ok, joint_trajectory, plan_parameters = self:planMoveWaypointList(waypoints, velocity_scaling, collision_check, max_deviation)
-    assert(ok == 1, 'planMoveWaypointList failed')
+    local ok, joint_trajectory, plan_parameters = self:planMoveJWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
+    assert(ok == 1, 'planMoveJWaypoints failed')
 
     local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
     return simple_action_client
