@@ -1,7 +1,8 @@
 #!/usr/bin/env th
 local ros = require 'ros'
-
+local moveit = require 'moveit'
 local xamlamoveit = require 'xamlamoveit'
+local core = xamlamoveit.core
 local jtps = xamlamoveit.components.JointTrajectoryPlanningService
 local jpps = xamlamoveit.components.JointPathPlanningService
 local cpps = xamlamoveit.components.LinearCartesianTrajectoryPlanningService
@@ -27,9 +28,13 @@ heartbeat:start(nh, 10) --[Hz]
 heartbeat:updateStatus(heartbeat.STARTING, 'Init ...')
 heartbeat:publish()
 
-local jtps_service = jtps(nh)
-local jpps_service = jpps(nh)
-local cpps_service = cpps(nh)
+local robot_model_loader = moveit.RobotModelLoader('robot_description')
+local robot_model = robot_model_loader:getModel()
+local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable())
+
+local jtps_service = jtps(nh, joint_monitor)
+local jpps_service = jpps(nh, joint_monitor)
+local cpps_service = cpps(nh, joint_monitor)
 local services = {jtps_service, jpps_service, cpps_service}
 
 for i, v in pairs(services) do

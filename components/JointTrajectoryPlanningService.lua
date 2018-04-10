@@ -131,13 +131,14 @@ local JointTrajectoryPlanningService,
     components
 )
 
-function JointTrajectoryPlanningService:__init(node_handle)
+function JointTrajectoryPlanningService:__init(node_handle, joint_monitor)
     self.node_handle = node_handle
     self.callback_queue = ros.CallbackQueue()
     self.robot_model = nil
     self.robot_model_loader = nil
     self.robot_state = nil
     self.info_server = nil
+    self.joint_monitor = joint_monitor
     parent.__init(self, node_handle)
 end
 
@@ -146,6 +147,17 @@ function JointTrajectoryPlanningService:onInitialize()
     self.robot_model = self.robot_model_loader:getModel()
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
     self.all_group_joint_names = self.robot_model:getJointModelGroupNames()
+    local ready = self.joint_monitor:waitReady(2.0) -- it is not important to have the joint monitor ready at start up
+    if not ready then
+        ros.WARN('joint states not ready')
+    else
+        local ok, p = self.joint_monitor:getNextPositionsTensor()
+        self.robot_state:setVariablePositions(
+            p,
+            self.joint_monitor:getJointNames()
+        )
+        self.robot_state:update()
+    end
 end
 
 function JointTrajectoryPlanningService:onStart()
@@ -164,6 +176,15 @@ function JointTrajectoryPlanningService:onProcess()
     if not self.callback_queue:isEmpty() then
         ros.DEBUG('[!] incoming JointTrajectoryPlanningService call')
         self.callback_queue:callAvailable()
+    end
+    if self.joint_monitor:isReady() then
+        local ok, joints = self.joint_monitor:getNextPositionsTensor(0.1)
+        assert(ok, 'exceeded timeout for next robot joint state.')
+        self.robot_state:setVariablePositions(
+            joints,
+            self.joint_monitor:getJointNames()
+        )
+        self.robot_state:update()
     end
 end
 

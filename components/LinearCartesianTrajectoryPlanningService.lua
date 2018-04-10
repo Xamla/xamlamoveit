@@ -478,7 +478,7 @@ local LinearCartesianTrajectoryPlanningService, parent =
     components
 )
 
-function LinearCartesianTrajectoryPlanningService:__init(node_handle)
+function LinearCartesianTrajectoryPlanningService:__init(node_handle, joint_monitor)
     self.node_handle = node_handle
     self.callback_queue = ros.CallbackQueue()
     self.info_server = nil
@@ -490,6 +490,7 @@ function LinearCartesianTrajectoryPlanningService:__init(node_handle)
     self.joint_limits = {}
     self.end_effector_map = nil
     self.transformListener = nil
+    self.joint_monitor = joint_monitor
     parent.__init(self, node_handle)
 end
 
@@ -507,6 +508,17 @@ function LinearCartesianTrajectoryPlanningService:onInitialize()
     self.joint_limits.vel = createJointValues(self.variable_names, self.joint_limits.vel[{{}, 1}])
     self.joint_limits.acc = createJointValues(self.variable_names, self.joint_limits.acc[{{}, 1}])
     self.transformListener = tf.TransformListener()
+    local ready = self.joint_monitor:waitReady(2.0) -- it is not important to have the joint monitor ready at start up
+    if not ready then
+        ros.WARN('joint states not ready')
+    else
+        local ok, p = self.joint_monitor:getNextPositionsTensor()
+        self.robot_state:setVariablePositions(
+            p,
+            self.joint_monitor:getJointNames()
+        )
+        self.robot_state:update()
+    end
     collectgarbage()
 end
 
@@ -526,6 +538,15 @@ function LinearCartesianTrajectoryPlanningService:onProcess()
     if not self.callback_queue:isEmpty() then
         ros.INFO('[!] incoming LinearCartesianTrajectoryPlanningService call')
         self.callback_queue:callAvailable()
+    end
+    if self.joint_monitor:isReady() then
+        local ok, joints = self.joint_monitor:getNextPositionsTensor(0.1)
+        assert(ok, 'exceeded timeout for next robot joint state.')
+        self.robot_state:setVariablePositions(
+            joints,
+            self.joint_monitor:getJointNames()
+        )
+        self.robot_state:update()
     end
 end
 
