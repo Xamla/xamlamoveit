@@ -468,7 +468,7 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
     end
 end
 
-function MotionService:executeSteppedJointTrajectory(traj, check_collision, done_cb)
+function MotionService:executeSupervisedJointTrajectory(traj, check_collision, done_cb)
     if self.execution_step_action_client == nil then
         self.execution_step_action_client =
             actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_step_action', self.node_handle)

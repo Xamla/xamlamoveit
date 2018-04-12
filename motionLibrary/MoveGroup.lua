@@ -161,13 +161,13 @@ function MoveGroup:moveL(end_effector_name, target, velocity_scaling, collision_
     assert(ok, 'executeTaskSpaceTrajectory failed. ' .. msg)
 end
 
-function MoveGroup:steppedMoveL(end_effector_name, target, velocity_scaling, collision_check, done_cb)
+function MoveGroup:moveLSupervised(end_effector_name, target, velocity_scaling, collision_check, done_cb)
     -- plan trajectory
     local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveL failed')
 
     -- start asynchronous execution
-    local controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
+    local controller_handle = self.motion_service:executeSupervisedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
     return controller_handle
 end
 
@@ -276,13 +276,13 @@ function MoveGroup:moveJAsync(target, velocity_scaling, collision_check, done_cb
     return simple_action_client
 end
 
-function MoveGroup:steppedMoveJ(target, velocity_scaling, collision_check)
+function MoveGroup:moveJSupervised(target, velocity_scaling, collision_check)
     -- plan trajectory
     local ok, joint_trajectory, plan_parameters = self:planMoveJ(target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveJ failed')
 
     -- start asynchronous execution
-    local controller_handle = self.motion_service:executeSteppedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
+    local controller_handle = self.motion_service:executeSupervisedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
     return controller_handle
 end
 

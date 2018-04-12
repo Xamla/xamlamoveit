@@ -64,7 +64,7 @@ local function done_cb(state, result)
 end
 
 --Start motion
-local handle = xamla_mg:steppedMoveL(end_effector_name, target, velocity_scaling, check_for_collisions, done_cb)
+local handle = xamla_mg:moveLSupervised(end_effector_name, target, velocity_scaling, check_for_collisions, done_cb)
 assert(torch.isTypeOf(handle, motionLibrary.SteppedMotionClient))
 
 xutils.enableRawTerminal()

@@ -86,8 +86,8 @@ local function prev(self, msg, header)
 end
 
 local function cancel(self, msg, header)
-    if self.goal_handle:getGoalID().id == msg.id and self.allow_index_switch then
-        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'CANCEL: %d/%d', self.index - 1, #self.goal.goal.trajectory.points)
+    if self.goal_handle:getGoalID().id == msg.id then
+        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'CANCEL: %d/%d', self.index, #self.goal.goal.trajectory.points)
         self.is_canceled = true
     end
 end

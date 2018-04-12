@@ -21,12 +21,12 @@ local function queryGoalIdServiceHandler(self, request, response, header)
             return x.goal_handle:getGoalID().id == data
         end
     )
-    local isCurrentGoalId = false
+    local is_current_goalId = false
     if self.worker.current_plan then
-        isCurrentGoalId = self.worker.current_plan.traj.goal_handle:getGoalID().id == data
+        is_current_goalId = self.worker.current_plan.traj.goal_handle:getGoalID().id == data
         ros.INFO("my current goal id " .. self.worker.current_plan.traj.goal_handle:getGoalID().id )
     end
-    if i > 0 or isCurrentGoalId == true then
+    if i > 0 or is_current_goalId == true then
         response.success = true
         response.message = "Valid goal Id"
     else
