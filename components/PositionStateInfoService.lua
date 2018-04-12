@@ -183,7 +183,7 @@ local PositionStateInfoService,
     parent =
     torch.class('xamlamoveit.components.PositionStateInfoService', 'xamlamoveit.components.RosComponent', components)
 
-function PositionStateInfoService:__init(node_handle)
+function PositionStateInfoService:__init(node_handle, joint_monitor)
     self.node_handle = node_handle
     self.callback_queue = ros.CallbackQueue()
     self.ik_callback_queue = ros.CallbackQueue()
@@ -197,6 +197,7 @@ function PositionStateInfoService:__init(node_handle)
     self.fk_info_server = nil
     self.ik_info_server = nil
     self.ik_service_client = nil
+    self.joint_monitor = joint_monitor
     parent.__init(self, node_handle)
 end
 
@@ -205,8 +206,6 @@ function PositionStateInfoService:onInitialize()
     self.robot_model = self.robot_model_loader:getModel()
     self.planning_scene = moveit.PlanningScene(self.robot_model)
     self.planning_scene:syncPlanningScene()
-
-    self.joint_monitor = core.JointMonitor(self.robot_model:getActiveJointNames():totable())
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
 
     local ready = self.joint_monitor:waitReady(2.0) -- it is not important to have the joint monitor ready at start up

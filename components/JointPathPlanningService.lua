@@ -176,8 +176,8 @@ function JointPathPlanningService:onProcess()
         self.callback_queue:callAvailable()
     end
     if self.joint_monitor:isReady() then
-        local ok, joints = self.joint_monitor:getNextPositionsTensor(0.1)
-        assert(ok, 'exceeded timeout for next robot joint state.')
+        local joints = self.joint_monitor:getPositionsTensor()
+
         self.robot_state:setVariablePositions(
             joints,
             self.joint_monitor:getJointNames()

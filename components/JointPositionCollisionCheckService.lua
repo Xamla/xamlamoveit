@@ -45,7 +45,7 @@ local function queryCollisionCheckServiceHandler(self, request, response, header
         return true
     end
 
-    local robot_state = moveit.RobotState.createFromModel(self.robot_model)
+    local robot_state = self.robot_state
     robot_state:enforceBounds() -- nur auf joint model ebene nicht im state
     robot_state:update()
     response.error_codes:resize(#request.points):zero()
@@ -101,13 +101,14 @@ local JointPositionCollisionCheckService,
     components
 )
 
-function JointPositionCollisionCheckService:__init(node_handle)
+function JointPositionCollisionCheckService:__init(node_handle, joint_monitor)
     self.node_handle = node_handle
     self.callback_queue = ros.CallbackQueue()
     self.robot_model = nil
     self.robot_model_loader = nil
     self.robot_state = nil
     self.info_server = nil
+    self.joint_monitor = joint_monitor
     parent.__init(self, node_handle)
 end
 
@@ -116,6 +117,18 @@ function JointPositionCollisionCheckService:onInitialize()
     self.robot_model = self.robot_model_loader:getModel()
     self.plan_scene = moveit.PlanningScene(self.robot_model)
     self.plan_scene:syncPlanningScene()
+    self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
+    local ready = self.joint_monitor:waitReady(2.0) -- it is not important to have the joint monitor ready at start up
+    if not ready then
+        ros.WARN('joint states not ready')
+    else
+        local ok, p = self.joint_monitor:getNextPositionsTensor()
+        self.robot_state:setVariablePositions(
+            p,
+            self.joint_monitor:getJointNames()
+        )
+        self.robot_state:update()
+    end
 end
 
 function JointPositionCollisionCheckService:onStart()
@@ -134,6 +147,14 @@ function JointPositionCollisionCheckService:onProcess()
     if not self.callback_queue:isEmpty() then
         ros.DEBUG('[!] incoming JointPositionCollisionCheckService call')
         self.callback_queue:callAvailable()
+    end
+    if self.joint_monitor:isReady() then
+        local joints = self.joint_monitor:getPositionsTensor()
+        self.robot_state:setVariablePositions(
+            joints,
+            self.joint_monitor:getJointNames()
+        )
+        self.robot_state:update()
     end
 end
 
