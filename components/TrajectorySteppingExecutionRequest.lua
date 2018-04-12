@@ -58,6 +58,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.publisher = nil
     self.subscriber_next = nil
     self.subscriber_prev = nil
+    self.subscriber_cancel = nil
     self.jogging_activation_service = nil
     self.jogging_status_service = nil
     self.abort_action = false
@@ -65,6 +66,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.index = 1
     self.progress_topic = 'feedback'
     self.allow_index_switch = false
+    self.is_canceled = false
 end
 
 local function next(self, msg, header)
@@ -80,6 +82,13 @@ local function prev(self, msg, header)
         ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'PREV: %d/%d', self.index - 1, #self.goal.goal.trajectory.points)
         self.index = math.max(self.index - 1, 1)
         self.allow_index_switch = false
+    end
+end
+
+local function cancel(self, msg, header)
+    if self.goal_handle:getGoalID().id == msg.id and self.allow_index_switch then
+        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'CANCEL: %d/%d', self.index - 1, #self.goal.goal.trajectory.points)
+        self.is_canceled = true
     end
 end
 
@@ -106,6 +115,12 @@ function TrajectorySteppingExecutionRequest:connect(jogging_topic, start_stop_se
     self.subscriber_prev:registerCallback(
         function(msg, header)
             prev(self, msg, header)
+        end
+    )
+    self.subscriber_cancel = self.node_handle:subscribe('cancel', 'actionlib_msgs/GoalID', 2)
+    self.subscriber_cancel:registerCallback(
+        function(msg, header)
+            cancel(self, msg, header)
         end
     )
     return true
@@ -154,7 +169,7 @@ function TrajectorySteppingExecutionRequest:proceed()
     if  status == GoalStatus.ACTIVE or status == GoalStatus.PENDING or status == GoalStatus.PREEMPTING then
         self.status = 0
         local is_running, msg = checkStatusJoggingNode(self)
-        if self.abort_action == true or is_running == false then
+        if self.abort_action == true or is_running == false or self.is_canceled then
             if self.abort_action then
                 ros.WARN('[TrajectorySteppingExecutionRequest] could not set status on Jogging node')
             end
@@ -264,6 +279,11 @@ function TrajectorySteppingExecutionRequest:shutdown()
         self.subscriber_prev:shutdown()
     end
     self.subscriber_prev = nil
+
+    if self.subscriber_cancel then
+        self.subscriber_cancel:shutdown()
+    end
+    self.subscriber_cancel = nil
 
     if self.jogging_activation_service then
         deactivateJoggingService(self)

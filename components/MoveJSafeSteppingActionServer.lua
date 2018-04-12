@@ -7,14 +7,49 @@ require 'ros.actionlib.ActionServer'
 local actionlib = ros.actionlib
 
 local components = require 'xamlamoveit.components.env'
-local MoveJSafeSteppingActionServer,
-    parent = torch.class('xamlamoveit.components.MoveJSafeSteppingActionServer', 'xamlamoveit.components.RosComponent', components)
+
+local srv_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
+
+local function queryGoalIdServiceHandler(self, request, response, header)
+
+    local data = request.data
+    ros.INFO("my requested goal id " .. data)
+    local i =
+    table.findIndex(
+        self.worker.trajectoryQueue,
+        function(x)
+            return x.goal_handle:getGoalID().id == data
+        end
+    )
+    local isCurrentGoalId = false
+    if self.worker.current_plan then
+        isCurrentGoalId = self.worker.current_plan.traj.goal_handle:getGoalID().id == data
+        ros.INFO("my current goal id " .. self.worker.current_plan.traj.goal_handle:getGoalID().id )
+    end
+    if i > 0 or isCurrentGoalId == true then
+        response.success = true
+        response.message = "Valid goal Id"
+    else
+        response.success = false
+        response.message = "Invalid goal Id"
+    end
+
+    return true
+end
+
+local MoveJSafeSteppingActionServer, parent =
+    torch.class(
+    'xamlamoveit.components.MoveJSafeSteppingActionServer',
+    'xamlamoveit.components.RosComponent',
+    components
+)
 
 function MoveJSafeSteppingActionServer:__init(nh, joint_monitor)
     self.node_handle = nh
     self.joint_monitor = joint_monitor
     self.worker = nil
     self.action_server = nil
+    self.info_service = nil
     parent.__init(self, nh)
 end
 
@@ -62,11 +97,19 @@ function MoveJSafeSteppingActionServer:onInitialize()
             CancelCallBack(self, gh)
         end
     )
-    --TODO feedback
 end
 
 function MoveJSafeSteppingActionServer:onStart()
     self.action_server:start()
+    self.info_service =
+        self.node_handle:advertiseService(
+        'query_active_goalIds',
+        srv_spec,
+        function(request, response, header)
+            return queryGoalIdServiceHandler(self, request, response, header)
+        end,
+        self.callback_queue
+    )
 end
 
 function MoveJSafeSteppingActionServer:onProcess()
@@ -82,8 +125,20 @@ function MoveJSafeSteppingActionServer:onStop()
 end
 
 function MoveJSafeSteppingActionServer:onShutdown()
-    self.worker:shutdown()
-    self.action_server:shutdown()
+    if self.worker then
+        self.worker:shutdown()
+        self.worker = nil
+    end
+
+    if self.action_server then
+        self.action_server:shutdown()
+        self.action_server = nil
+    end
+
+    if self.info_service then
+        self.info_service:shutdown()
+        self.info_service = nil
+    end
 end
 
 function MoveJSafeSteppingActionServer:hasTrajectoryActive()
