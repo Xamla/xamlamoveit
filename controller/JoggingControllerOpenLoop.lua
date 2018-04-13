@@ -334,6 +334,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.timeout = ros.Duration(1.0)
     self.cool_down_timeout = ros.Duration(0.16)
     self.synced = false
+    self.no_collision_check = false
 
     transformListener = tf.TransformListener()
     self.feedback_message = nil
@@ -503,9 +504,10 @@ end
 --@param desired joint angle position
 function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid large jumps in posture values and check if q_des tensor is valid
     local diff = 2
+    local success = true
     if q_des:nDimension() > 0 then
         ros.DEBUG('q_des checked')
-        if satisfiesBounds(self, q_des, joint_names) then
+        if self.no_collision_check or satisfiesBounds(self, q_des, joint_names) then
             ros.DEBUG('satisfiesBounds')
             if q_curr then
                 diff = torch.norm(q_curr - q_des)
@@ -513,13 +515,15 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid 
         else
             ros.INFO('does not satisfy bounds')
             self.feedback_message.error_code = -2 --SELFCOLLISION
+            success = false
         end
     else
         --ros.INFO('q_des not checked')
         self.feedback_message.error_code = -1 --INVALID_IK
+        success = false
     end
     --ros.WARN(string.format('Difference between q_des and q_curr diff = %f', diff))
-    return diff < 2
+    return diff < 2 and success
 end
 
 function JoggingControllerOpenLoop:setStepWidthModel(
@@ -822,6 +826,10 @@ function JoggingControllerOpenLoop:update()
         --print('posture_goal ', posture_goal:getNames(), posture_goal.values)
         q_dot = posture_goal:clone()
         q_dot:sub(self.lastCommandJointPositions)
+        if q_dot.values:norm() < 1e-10 then
+            self.goals.posture_goal = nil
+            q_dot.values:zero()
+        end
         self.controller.converged = false
         self.start_time = ros.Time.now()
     elseif ((self.mode == 0 or self.mode == 3) and new_twist_message) or (self.mode == 3 and self.goals.twist_goal) then
@@ -1032,6 +1040,11 @@ end
 
 function JoggingControllerOpenLoop:getCurrentMoveGroup()
     return self.move_groups[self.curr_move_group_name]
+end
+
+function JoggingControllerOpenLoop:activateCollisionChecks(check)
+    assert(torch.type(check) == 'boolean', '[JoggingControllerOpenLoop:activateCollisionChecks] Argument needs to be a boolean')
+    self.no_collision_check = not check
 end
 
 return JoggingControllerOpenLoop

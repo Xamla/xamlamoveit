@@ -44,6 +44,8 @@ local function deactivateJoggingService(self)
     setJoggingServiceStatus(self, false)
 end
 
+local MOTIONDIRECITONS = {stopped = 0, backward = -1, forward = 1}
+
 function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.starttime = ros.Time.now()
     self.starttime_debug = ros.Time.now()
@@ -67,27 +69,52 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.progress_topic = 'feedback'
     self.allow_index_switch = false
     self.is_canceled = false
+
+    self.current_direction = MOTIONDIRECITONS.stopped
 end
 
 local function next(self, msg, header)
-    if self.goal_handle:getGoalID().id == msg.id and self.allow_index_switch then
-        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'NEXT: %d/%d', self.index + 1, #self.goal.goal.trajectory.points)
+    if
+        self.goal_handle:getGoalID().id == msg.id and
+            (self.allow_index_switch or self.current_direction ~= MOTIONDIRECITONS.forward)
+     then
+        ros.DEBUG_NAMED(
+            'TrajectorySteppingExecutionRequest',
+            'NEXT: %d/%d',
+            self.index + 1,
+            #self.goal.goal.trajectory.points
+        )
         self.index = math.min(self.index + 1, #self.goal.goal.trajectory.points)
         self.allow_index_switch = false
+        self.current_direction = MOTIONDIRECITONS.forward
     end
 end
 
 local function prev(self, msg, header)
-    if self.goal_handle:getGoalID().id == msg.id and self.allow_index_switch then
-        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'PREV: %d/%d', self.index - 1, #self.goal.goal.trajectory.points)
+    if
+        self.goal_handle:getGoalID().id == msg.id and
+            (self.allow_index_switch or self.current_direction ~= MOTIONDIRECITONS.backward)
+     then
+        ros.DEBUG_NAMED(
+            'TrajectorySteppingExecutionRequest',
+            'PREV: %d/%d',
+            self.index - 1,
+            #self.goal.goal.trajectory.points
+        )
         self.index = math.max(self.index - 1, 1)
         self.allow_index_switch = false
+        self.current_direction = MOTIONDIRECITONS.backward
     end
 end
 
 local function cancel(self, msg, header)
     if self.goal_handle:getGoalID().id == msg.id then
-        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'CANCEL: %d/%d', self.index, #self.goal.goal.trajectory.points)
+        ros.DEBUG_NAMED(
+            'TrajectorySteppingExecutionRequest',
+            'CANCEL: %d/%d',
+            self.index,
+            #self.goal.goal.trajectory.points
+        )
         self.is_canceled = true
     end
 end
@@ -103,7 +130,7 @@ function TrajectorySteppingExecutionRequest:connect(jogging_topic, start_stop_se
     activateJoggingService(self)
     ros.INFO('[TrajectorySteppingExecutionRequest] Create command publisher')
     self.publisher = self.node_handle:advertise(jogging_topic, joint_pos_spec, 1, false)
-    self.feedback = self.node_handle:advertise(self.progress_topic, progress_spec )
+    self.feedback = self.node_handle:advertise(self.progress_topic, progress_spec)
 
     self.subscriber_next = self.node_handle:subscribe('next', 'actionlib_msgs/GoalID', 2)
     self.subscriber_next:registerCallback(
@@ -130,7 +157,8 @@ function TrajectorySteppingExecutionRequest:accept()
     if self.goal_handle:getGoalStatus().status == GoalStatus.PENDING then
         self.starttime_debug = ros.Time.now()
         self.status = 0
-        local ok = self:connect(
+        local ok =
+            self:connect(
             '/xamlaJointJogging/jogging_command',
             '/xamlaJointJogging/start_stop_tracking',
             '/xamlaJointJogging/status'
@@ -159,14 +187,18 @@ function TrajectorySteppingExecutionRequest:accept()
         self.goal_handle:setAccepted('Starting trajectory execution')
         return true
     else
-        ros.WARN_NAMED('TrajectorySteppingExecutionRequest','Status of queued trajectory is not pending but %d.', self.goal_handle:getGoalStatus().status)
+        ros.WARN_NAMED(
+            'TrajectorySteppingExecutionRequest',
+            'Status of queued trajectory is not pending but %d.',
+            self.goal_handle:getGoalStatus().status
+        )
         return false
     end
 end
 
 function TrajectorySteppingExecutionRequest:proceed()
     local status = self.goal_handle:getGoalStatus().status
-    if  status == GoalStatus.ACTIVE or status == GoalStatus.PENDING or status == GoalStatus.PREEMPTING then
+    if status == GoalStatus.ACTIVE or status == GoalStatus.PENDING or status == GoalStatus.PREEMPTING then
         self.status = 0
         local is_running, msg = checkStatusJoggingNode(self)
         if self.abort_action == true or is_running == false or self.is_canceled then
@@ -201,7 +233,7 @@ function TrajectorySteppingExecutionRequest:proceed()
             local fb = ros.Message(progress_spec)
             fb.index = self.index
             fb.num_of_points = #traj.points
-            fb.progress = self.index/#traj.points
+            fb.progress = self.index / #traj.points
             fb.control_frequency = -1
             fb.error_msg = 'ACTIVE'
             fb.error_code = self.status
@@ -230,16 +262,16 @@ function TrajectorySteppingExecutionRequest:abort(msg, code)
         ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', tostring(code))
         self.goal_handle:setAborted(r, msg or 'Error')
     elseif status == GoalStatus.PREEMPTING then
-        ros.INFO("[TrajectorySteppingExecutionRequest] Notifying client about PREEMTING state")
+        ros.INFO('[TrajectorySteppingExecutionRequest] Notifying client about PREEMTING state')
         local code = code or errorCodes.PREEMPTED
         local r = self.goal_handle:createResult()
         r.result = code
         self.goal_handle:setAborted(r, msg or 'Abort')
     elseif status == GoalStatus.RECALLING then
-        ros.INFO("[TrajectorySteppingExecutionRequest] Notifying client about RECALLING state")
+        ros.INFO('[TrajectorySteppingExecutionRequest] Notifying client about RECALLING state')
         self.goal_handle:setCanceled(nil, msg or 'Canceled')
     else
-        ros.INFO("[TrajectorySteppingExecutionRequest] nothing to be done")
+        ros.INFO('[TrajectorySteppingExecutionRequest] nothing to be done')
     end
     self:shutdown()
     collectgarbage()

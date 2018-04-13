@@ -123,6 +123,15 @@ local function getMoveGroupHandler(request, response, header)
     return true
 end
 
+local function collisionCheckHandler(request, response, header)
+    local checks_active = request.data or true
+    cntr:activateCollisionChecks(checks_active)
+    local success, message = true, 'Success'
+    response.success = success
+    response.message = message
+    return true
+end
+
 local function startStopHandler(request, response, header)
     local startStop = request.data
     if startStop == nil then
@@ -232,6 +241,8 @@ local function joggingServer(name)
     get_movegroup_server = nh:advertiseService('get_movegroup_name', get_string_spec, getMoveGroupHandler)
 
     start_stop_server = nh:advertiseService('start_stop_tracking', set_bool_spec, startStopHandler)
+
+    activate_collision_checks_server = nh:advertiseService('activate_collision_check', set_bool_spec, collisionCheckHandler)
     --status
     status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 
