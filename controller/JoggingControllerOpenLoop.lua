@@ -785,7 +785,7 @@ function JoggingControllerOpenLoop:update()
             pose_goal = self.goals.pose_goal:clone()
         end
         if (new_pose_message and detectNan(pose_goal:getOrigin())) or self.mode == 0 then
-            ros.INFO('[twist] Received stop signal')
+            ros.INFO('[Pose] Received stop signal')
             self.taskspace_controller:reset()
             self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
             self.goals.pose_goal = nil
@@ -808,6 +808,7 @@ function JoggingControllerOpenLoop:update()
             q_dot.values:zero()
         end
         self.controller.converged = false
+        self.start_time = ros.Time.now()
     elseif ((self.mode == 0 or self.mode == 2) and new_posture_message) or (self.mode == 2 and self.goals.posture_goal) then
         -- set posture
         if posture_goal ~= nil then
@@ -816,12 +817,13 @@ function JoggingControllerOpenLoop:update()
             posture_goal = self.goals.posture_goal:clone()
         end
         self.mode = 2
-        self.start_time = ros.Time.now()
+
         local tmp_state = self.state:clone()
         --print('posture_goal ', posture_goal:getNames(), posture_goal.values)
         q_dot = posture_goal:clone()
         q_dot:sub(self.lastCommandJointPositions)
         self.controller.converged = false
+        self.start_time = ros.Time.now()
     elseif ((self.mode == 0 or self.mode == 3) and new_twist_message) or (self.mode == 3 and self.goals.twist_goal) then
         --set twist
         if twist_goal ~= nil then
@@ -833,6 +835,7 @@ function JoggingControllerOpenLoop:update()
             ros.INFO('[twist] Received stop signal')
             self.taskspace_controller:reset()
             self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+            self.goals.twist_goal = nil
         end
         local rel_tmp_pose = tf.StampedTransform()
         local dt = self.dt:toSec()
@@ -877,6 +880,7 @@ function JoggingControllerOpenLoop:update()
         end
 
         self.controller.converged = false
+        self.start_time = ros.Time.now()
     end
 
     --Handle command time out and reset controllers (initialte stop of robot)
