@@ -86,7 +86,7 @@ end
 
 function MoveJSafeSteppingActionServer:onInitialize()
     self.worker = IterativeMoveJWorker(self.node_handle, self.joint_monitor)
-    self.action_server = actionlib.ActionServer(self.node_handle, '/moveJ_step_action', 'xamlamoveit_msgs/moveJ')
+    self.action_server = actionlib.ActionServer(self.node_handle, '/moveJ_step_action', 'xamlamoveit_msgs/StepwiseMoveJ')
     self.action_server:registerGoalCallback(
         function(gh)
             GoalCallBack(self, gh)

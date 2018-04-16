@@ -829,9 +829,10 @@ function JoggingControllerOpenLoop:update()
         if q_dot.values:norm() < 1e-10 then
             self.goals.posture_goal = nil
             q_dot.values:zero()
+        else
+            self.controller.converged = false
+            self.start_time = ros.Time.now()
         end
-        self.controller.converged = false
-        self.start_time = ros.Time.now()
     elseif ((self.mode == 0 or self.mode == 3) and new_twist_message) or (self.mode == 3 and self.goals.twist_goal) then
         --set twist
         if twist_goal ~= nil then

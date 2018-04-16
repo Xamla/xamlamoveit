@@ -471,13 +471,13 @@ end
 function MotionService:executeSupervisedJointTrajectory(traj, check_collision, done_cb)
     if self.execution_step_action_client == nil then
         self.execution_step_action_client =
-            actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_step_action', self.node_handle)
+            actionlib.SimpleActionClient('xamlamoveit_msgs/StepwiseMoveJ', 'moveJ_step_action', self.node_handle)
         self.execution_step_action_client:waitForServer(ros.Duration(2.5))
     elseif not self.execution_step_action_client:isServerConnected() then
         self.execution_step_action_client:shutdown()
         self.execution_step_action_client = nil
         self.execution_step_action_client =
-            actionlib.SimpleActionClient('xamlamoveit_msgs/moveJ', 'moveJ_step_action', self.node_handle)
+            actionlib.SimpleActionClient('xamlamoveit_msgs/StepwiseMoveJ', 'moveJ_step_action', self.node_handle)
         self.execution_step_action_client:waitForServer(ros.Duration(2.5))
     end
     local action_client = self.execution_step_action_client

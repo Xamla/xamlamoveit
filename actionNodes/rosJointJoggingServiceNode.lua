@@ -124,7 +124,7 @@ local function getMoveGroupHandler(request, response, header)
 end
 
 local function collisionCheckHandler(request, response, header)
-    local checks_active = request.data or true
+    local checks_active = request.data
     cntr:activateCollisionChecks(checks_active)
     local success, message = true, 'Success'
     response.success = success
@@ -152,6 +152,7 @@ end
 
 local function getVelocityLimitsHandler(request, response, header)
     response.data = cntr.speed_scaling
+    response.success = true
     return true
 end
 

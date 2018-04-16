@@ -6,6 +6,7 @@ local joint_pos_spec = ros.MsgSpec('trajectory_msgs/JointTrajectory')
 local joint_point_spec = ros.MsgSpec('trajectory_msgs/JointTrajectoryPoint')
 local progress_spec = ros.MsgSpec('xamlamoveit_msgs/TrajectoryProgress')
 local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
+local set_double_sec = ros.SrvSpec('xamlamoveit_msgs/SetFloat')
 local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
 
 local TrajectorySteppingExecutionRequest =
@@ -25,6 +26,18 @@ local function checkStatusJoggingNode(self)
     end
 end
 
+local function setJoggingCheckCollisionState(self, state)
+    local req = self.jogging_state_collision_check_service:createRequest()
+    req.data = state
+    local res = self.jogging_state_collision_check_service:call(req)
+    if res then
+        self.abort_action = not res.success
+    else
+        self.abort_action = true
+    end
+    return not self.abort_action
+end
+
 local function setJoggingServiceStatus(self, status)
     local req = self.jogging_activation_service:createRequest()
     req.data = status
@@ -36,6 +49,19 @@ local function setJoggingServiceStatus(self, status)
     end
 end
 
+local function setJoggingServiceVelocityScaling(self, scaling)
+    local req = self.jogging_velocity_scaling_service:createRequest()
+    req.data = scaling
+    local res = self.jogging_velocity_scaling_service:call(req)
+    if res then
+        self.abort_action = not res.success
+        ros.WARN('set scaling %d, success = %s', scaling, self.abort and 'TRUE' or 'FALSE')
+    else
+        self.abort_action = true
+    end
+    return not self.abort_action
+end
+
 local function activateJoggingService(self)
     setJoggingServiceStatus(self, true)
 end
@@ -44,7 +70,7 @@ local function deactivateJoggingService(self)
     setJoggingServiceStatus(self, false)
 end
 
-local MOTIONDIRECITONS = {stopped = 0, backward = -1, forward = 1}
+local MOTIONDIRECTIONS = {stopped = 0, backward = -1, forward = 1}
 
 function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.starttime = ros.Time.now()
@@ -56,13 +82,16 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.goal = goal_handle:getGoal()
     self.error_codes = errorCodes
     self.check_collision = self.goal.goal.check_collision
+    self.velocity_scaling = self.goal.goal.veloctiy_scaling
     self.position_deviation_threshold = math.rad(1)
     self.publisher = nil
     self.subscriber_next = nil
     self.subscriber_prev = nil
     self.subscriber_cancel = nil
     self.jogging_activation_service = nil
+    self.jogging_velocity_scaling_service = nil
     self.jogging_status_service = nil
+    self.jogging_state_collision_check_service = nil
     self.abort_action = false
     self.status = 0
     self.index = 1
@@ -70,13 +99,13 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.allow_index_switch = false
     self.is_canceled = false
 
-    self.current_direction = MOTIONDIRECITONS.stopped
+    self.current_direction = MOTIONDIRECTIONS.stopped
 end
 
 local function next(self, msg, header)
     if
         self.goal_handle:getGoalID().id == msg.id and
-            (self.allow_index_switch or self.current_direction ~= MOTIONDIRECITONS.forward)
+            (self.allow_index_switch or self.current_direction ~= MOTIONDIRECTIONS.forward)
      then
         ros.DEBUG_NAMED(
             'TrajectorySteppingExecutionRequest',
@@ -86,14 +115,14 @@ local function next(self, msg, header)
         )
         self.index = math.min(self.index + 1, #self.goal.goal.trajectory.points)
         self.allow_index_switch = false
-        self.current_direction = MOTIONDIRECITONS.forward
+        self.current_direction = MOTIONDIRECTIONS.forward
     end
 end
 
 local function prev(self, msg, header)
     if
         self.goal_handle:getGoalID().id == msg.id and
-            (self.allow_index_switch or self.current_direction ~= MOTIONDIRECITONS.backward)
+            (self.allow_index_switch or self.current_direction ~= MOTIONDIRECTIONS.backward)
      then
         ros.DEBUG_NAMED(
             'TrajectorySteppingExecutionRequest',
@@ -103,7 +132,7 @@ local function prev(self, msg, header)
         )
         self.index = math.max(self.index - 1, 1)
         self.allow_index_switch = false
-        self.current_direction = MOTIONDIRECITONS.backward
+        self.current_direction = MOTIONDIRECTIONS.backward
     end
 end
 
@@ -119,10 +148,17 @@ local function cancel(self, msg, header)
     end
 end
 
-function TrajectorySteppingExecutionRequest:connect(jogging_topic, start_stop_service, status_service)
+function TrajectorySteppingExecutionRequest:connect(
+    jogging_topic,
+    start_stop_service,
+    status_service,
+    set_velocity_service,
+    set_collision_check_state)
     ros.INFO('[TrajectorySteppingExecutionRequest] Create service client for jogging node.')
     self.jogging_activation_service = ros.ServiceClient(start_stop_service, set_bool_spec)
+    self.jogging_velocity_scaling_service = ros.ServiceClient(set_velocity_service, set_double_sec)
     self.jogging_status_service = ros.ServiceClient(status_service, get_status_spec)
+    self.jogging_state_collision_check_service = ros.ServiceClient(set_collision_check_state, set_bool_spec)
     local is_running, status_msg = checkStatusJoggingNode(self)
     if is_running then
         return false
@@ -161,7 +197,9 @@ function TrajectorySteppingExecutionRequest:accept()
             self:connect(
             '/xamlaJointJogging/jogging_command',
             '/xamlaJointJogging/start_stop_tracking',
-            '/xamlaJointJogging/status'
+            '/xamlaJointJogging/status',
+            '/xamlaJointJogging/set_velocity_scaling',
+            '/xamlaJointJogging/activate_collision_check'
         )
 
         if not ok then
@@ -184,6 +222,29 @@ function TrajectorySteppingExecutionRequest:accept()
             self:shutdown()
             return false
         end
+
+        ok = setJoggingServiceVelocityScaling(self, self.velocity_scaling)
+        if not ok then
+            local code = errorCodes.PREEMPTED
+            self.status = code
+            local r = self.goal_handle:createResult()
+            r.result = code
+            self.goal_handle:setRejected(r, 'Could not set velocity scaling on jogging node.')
+            self:shutdown()
+            return false
+        end
+
+        ok = setJoggingCheckCollisionState(self, self.check_collision)
+        if not ok then
+            local code = errorCodes.PREEMPTED
+            self.status = code
+            local r = self.goal_handle:createResult()
+            r.result = code
+            self.goal_handle:setRejected(r, 'Could not set collision check flag on jogging node.')
+            self:shutdown()
+            return false
+        end
+
         self.goal_handle:setAccepted('Starting trajectory execution')
         return true
     else
@@ -287,35 +348,24 @@ end
 function TrajectorySteppingExecutionRequest:cancel()
     local status = self.goal_handle:getGoalStatus().status
     if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
+        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'Send Cancel Request: %d', status)
         self.goal_handle:setCancelRequested()
     end
 end
 
+function disposeRos(unit)
+    if unit then
+        unit:shutdown()
+    end
+    unit = nil
+end
+
 function TrajectorySteppingExecutionRequest:shutdown()
-    if self.feedback then
-        self.feedback:shutdown()
-    end
-    self.feedback = nil
-
-    if self.publisher then
-        self.publisher:shutdown()
-    end
-    self.publisher = nil
-
-    if self.subscriber_next then
-        self.subscriber_next:shutdown()
-    end
-    self.subscriber_next = nil
-
-    if self.subscriber_prev then
-        self.subscriber_prev:shutdown()
-    end
-    self.subscriber_prev = nil
-
-    if self.subscriber_cancel then
-        self.subscriber_cancel:shutdown()
-    end
-    self.subscriber_cancel = nil
+    disposeRos(self.feedback)
+    disposeRos(self.publisher)
+    disposeRos(self.subscriber_next)
+    disposeRos(self.subscriber_prev)
+    disposeRos(self.subscriber_cancel)
 
     if self.jogging_activation_service then
         deactivateJoggingService(self)
@@ -323,10 +373,9 @@ function TrajectorySteppingExecutionRequest:shutdown()
     end
     self.jogging_activation_service = nil
 
-    if self.jogging_status_service then
-        self.jogging_status_service:shutdown()
-    end
-    self.jogging_status_service = nil
+    disposeRos(self.jogging_status_service)
+    disposeRos(self.jogging_velocity_scaling_service)
+    disposeRos(self.jogging_state_collision_check_service)
 end
 
 return TrajectorySteppingExecutionRequest
