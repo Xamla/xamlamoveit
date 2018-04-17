@@ -83,7 +83,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.error_codes = errorCodes
     self.check_collision = self.goal.goal.check_collision
     self.velocity_scaling = self.goal.goal.veloctiy_scaling
-    self.position_deviation_threshold = math.rad(1)
+    self.position_deviation_threshold = math.rad(5)
     self.publisher = nil
     self.subscriber_next = nil
     self.subscriber_prev = nil
@@ -353,19 +353,19 @@ function TrajectorySteppingExecutionRequest:cancel()
     end
 end
 
-function disposeRos(unit)
-    if unit then
-        unit:shutdown()
+function disposeRos(self, unit)
+    if self[unit] then
+        self[unit]:shutdown()
+        self[unit] = nil
     end
-    unit = nil
 end
 
 function TrajectorySteppingExecutionRequest:shutdown()
-    disposeRos(self.feedback)
-    disposeRos(self.publisher)
-    disposeRos(self.subscriber_next)
-    disposeRos(self.subscriber_prev)
-    disposeRos(self.subscriber_cancel)
+    disposeRos(self, 'feedback')
+    disposeRos(self, 'publisher')
+    disposeRos(self, 'subscriber_next')
+    disposeRos(self, 'subscriber_prev')
+    disposeRos(self, 'subscriber_cancel')
 
     if self.jogging_activation_service then
         deactivateJoggingService(self)
@@ -373,9 +373,12 @@ function TrajectorySteppingExecutionRequest:shutdown()
     end
     self.jogging_activation_service = nil
 
-    disposeRos(self.jogging_status_service)
-    disposeRos(self.jogging_velocity_scaling_service)
-    disposeRos(self.jogging_state_collision_check_service)
+    disposeRos(self, 'jogging_status_service')
+    disposeRos(self, 'jogging_velocity_scaling_service')
+    disposeRos(self, 'jogging_state_collision_check_service')
+    assert(self.jogging_state_collision_check_service == nil)
+    assert(self.jogging_velocity_scaling_service == nil)
+    assert(self.jogging_status_service == nil)
 end
 
 return TrajectorySteppingExecutionRequest

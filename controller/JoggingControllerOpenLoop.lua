@@ -332,7 +332,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.current_pose = nil --tf.Transform()
     self.target_pose = nil -- tf.Transform()
     self.timeout = ros.Duration(1.0)
-    self.cool_down_timeout = ros.Duration(0.16)
+    self.cool_down_timeout = ros.Duration(0.3)
     self.synced = false
     self.no_collision_check = false
 
@@ -480,6 +480,7 @@ local function satisfiesBounds(self, positions, joint_names)
     local state = self.state:clone()
     state:setVariablePositions(positions, joint_names)
     state:update()
+    self.planning_scene:syncPlanningScene()
     local collisions = self.planning_scene:checkSelfCollision(state)
     if state:satisfiesBounds(0.0) then
         if collisions then
@@ -608,18 +609,57 @@ function JoggingControllerOpenLoop:shutdown()
     self.publisher_feedback:shutdown()
 end
 
+local function tensor6DToPose(vector6D)
+    assert(vector6D:size(1) == 6, 'Vector should be of size 6D (offset, anglevelocities)')
+    local end_pose = tf.Transform()
+    end_pose:setOrigin(vector6D[{{1, 3}}])
+    if vector6D[{{4, 6}}]:norm() > 1e-12 then
+        local end_pose_rotation = end_pose:getRotation()
+        end_pose:setRotation(end_pose_rotation:setRotation(vector6D[{{4, 6}}], vector6D[{{4, 6}}]:norm()))
+    end
+    return end_pose
+end
+
+local function poseTo6DTensor(input)
+    local new_input
+    if torch.isTypeOf(input, tf.StampedTransform) then
+        input = input:toTransform()
+    end
+
+    if torch.isTypeOf(input, tf.Transform) then
+        new_input = torch.zeros(6)
+        new_input[{{1, 3}}] = input:getOrigin()
+        new_input[{{4, 6}}] = input:getRotation():getAxis() * input:getRotation():getAngle()
+    end
+    if torch.isTypeOf(input, torch.DoubleTensor) then
+        new_input = input
+    end
+    assert(
+        torch.isTypeOf(new_input, torch.DoubleTensor),
+        string.format('Input should be of type [torch.DoubleTensor] but is of type: [%s]', torch.type(new_input))
+    )
+    return new_input
+end
+
 local function getPostureForFullStop(cntr, q_desired, dt, msg)
     local q_actual = cntr.state.pos
     local delta = q_desired - q_actual
 
     local minTime = torch.cdiv(delta, cntr.max_vel):abs():max()
-    local trunc_dt = 2 * dt
+    local trunc_dt = 1.2 * dt
     if torch.abs(delta):gt(1e-3):sum() > 0 and minTime > trunc_dt then
         -- truncate goal
-        ros.DEBUG('truncate goal: %f, %s', trunc_dt / minTime, msg or '')
+        ros.WARN('truncate goal: %f, %s', trunc_dt / minTime, msg or '')
         q_desired = q_actual + delta * math.min(1, trunc_dt / minTime)
     end
     return q_desired
+end
+
+local function getPoseForFullStop(cntr, pose_desired, dt, msg)
+    pose_desired = poseTo6DTensor(pose_desired)
+    local result = pose_desired:clone()
+    result[{{1,3}}] = getPostureForFullStop(cntr, pose_desired[{{1,3}}], dt, msg)
+    return tensor6DToPose(result)
 end
 
 function JoggingControllerOpenLoop:tracking(q_des, duration)
@@ -688,7 +728,6 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
     local posture_goal
     if #link_name > 0 then
         local dt = self.dt:toSec()
-        self.start_time = ros.Time.now()
         pose_goal:setOrigin(
             getPostureForFullStop(self.taskspace_controller, pose_goal:getOrigin(), dt, 'position control')
         )
@@ -703,12 +742,12 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             local result_rotation = current_rotation:slerp(target_rotation, step)
             self.target_pose:setOrigin(self.taskspace_controller.state.pos)
             self.target_pose:setRotation(result_rotation)
-        else
-            --todo what about rotation??
         end
+
         local state = self.state:clone()
+        local attempts, timeout = 1, self.dt:toSec() * 2
         local suc =
-            state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), self.target_pose:toTransform())
+            state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), self.target_pose:toTransform(), attempts, timeout, true)
         if suc then
             state:update()
             posture_goal =
@@ -756,10 +795,6 @@ function JoggingControllerOpenLoop:update()
         if self.synced == false or new_pose_message or new_posture_message or new_twist_message then
             self.synced = true
             self:getNewRobotState()
-            --self.target_pose = self.current_pose:clone()
-
-            --self.controller:reset()
-            --self.controller.state.pos:copy(self.lastCommandJointPositions.values)
             self.taskspace_controller:reset()
             self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
         end
@@ -792,8 +827,8 @@ function JoggingControllerOpenLoop:update()
             ros.INFO('[Pose] Received stop signal')
             self.taskspace_controller:reset()
             self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+            pose_goal = self.current_pose
             self.goals.pose_goal = nil
-            pose_goal = self.current_pose:clone()
         end
         local rel_poseAB = pose_goal:clone()
         rel_poseAB = rel_poseAB:mul(self.current_pose:inverse())
@@ -822,17 +857,14 @@ function JoggingControllerOpenLoop:update()
         end
         self.mode = 2
 
-        local tmp_state = self.state:clone()
-        --print('posture_goal ', posture_goal:getNames(), posture_goal.values)
         q_dot = posture_goal:clone()
         q_dot:sub(self.lastCommandJointPositions)
         if q_dot.values:norm() < 1e-10 then
             self.goals.posture_goal = nil
             q_dot.values:zero()
-        else
-            self.controller.converged = false
-            self.start_time = ros.Time.now()
         end
+        self.controller.converged = false
+        self.start_time = ros.Time.now()
     elseif ((self.mode == 0 or self.mode == 3) and new_twist_message) or (self.mode == 3 and self.goals.twist_goal) then
         --set twist
         if twist_goal ~= nil then
@@ -887,7 +919,6 @@ function JoggingControllerOpenLoop:update()
         if transformed_successful == false then
             self.feedback_message.error_code = -18 --INVALID_LINK_NAME
         end
-
         self.controller.converged = false
         self.start_time = ros.Time.now()
     end
