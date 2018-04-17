@@ -1,0 +1,9 @@
+trajectory_msgs/JointTrajectory trajectory
+bool check_collision
+float64 veloctiy_scaling
+---
+#result definition
+int32 result
+---
+#feedback
+bool isconverged
