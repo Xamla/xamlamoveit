@@ -136,6 +136,7 @@ local function handleMoveJTrajectory(self, traj)
         msg = string.format('could not find group name: %s', group_name)
     else
         traj.joint_monitor = self.joint_monitor
+        traj.move_group_name = group_name
     end
     return traj, status, msg
 end
@@ -148,10 +149,9 @@ local function dispatchTrajectory(self)
                 --print('#self.trajectoryQueue ' .. #self.trajectoryQueue)
                 local traj = table.remove(self.trajectoryQueue, 1)
                 traj.joint_monitor = self.joint_monitor
+                local msg
+                traj, status, msg = handleMoveJTrajectory(self, traj)
                 if traj.accept == nil or traj:accept() then -- call optional accept callback
-                    local msg
-                    traj, status, msg = handleMoveJTrajectory(self, traj)
-
                     self.current_plan = {
                         startTime = sys.clock(), -- debug information
                         traj = traj,

@@ -8,6 +8,7 @@ local progress_spec = ros.MsgSpec('xamlamoveit_msgs/TrajectoryProgress')
 local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
 local set_double_sec = ros.SrvSpec('xamlamoveit_msgs/SetFloat')
 local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
+local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
 
 local TrajectorySteppingExecutionRequest =
     torch.class('xamlamoveit.components.TrajectorySteppingExecutionRequest', components)
@@ -24,6 +25,18 @@ local function checkStatusJoggingNode(self)
     else
         return false
     end
+end
+
+local function setMoveGroupName(self)
+    local req = self.jogging_move_group_name_service:createRequest()
+    req.data = self.move_group_name or ''
+    local res = self.jogging_move_group_name_service:call(req)
+    if res then
+        self.abort_action = not res.success
+    else
+        self.abort_action = true
+    end
+    return not self.abort_action, res and res.message
 end
 
 local function setJoggingCheckCollisionState(self, state)
@@ -53,6 +66,7 @@ local function setJoggingServiceVelocityScaling(self, scaling)
     local req = self.jogging_velocity_scaling_service:createRequest()
     req.data = scaling
     local res = self.jogging_velocity_scaling_service:call(req)
+    self.scaling = scaling
     if res then
         self.abort_action = not res.success
         ros.WARN('set scaling %d, success = %s', scaling, self.abort and 'TRUE' or 'FALSE')
@@ -70,6 +84,25 @@ local function deactivateJoggingService(self)
     setJoggingServiceStatus(self, false)
 end
 
+-- Returns joints positions at time 't'
+local function interpolateCubic(t, t0, t1, p0, p1, v0, v1)
+    local dt = t1 - t0
+    if dt < 1e-6 then
+        return p1, p0:clone():zero()
+    end
+    local pos = p0:clone()
+    local vel = p0:clone()
+    for i = 1, p0:size(1) do
+        local a = p0[i]
+        local b = v0[i]
+        local c = (-3 * p0[i] + 3 * p1[i] - 2 * dt * v0[i] - dt * v1[i]) / dt ^ 2
+        local d = (2 * p0[i] - 2 * p1[i] + dt * v0[i] + dt * v1[i]) / dt ^ 3
+        pos[i] = a + b * t + c * t ^ 2 + d * t ^ 3
+        vel[i] = b + 2 * c * t + 3 * d * t ^ 2
+    end
+    return pos, vel
+end
+
 local MOTIONDIRECTIONS = {stopped = 0, backward = -1, forward = 1}
 
 function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
@@ -83,7 +116,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.error_codes = errorCodes
     self.check_collision = self.goal.goal.check_collision
     self.velocity_scaling = self.goal.goal.veloctiy_scaling
-    self.position_deviation_threshold = math.rad(5)
+    self.position_deviation_threshold = math.rad(2.5)
     self.publisher = nil
     self.subscriber_next = nil
     self.subscriber_prev = nil
@@ -92,13 +125,17 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.jogging_velocity_scaling_service = nil
     self.jogging_status_service = nil
     self.jogging_state_collision_check_service = nil
+    self.jogging_move_group_name_service = nil
+    self.move_group_name = nil
     self.abort_action = false
     self.status = 0
     self.index = 1
+    self.scaling = 1
     self.progress_topic = 'feedback'
     self.allow_index_switch = false
     self.is_canceled = false
-
+    self.simulated_time = ros.Duration(0)
+    self.dt = ros.Duration(1/40)
     self.current_direction = MOTIONDIRECTIONS.stopped
 end
 
@@ -107,14 +144,16 @@ local function next(self, msg, header)
         self.goal_handle:getGoalID().id == msg.id and
             (self.allow_index_switch or self.current_direction ~= MOTIONDIRECTIONS.forward)
      then
-        ros.DEBUG_NAMED(
+        ros.INFO_NAMED(
             'TrajectorySteppingExecutionRequest',
             'NEXT: %d/%d',
-            self.index + 1,
+            self.index,
             #self.goal.goal.trajectory.points
         )
-        self.index = math.min(self.index + 1, #self.goal.goal.trajectory.points)
-        self.allow_index_switch = false
+        self.simulated_time = self.simulated_time + self.dt * self.scaling
+        if self.simulated_time:toSec() < 0 then
+            self.simulated_time = ros.Duration(0)
+        end
         self.current_direction = MOTIONDIRECTIONS.forward
     end
 end
@@ -124,14 +163,16 @@ local function prev(self, msg, header)
         self.goal_handle:getGoalID().id == msg.id and
             (self.allow_index_switch or self.current_direction ~= MOTIONDIRECTIONS.backward)
      then
-        ros.DEBUG_NAMED(
+        ros.INFO_NAMED(
             'TrajectorySteppingExecutionRequest',
             'PREV: %d/%d',
-            self.index - 1,
+            self.index,
             #self.goal.goal.trajectory.points
         )
-        self.index = math.max(self.index - 1, 1)
-        self.allow_index_switch = false
+        self.simulated_time = self.simulated_time - self.dt * self.scaling
+        if self.simulated_time:toSec() < 0 then
+            self.simulated_time = ros.Duration(0)
+        end
         self.current_direction = MOTIONDIRECTIONS.backward
     end
 end
@@ -153,12 +194,14 @@ function TrajectorySteppingExecutionRequest:connect(
     start_stop_service,
     status_service,
     set_velocity_service,
-    set_collision_check_state)
+    set_collision_check_state,
+    set_move_group_name)
     ros.INFO('[TrajectorySteppingExecutionRequest] Create service client for jogging node.')
     self.jogging_activation_service = ros.ServiceClient(start_stop_service, set_bool_spec)
     self.jogging_velocity_scaling_service = ros.ServiceClient(set_velocity_service, set_double_sec)
     self.jogging_status_service = ros.ServiceClient(status_service, get_status_spec)
     self.jogging_state_collision_check_service = ros.ServiceClient(set_collision_check_state, set_bool_spec)
+    self.jogging_move_group_name_service = ros.ServiceClient(set_move_group_name, set_string_spec)
     local is_running, status_msg = checkStatusJoggingNode(self)
     if is_running then
         return false
@@ -189,6 +232,8 @@ function TrajectorySteppingExecutionRequest:connect(
     return true
 end
 
+
+
 function TrajectorySteppingExecutionRequest:accept()
     if self.goal_handle:getGoalStatus().status == GoalStatus.PENDING then
         self.starttime_debug = ros.Time.now()
@@ -199,7 +244,8 @@ function TrajectorySteppingExecutionRequest:accept()
             '/xamlaJointJogging/start_stop_tracking',
             '/xamlaJointJogging/status',
             '/xamlaJointJogging/set_velocity_scaling',
-            '/xamlaJointJogging/activate_collision_check'
+            '/xamlaJointJogging/activate_collision_check',
+            '/xamlaJointJogging/set_movegroup_name'
         )
 
         if not ok then
@@ -245,7 +291,20 @@ function TrajectorySteppingExecutionRequest:accept()
             return false
         end
 
+        ok, msg = setMoveGroupName(self)
+        if not ok then
+            local code = errorCodes.PREEMPTED
+            self.status = code
+            local r = self.goal_handle:createResult()
+            r.result = code
+            self.goal_handle:setRejected(r, string.format('Could not set move grou name on jogging node. [%s]', self.move_group_name))
+            self:shutdown()
+            return false
+        end
+
         self.goal_handle:setAccepted('Starting trajectory execution')
+        self.simulated_time = ros.Duration(0)
+        self.index = 1
         return true
     else
         ros.WARN_NAMED(
@@ -274,17 +333,31 @@ function TrajectorySteppingExecutionRequest:proceed()
         elseif self.joint_monitor then
             local traj = self.goal.goal.trajectory
             local p = self.joint_monitor:getPositionsOrderedTensor(traj.joint_names)
-
-            local q_dot = traj.points[self.index].positions - p
-            local dist = torch.abs(q_dot)
-            if dist:gt(self.position_deviation_threshold):sum() < 1 then
-                self.allow_index_switch = true
+            local index = 1
+            -- linear search for last point < t, increment index when t is greater than next (index+1) point's time_from_start
+            while index < #traj.points and self.simulated_time:toSec() >= traj.points[index + 1].time_from_start:toSec() do
+                index = index + 1
             end
 
+            local k = math.min(index + 1, #traj.points)
+            local t0, t1 = traj.points[index].time_from_start:toSec(), traj.points[k].time_from_start:toSec()
+            local p0, v0 = traj.points[index].positions, traj.points[index].velocities
+            local p1, v1 = traj.points[k].positions, traj.points[k].velocities
+            local q, qd = interpolateCubic(self.simulated_time:toSec() - t0, t0, t1, p0, p1, v0, v1)
+
+            local q_dot = q - p
+            local dist = torch.abs(q_dot)
+            ros.INFO_THROTTLE('direction',0.1, string.format("comparison: %04f", q_dot/q_dot:norm() * qd/qd:norm()))
+            if dist:gt(self.position_deviation_threshold):sum() < 1 then
+                self.allow_index_switch = true
+            else
+                self.allow_index_switch = false
+            end
+            self.index = index
             local mPoint = ros.Message(joint_point_spec)
             local m = ros.Message(joint_pos_spec)
             m.joint_names = traj.joint_names
-            mPoint.positions:set(traj.points[self.index].positions)
+            mPoint.positions:set(q)
             mPoint.time_from_start = ros.Duration(0.008) --TODO this is probably not optimal.
             m.points = {mPoint}
             self.publisher:publish(m)
