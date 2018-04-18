@@ -724,6 +724,13 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
     self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
 end
 
+function JoggingControllerOpenLoop:getFullRobotState()
+    local names = self.joint_monitor:getJointNames()
+    local ok, p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.1), names)
+    self.state:setVariablePositions(p, names)
+    self.state:update()
+end
+
 function JoggingControllerOpenLoop:getNewRobotState()
     local names = self.lastCommandJointPositions:getNames()
     local ok, p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.1), names)
@@ -996,7 +1003,7 @@ function JoggingControllerOpenLoop:update()
     else
         self.mode = 0
     end
-
+    ros.INFO_THROTTLE('TrackingMode', 1,string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
     if self.mode > -1 then
         --resorces are blocked ready to sent commands to robot
         if tryLock(self) then
@@ -1056,6 +1063,7 @@ function JoggingControllerOpenLoop:reset()
     )
     self.controller = tvpController.new(#self.joint_set.joint_names)
     createPublisher(self, self.joint_set.joint_names)
+    self:getFullRobotState()
     self:getNewRobotState()
     self.target_pose = self.current_pose:clone()
 
