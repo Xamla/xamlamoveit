@@ -68,6 +68,14 @@ function table.tolookup(t, keySelector)
     return m
 end
 
+function table.findFirst(t, condition)
+    for k, x in pairs(t) do
+        if condition(x) then
+            return k
+        end
+    end
+end
+
 function table.map(t, selector)
     local r = {}
     for k, v in pairs(t) do

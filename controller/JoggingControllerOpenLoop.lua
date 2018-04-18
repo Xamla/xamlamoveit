@@ -67,6 +67,7 @@ local function queryJointLimits(node_handle, joint_names, namespace)
 end
 
 local function queryTaskSpaceLimits(self, name)
+    local name = name or ''
     local max_vel = torch.zeros(3)
     local max_acc = torch.zeros(3)
     local nh = self.nh
@@ -96,13 +97,12 @@ local function queryTaskSpaceLimits(self, name)
         return false
     end
 
-
     parameters = parameters[index]
     if parameters.has_taskspace_xyz_vel_limit == true then
         max_vel:fill(parameters.taskspace_xyz_max_vel)
         print(1.1 * parameters.taskspace_xyz_max_vel * self.dt:toSec(), position_max)
         position_max = math.min(1.1 * parameters.taskspace_xyz_max_vel, position_max)
-        position_min = math.min(position_max/10, position_min)
+        position_min = math.min(position_max / 10, position_min)
     else
         --m/s
         max_vel:fill(0.2)
@@ -245,13 +245,31 @@ end
 local function getEndEffectorMoveGroupMap(self)
     local move_group_names = self.kinematic_model:getJointModelGroupNames()
     local map = {}
+    local linkmap = {}
     for k, v in pairs(move_group_names) do
         local name, suc = self.kinematic_model:getGroupEndEffectorName(v)
+        local sub_move_group_ids = self.kinematic_model:getJointModelSubGroupNames(v)
+        local attached_end_effectors = {} --self.kinematic_model:getAttachedEndEffectorNames(v)
         if suc then
-            map[v] = name
+            local link_name, suc2 = self.kinematic_model:getEndEffectorLinkName(name)
+            if name ~= nil and name ~= '' then
+                map[name] = {v}
+                linkmap[name] = link_name
+            end
+            for i, aee in ipairs(attached_end_effectors) do
+                link_name, suc2 = self.kinematic_model:getEndEffectorLinkName(aee)
+                if suc2 then
+                    ros.INFO('GroupName: %s EndEffectorName: %s LinkName: %s', v, aee, link_name)
+                    if map[aee] == nil then
+                        map[aee] = {}
+                    end
+                    table.insert(map[aee], v)
+                    linkmap[aee] = link_name
+                end
+            end
         end
     end
-    return table.merge(map, table.swapKeyValue(map))
+    return map, linkmap
 end
 
 local controller = require 'xamlamoveit.controller.env'
@@ -265,7 +283,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.nh = node_handle
     self.robot_model_loader = moveit.RobotModelLoader('robot_description')
     self.kinematic_model = self.robot_model_loader:getModel()
-    self.end_effector_to_move_group_map = getEndEffectorMoveGroupMap(self)
+    self.end_effector_to_move_group_map, self.end_effector_to_link_map = getEndEffectorMoveGroupMap(self)
     self.planning_scene = moveit.PlanningScene(self.kinematic_model)
     self.lock_client = core.LeasedBaseLockClient(node_handle)
     self.current_id = ''
@@ -277,7 +295,20 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     if move_group then
         self.move_groups[move_group:getName()] = move_group
         self.curr_move_group_name = move_group:getName()
-        self.curr_end_effector_name = self.end_effector_to_move_group_map[self.curr_move_group_name]
+        local key =
+            table.findFirst(
+            self.end_effector_to_move_group_map,
+            function(x)
+                return 0 <
+                    table.findIndex(
+                        x,
+                        function(x, ix)
+                            return x == self.curr_move_group_name
+                        end
+                    )
+            end
+        )
+        self.curr_end_effector_name = key
     else
         error('move_group should not be nil')
     end
@@ -467,8 +498,8 @@ function JoggingControllerOpenLoop:getPostureGoal()
 end
 
 function JoggingControllerOpenLoop:getCurrentPose()
-    local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
-    if #link_name > 0 then
+    local link_name = self.end_effector_to_link_map[self.curr_end_effector_name]
+    if link_name and #link_name > 0 then
         return self.state:getGlobalLinkTransform(link_name)
     else
         ros.WARN('no pose available since no link_name for EndEffector exists.')
@@ -568,8 +599,8 @@ function JoggingControllerOpenLoop:setSpeedScaling(value)
 
     self.joint_step_width = self.step_width_model.joint_space.scaling_fkt(value)
 
-    self.command_distance_threshold,
-        self.command_rotation_threshold = self.step_width_model.taskspace.scaling_fkt(self.speed_scaling)
+    self.command_distance_threshold, self.command_rotation_threshold =
+        self.step_width_model.taskspace.scaling_fkt(self.speed_scaling)
     ros.INFO('Speed scaling %f, command threshold %f', self.speed_scaling, self.command_distance_threshold)
     self.controller.max_vel:copy(self.max_vel * self.speed_scaling)
     self.controller.max_acc:copy(self.max_acc)
@@ -649,16 +680,23 @@ local function getPostureForFullStop(cntr, q_desired, dt, msg)
     local trunc_dt = 1.2 * dt
     if torch.abs(delta):gt(1e-3):sum() > 0 and minTime > trunc_dt then
         -- truncate goal
-        ros.WARN('truncate goal: %f, %s', trunc_dt / minTime, msg or '')
+        ros.DEBUG('truncate goal: %f, %s', trunc_dt / minTime, msg or '')
         q_desired = q_actual + delta * math.min(1, trunc_dt / minTime)
     end
     return q_desired
 end
 
 local function getPoseForFullStop(cntr, pose_desired, dt, msg)
+    local msg = msg or 'PoseForFullStop'
+    if torch.isTypeOf(dt, ros.Duration) then
+        dt = dt:toSec()
+    end
+    if not pose_desired then
+        return
+    end
     pose_desired = poseTo6DTensor(pose_desired)
     local result = pose_desired:clone()
-    result[{{1,3}}] = getPostureForFullStop(cntr, pose_desired[{{1,3}}], dt, msg)
+    result[{{1, 3}}] = getPostureForFullStop(cntr, pose_desired[{{1, 3}}], dt/1.2, msg)
     return tensor6DToPose(result)
 end
 
@@ -724,9 +762,9 @@ end
 
 local function transformPose2PostureTarget(self, pose_goal, joint_names)
     local world_link_name = 'world'
-    local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
+    local link_name = self.end_effector_to_link_map[self.curr_end_effector_name]
     local posture_goal
-    if #link_name > 0 then
+    if link_name and #link_name > 0 then
         local dt = self.dt:toSec()
         pose_goal:setOrigin(
             getPostureForFullStop(self.taskspace_controller, pose_goal:getOrigin(), dt, 'position control')
@@ -747,7 +785,13 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
         local state = self.state:clone()
         local attempts, timeout = 1, self.dt:toSec() * 2
         local suc =
-            state:setFromIK(self.move_groups[self.curr_move_group_name]:getName(), self.target_pose:toTransform(), attempts, timeout, true)
+            state:setFromIK(
+            self.move_groups[self.curr_move_group_name]:getName(),
+            self.target_pose:toTransform(),
+            attempts,
+            timeout,
+            true
+        )
         if suc then
             state:update()
             posture_goal =
@@ -774,6 +818,7 @@ local function detectNan(vector)
 end
 
 function JoggingControllerOpenLoop:update()
+    local timeout_b = false
     -- Handle feedback
     self.feedback_message.error_code = 1
     local status_msg = 'OK'
@@ -818,16 +863,22 @@ function JoggingControllerOpenLoop:update()
     -- Decide which goal is valid
     if (self.mode < 2 and new_pose_message) or (self.mode == 1 and self.goals.pose_goal) then
         --set pose
-        if pose_goal ~= nil then
+        local isNan = false
+        if pose_goal then
+            isNan = detectNan(pose_goal:getOrigin())
+        end
+
+        if pose_goal ~= nil and isNan == false then
             self.goals.pose_goal = pose_goal:clone()
         elseif self.goals.pose_goal then
             pose_goal = self.goals.pose_goal:clone()
         end
-        if (new_pose_message and detectNan(pose_goal:getOrigin())) or self.mode == 0 then
-            ros.INFO('[Pose] Received stop signal')
-            self.taskspace_controller:reset()
-            self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
-            pose_goal = self.current_pose
+
+        if (new_pose_message and isNan) or self.mode == 0 then
+            if self.mode ~= 0 then
+                ros.INFO('[Pose] Received stop signal')
+            end
+            pose_goal:setRotation(self.current_pose:getRotation())
             self.goals.pose_goal = nil
         end
         local rel_poseAB = pose_goal:clone()
@@ -873,9 +924,9 @@ function JoggingControllerOpenLoop:update()
             twist_goal = self.goals.twist_goal:clone()
         end
         if (new_twist_message and twist_goal:norm() < 1e-12) or self.mode == 0 then
-            ros.INFO('[twist] Received stop signal')
-            self.taskspace_controller:reset()
-            self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+            if self.mode ~= 0 then
+                ros.INFO('[twist] Received stop signal')
+            end
             self.goals.twist_goal = nil
         end
         local rel_tmp_pose = tf.StampedTransform()
@@ -924,7 +975,7 @@ function JoggingControllerOpenLoop:update()
     end
 
     --Handle command time out and reset controllers (initialte stop of robot)
-    local timeout_b = false
+
     if self.timeout:toSec() < (curr_time - self.start_time):toSec() then
         self.lastCommandJointPositions.values:copy(self.controller.state.pos)
         self.controller:reset()
@@ -940,7 +991,7 @@ function JoggingControllerOpenLoop:update()
     local q_des = self.lastCommandJointPositions:clone()
     if self.controller.converged == false and timeout_b == false then
         q_des:add(q_dot)
-        q_des.values = getPostureForFullStop(self.controller, q_des.values, self.dt:toSec(), 'joint control')
+        q_des.values = getPostureForFullStop(self.controller, q_des.values, self.dt:toSec()/2, 'joint control')
         ros.DEBUG('Locking')
     else
         self.mode = 0
@@ -1012,14 +1063,31 @@ function JoggingControllerOpenLoop:reset()
     self.max_vel = self.max_vel * self.max_speed_scaling
     self.max_acc = self.max_acc --* self.max_speed_scaling
 
-    local success,
-        taskspace_max_vel,
-        taskspace_max_acc = queryTaskSpaceLimits(self, self.end_effector_to_move_group_map[self.curr_move_group_name])
+    local key =
+        table.findFirst(
+        self.end_effector_to_move_group_map,
+        function(x)
+            return 0 <
+                table.findIndex(
+                    x,
+                    function(xx, ix)
+                        return xx == self.curr_move_group_name
+                    end
+                )
+        end
+    )
+    self.curr_end_effector_name = key
+
+    local success, taskspace_max_vel, taskspace_max_acc = queryTaskSpaceLimits(self, self.curr_end_effector_name)
     if success == true then
         self.taskspace_max_vel = taskspace_max_vel
         self.taskspace_max_acc = taskspace_max_acc
     else
-        ros.WARN('No taskspace limits found in namespace using default configuration. [%s]', self.curr_move_group_name)
+        ros.WARN(
+            'No taskspace limits found in namespace using default configuration. [%s:%s]',
+            self.curr_move_group_name,
+            self.curr_end_effector_name
+        )
     end
 
     self.mode = 0
@@ -1063,7 +1131,26 @@ end
 
 function JoggingControllerOpenLoop:setEndEffector(name)
     assert(name)
-    local move_group_name = self.end_effector_to_move_group_map[name]
+    local key =
+        table.findFirst(
+        self.end_effector_to_move_group_map,
+        function(x)
+            return x == name
+        end
+    )
+
+    local index =
+        table.indexOf(
+        key,
+        function(x)
+            return x == self.curr_move_group_name
+        end
+    )
+    if index < 0 then
+        index = 1
+    end
+
+    local move_group_name = key[index]
     if move_group_name then
         self.curr_end_effector_name = name
         self:setMoveGroupInterface(move_group_name)
@@ -1075,7 +1162,10 @@ function JoggingControllerOpenLoop:getCurrentMoveGroup()
 end
 
 function JoggingControllerOpenLoop:activateCollisionChecks(check)
-    assert(torch.type(check) == 'boolean', '[JoggingControllerOpenLoop:activateCollisionChecks] Argument needs to be a boolean')
+    assert(
+        torch.type(check) == 'boolean',
+        '[JoggingControllerOpenLoop:activateCollisionChecks] Argument needs to be a boolean'
+    )
     self.no_collision_check = not check
 end
 
