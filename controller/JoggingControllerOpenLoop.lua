@@ -488,7 +488,7 @@ function JoggingControllerOpenLoop:getPostureGoal()
         elseif msg.points[1].velocities:nElement() > 0 then
             local vel = msg.points[1].velocities
             for i, v in ipairs(joint_set.joint_names) do
-                vel[i] = math.sign(vel[i]) * self.joint_step_width * self.dt:toSec()
+                vel[i] = math.sign(vel[i]) * self.joint_step_width
             end
             local q_dot = datatypes.JointValues(joint_set, vel)
             joint_posture:add(q_dot)
@@ -573,7 +573,7 @@ function JoggingControllerOpenLoop:setStepWidthModel(
     assert(rotation_max > rotation_min)
     --joint_posture
     model.joint_space.min = joint_min
-    model.joint_space.max = joint_max
+    model.joint_space.max = math.max(joint_max, math.rad(5))
     model.joint_space.scaling_fkt = function(x)
         return (joint_max - joint_min) * x + joint_min
     end
@@ -712,7 +712,8 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
             self.controller.state.pos:size(1) == q_des.values:size(1),
             string.format('inconsistent size: %dx%d', self.controller.state.pos:size(1), q_des.values:size(1))
         )
-        self.controller:update(q_des.values, self.dt:toSec())
+        local eta = self.controller:update(q_des.values, self.dt:toSec())
+        ros.DEBUG_THROTTLE('Controller_eta', 0.1, 'eta: %f', eta)
         sendPositionCommand(self, self.controller.state.pos, self.controller.state.vel * 0, q_des:getNames(), duration)
         self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
     else
@@ -799,7 +800,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             self.target_pose:toTransform(),
             attempts,
             timeout,
-            true
+            false
         )
         if suc then
             state:update()
@@ -861,7 +862,7 @@ function JoggingControllerOpenLoop:update()
         )
         self.state:update()
         self.current_pose = self:getCurrentPose()
-        self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin()) --feedback current position to xyz controller
+        --self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin()) --feedback current position to xyz controller
     end
 
     if self.dt:toSec() * 2 < (curr_time - self.start_time):toSec() then
@@ -869,6 +870,7 @@ function JoggingControllerOpenLoop:update()
         resetGoals(self)
     end
 
+    local stop_received = false
     -- Decide which goal is valid
     if (self.mode < 2 and new_pose_message) or (self.mode == 1 and self.goals.pose_goal) then
         --set pose
@@ -886,6 +888,7 @@ function JoggingControllerOpenLoop:update()
         if (new_pose_message and isNan) or self.mode == 0 then
             if self.mode ~= 0 then
                 ros.INFO('[Pose] Received stop signal')
+                stop_received = true
                 if detectNan(pose_goal:getOrigin()) then
                     pose_goal = self.current_pose:clone()
                 end
@@ -909,8 +912,12 @@ function JoggingControllerOpenLoop:update()
             self.feedback_message.error_code = -1
             q_dot.values:zero()
         end
-        self.controller.converged = false
-        self.start_time = ros.Time.now()
+        if not stop_received then
+            self.controller.converged = false
+            self.start_time = ros.Time.now()
+        else
+            self.mode = 0
+        end
     elseif ((self.mode == 0 or self.mode == 2) and new_posture_message) or (self.mode == 2 and self.goals.posture_goal) then
         -- set posture
         if posture_goal ~= nil then
@@ -925,11 +932,15 @@ function JoggingControllerOpenLoop:update()
         if q_dot.values:norm() < 1e-10 then
             self.goals.posture_goal = nil
             q_dot.values:zero()
+            self.mode = 0
+        else
+            self.controller.converged = false
+            self.start_time = ros.Time.now()
         end
-        self.controller.converged = false
-        self.start_time = ros.Time.now()
+
     elseif ((self.mode == 0 or self.mode == 3) and new_twist_message) or (self.mode == 3 and self.goals.twist_goal) then
         --set twist
+
         if twist_goal ~= nil then
             self.goals.twist_goal = twist_goal:clone()
         elseif self.goals.twist_goal then
@@ -938,6 +949,7 @@ function JoggingControllerOpenLoop:update()
         if (new_twist_message and twist_goal:norm() < 1e-12) or self.mode == 0 then
             if self.mode ~= 0 then
                 ros.INFO('[twist] Received stop signal')
+                stop_received = true
             end
             self.goals.twist_goal = nil
         end
@@ -982,13 +994,20 @@ function JoggingControllerOpenLoop:update()
         if transformed_successful == false then
             self.feedback_message.error_code = -18 --INVALID_LINK_NAME
         end
-        self.controller.converged = false
-        self.start_time = ros.Time.now()
+        if not stop_received then
+            self.controller.converged = false
+            self.start_time = ros.Time.now()
+        else
+            self.mode = 0
+        end
     end
 
     --Handle command time out and reset controllers (initialte stop of robot)
 
-    if self.timeout:toSec() < (curr_time - self.start_time):toSec() then
+    if self.timeout:toSec() < (ros.Time.now() - self.start_time):toSec() then
+        if self.controller.converged == false and self.mode ~= 0 then
+            ros.ERROR('TIMEOUT. REsetting controller and targets')
+        end
         self.lastCommandJointPositions.values:copy(self.controller.state.pos)
         self.controller:reset()
         self.controller.state.pos:copy(self.lastCommandJointPositions.values)
@@ -996,20 +1015,19 @@ function JoggingControllerOpenLoop:update()
         self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
         q_dot.values:zero()
         timeout_b = true
-        ros.DEBUG('timeout')
     end
 
     -- prepare tracking target
     local q_des = self.lastCommandJointPositions:clone()
     if self.controller.converged == false and timeout_b == false then
         q_des:add(q_dot)
-        q_des.values = getPostureForFullStop(self.controller, q_des.values, self.dt:toSec()/2, 'joint control')
+        q_des.values = getPostureForFullStop(self.controller, q_des.values, self.dt:toSec(), 'joint control')
         ros.DEBUG('Locking')
     else
         self.mode = 0
     end
-    ros.INFO_THROTTLE('TrackingMode', 1,string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
-    if self.mode > -1 then
+    ros.DEBUG_THROTTLE('TrackingMode', 1,string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
+    if self.mode > 0 then
         --resorces are blocked ready to sent commands to robot
         if tryLock(self) then
             self:tracking(q_des, self.dt)
