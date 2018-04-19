@@ -135,7 +135,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.allow_index_switch = false
     self.is_canceled = false
     self.simulated_time = ros.Duration(0)
-    self.dt = ros.Duration(1/40)
+    self.dt = ros.Duration(1/50)
     self.current_direction = MOTIONDIRECTIONS.stopped
 end
 
@@ -150,7 +150,7 @@ local function next(self, msg, header)
             self.index,
             #self.goal.goal.trajectory.points
         )
-        self.simulated_time = self.simulated_time + self.dt * self.scaling
+        self.simulated_time = self.simulated_time + self.dt --* self.scaling
         if self.simulated_time:toSec() < 0 then
             self.simulated_time = ros.Duration(0)
         end
@@ -169,7 +169,7 @@ local function prev(self, msg, header)
             self.index,
             #self.goal.goal.trajectory.points
         )
-        self.simulated_time = self.simulated_time - self.dt * self.scaling
+        self.simulated_time = self.simulated_time - self.dt --* self.scaling
         if self.simulated_time:toSec() < 0 then
             self.simulated_time = ros.Duration(0)
         end
@@ -367,8 +367,8 @@ function TrajectorySteppingExecutionRequest:proceed()
             local fb = ros.Message(progress_spec)
             fb.index = self.index
             fb.num_of_points = #traj.points
-            fb.progress = self.index / #traj.points
-            fb.control_frequency = -1
+            fb.progress = self.simulated_time:toSec() / traj.points[#traj.points].time_from_start:toSec()
+            fb.control_frequency = 1/self.dt:toSec()
             fb.error_msg = 'ACTIVE'
             fb.error_code = self.status
             self.feedback:publish(fb)

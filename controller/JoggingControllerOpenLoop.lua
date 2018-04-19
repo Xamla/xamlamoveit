@@ -1026,7 +1026,7 @@ function JoggingControllerOpenLoop:update()
     else
         self.mode = 0
     end
-    ros.DEBUG_THROTTLE('TrackingMode', 1,string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
+    ros.DEBUG_THROTTLE('TrackingMode', 1, string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
     if self.mode > 0 then
         --resorces are blocked ready to sent commands to robot
         if tryLock(self) then
