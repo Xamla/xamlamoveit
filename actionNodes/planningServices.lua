@@ -65,6 +65,7 @@ while ros.ok() and not emerg_stop_flag do
 
     heartbeat:publish()
     ros.spinOnce()
+    joint_monitor:waitForNextState(1/20)
     collectgarbage()
     dt:sleep()
 end
