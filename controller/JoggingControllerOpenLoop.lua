@@ -726,7 +726,7 @@ end
 
 function JoggingControllerOpenLoop:getFullRobotState()
     local names = self.joint_monitor:getJointNames()
-    local ok, p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.1), names)
+    local p = self.joint_monitor:getPositionsOrderedTensor( names)
     self.state:setVariablePositions(p, names)
     self.state:update()
 end
@@ -884,6 +884,9 @@ function JoggingControllerOpenLoop:update()
         if (new_pose_message and isNan) or self.mode == 0 then
             if self.mode ~= 0 then
                 ros.INFO('[Pose] Received stop signal')
+                if detectNan(pose_goal:getOrigin()) then
+                    pose_goal = self.current_pose:clone()
+                end
             end
             pose_goal:setRotation(self.current_pose:getRotation())
             self.goals.pose_goal = nil
@@ -1063,8 +1066,8 @@ function JoggingControllerOpenLoop:reset()
     )
     self.controller = tvpController.new(#self.joint_set.joint_names)
     createPublisher(self, self.joint_set.joint_names)
-    self:getFullRobotState()
     self:getNewRobotState()
+    self:getFullRobotState()
     self.target_pose = self.current_pose:clone()
 
     self.max_vel, self.max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
@@ -1106,6 +1109,7 @@ function JoggingControllerOpenLoop:reset()
     self.taskspace_controller:reset()
     self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
     self:setSpeedScaling(self.speed_scaling)
+    self:setCollisionChecksState(true)
     resetGoals(self)
     self.synced = true
     ros.INFO('resetting finished successfully')
@@ -1169,10 +1173,10 @@ function JoggingControllerOpenLoop:getCurrentMoveGroup()
     return self.move_groups[self.curr_move_group_name]
 end
 
-function JoggingControllerOpenLoop:activateCollisionChecks(check)
+function JoggingControllerOpenLoop:setCollisionChecksState(check)
     assert(
         torch.type(check) == 'boolean',
-        '[JoggingControllerOpenLoop:activateCollisionChecks] Argument needs to be a boolean'
+        '[JoggingControllerOpenLoop:setCollisionChecksState] Argument needs to be a boolean'
     )
     self.no_collision_check = not check
 end

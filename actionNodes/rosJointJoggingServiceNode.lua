@@ -125,7 +125,7 @@ end
 
 local function collisionCheckHandler(request, response, header)
     local checks_active = request.data
-    cntr:activateCollisionChecks(checks_active)
+    cntr:setCollisionChecksState(checks_active)
     local success, message = true, 'Success'
     response.success = success
     response.message = message
@@ -169,7 +169,7 @@ local function getStatusHandler(request, response, header)
     ros.DEBUG('getStatusHandler')
     response.is_running = run
     response.move_group_name = cntr:getCurrentMoveGroup():getName()
-    response.joint_names = cntr.joint_monitor:getJointNames()
+    response.joint_names = cntr.lastCommandJointPositions:getNames()
     response.out_topic = ''
     response.in_topic = ''
     response.status_message_tracking = tostring(last_status_message_tracking)
@@ -181,7 +181,6 @@ local function joggingServer(name)
     initSetup(name or 'joggingServer')
     local nh = node_handle
     local ns = nh:getNamespace()
-    local psi = moveit.PlanningSceneInterface()
     local dt = ros.Rate(125)
     ros.INFO('Get robot description for robot model.')
     local robot_model_loader = moveit.RobotModelLoader('robot_description')
@@ -235,19 +234,18 @@ local function joggingServer(name)
     ---Services
     --set_limits
     ros.INFO('Start services')
-    set_limits_server = nh:advertiseService('set_velocity_scaling', set_float_spec, setVelocityLimitsHandler)
-    get_limits_server = nh:advertiseService('get_velocity_scaling', get_float_spec, getVelocityLimitsHandler)
+    local set_limits_server = nh:advertiseService('set_velocity_scaling', set_float_spec, setVelocityLimitsHandler)
+    local get_limits_server = nh:advertiseService('get_velocity_scaling', get_float_spec, getVelocityLimitsHandler)
     --set_movegroup
-    set_movegroup_server = nh:advertiseService('set_movegroup_name', set_string_spec, setMoveGroupHandler)
-    get_movegroup_server = nh:advertiseService('get_movegroup_name', get_string_spec, getMoveGroupHandler)
+    local set_movegroup_server = nh:advertiseService('set_movegroup_name', set_string_spec, setMoveGroupHandler)
+    local get_movegroup_server = nh:advertiseService('get_movegroup_name', get_string_spec, getMoveGroupHandler)
 
-    start_stop_server = nh:advertiseService('start_stop_tracking', set_bool_spec, startStopHandler)
+    local start_stop_server = nh:advertiseService('start_stop_tracking', set_bool_spec, startStopHandler)
 
-    activate_collision_checks_server = nh:advertiseService('activate_collision_check', set_bool_spec, collisionCheckHandler)
+    local activate_collision_checks_server = nh:advertiseService('activate_collision_check', set_bool_spec, collisionCheckHandler)
     --status
-    status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
+    local status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 
-    local success = true
     local print_idle_once = false
     local print_running_once = false
 
@@ -265,10 +263,10 @@ local function joggingServer(name)
                 print_running_once = true
                 print_idle_once = false
             end
+            local success
             success, last_status_message_tracking = cntr:update()
             if not success then
                 ros.WARN(tostring(last_status_message_tracking))
-                success = true -- one warning should be fine
             end
         else
             if not print_idle_once then
