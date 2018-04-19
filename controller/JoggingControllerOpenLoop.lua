@@ -513,10 +513,11 @@ local function satisfiesBounds(self, positions, joint_names)
     state:update()
     self.planning_scene:syncPlanningScene()
     local collisions = self.planning_scene:checkSelfCollision(state)
-    if state:satisfiesBounds(0.0) then
+    if state:satisfiesBounds(0.1) then
         if collisions then
             ros.ERROR('Self Collision detected')
-            return false, 'Self Collision detected!!'
+            self:getFullRobotState()
+            return false, 'Self Collision detected'
         end
     else
         state:enforceBounds()
@@ -524,10 +525,12 @@ local function satisfiesBounds(self, positions, joint_names)
         --positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
         collisions = self.planning_scene:checkSelfCollision(state)
         if not collisions then
-            ros.WARN('Target position is out of bounds!!')
-            return false, 'Target position is out of bounds!!'
+            ros.WARN('Target position is out of bounds')
+            return false, 'Target position is out of bounds'
         else
-            return false, 'Self Collision detected!!'
+            self:getFullRobotState()
+            ros.WARN('Target position is out of bounds and Self Collision detected')
+            return false, 'Target position is out of bounds and Self Collision detected'
         end
     end
     return true, 'Success'
@@ -545,7 +548,6 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid 
                 diff = torch.norm(q_curr - q_des)
             end
         else
-            ros.INFO('does not satisfy bounds')
             self.feedback_message.error_code = -2 --SELFCOLLISION
             success = false
         end
