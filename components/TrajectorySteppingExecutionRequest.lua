@@ -116,7 +116,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.error_codes = errorCodes
     self.check_collision = self.goal.goal.check_collision
     self.velocity_scaling = self.goal.goal.veloctiy_scaling
-    self.position_deviation_threshold = math.rad(2.5)
+    self.position_deviation_threshold = math.rad(5.0)
     self.publisher = nil
     self.subscriber_next = nil
     self.subscriber_prev = nil
@@ -347,7 +347,7 @@ function TrajectorySteppingExecutionRequest:proceed()
 
             local q_dot = q - p
             local dist = torch.abs(q_dot)
-            ros.INFO_THROTTLE('direction',0.1, string.format("comparison: %04f", q_dot/q_dot:norm() * qd/qd:norm()))
+            ros.DEBUG_THROTTLE('direction',0.1, string.format("comparison: %04f", q_dot/q_dot:norm() * qd/qd:norm()))
             if dist:gt(self.position_deviation_threshold):sum() < 1 then
                 self.allow_index_switch = true
             else
