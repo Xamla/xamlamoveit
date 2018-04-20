@@ -247,6 +247,8 @@ local function executePlan(self, plan, manipulator, traj)
                 traj.id_lock = id_lock
                 traj.expiration_date = expiration
                 traj.creation_date = creation
+            else
+                ros.ERROR('could connect to action server')
             end
         else
             ros.ERROR('could not aquire Lock!')

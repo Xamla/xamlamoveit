@@ -441,6 +441,7 @@ function TrajectorySteppingExecutionRequest:shutdown()
     disposeRos(self, 'subscriber_cancel')
 
     if self.jogging_activation_service then
+        setJoggingCheckCollisionState(self, true)
         deactivateJoggingService(self)
         self.jogging_activation_service:shutdown()
     end

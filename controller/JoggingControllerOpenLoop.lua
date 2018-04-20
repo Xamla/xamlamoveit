@@ -491,7 +491,11 @@ function JoggingControllerOpenLoop:getPostureGoal()
                 vel[i] = math.sign(vel[i]) * self.joint_step_width
             end
             local q_dot = datatypes.JointValues(joint_set, vel)
-            joint_posture:add(q_dot)
+            if q_dot.joint_set:isSubset(joint_posture.joint_set) then
+                joint_posture:add(q_dot)
+            else
+                ros.WARN('jogging is not configure to receive this joint set: ' .. tostring(q_dot.joint_set))
+            end
         end
     end
     return newMessage, joint_posture
