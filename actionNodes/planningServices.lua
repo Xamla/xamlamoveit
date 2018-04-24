@@ -30,7 +30,7 @@ heartbeat:publish()
 
 local robot_model_loader = moveit.RobotModelLoader('robot_description')
 local robot_model = robot_model_loader:getModel()
-local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable())
+local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable(), ros.Duration(0.2))
 
 local jtps_service = jtps(nh, joint_monitor)
 local jpps_service = jpps(nh, joint_monitor)
@@ -53,19 +53,20 @@ local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 local emerg_stop_flag = false
 local dt = ros.Rate(20)
 while ros.ok() and not emerg_stop_flag do
-    for i, v in pairs(services) do
-        local status, err = xpcall( function() v:spin() end, error_msg_func )
-        if v.current_state == 5 then
-            emerg_stop_flag = true
-        end
-        if status == false then
-            heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
+    local ok = joint_monitor:waitForNextState(1/20)
+    if ok then
+        for i, v in pairs(services) do
+            local status, err = xpcall( function() v:spin() end, error_msg_func )
+            if v.current_state == 5 then
+                emerg_stop_flag = true
+            end
+            if status == false then
+                heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
+            end
         end
     end
-
     heartbeat:publish()
     ros.spinOnce()
-    joint_monitor:waitForNextState(1/20)
     collectgarbage()
     dt:sleep()
 end
