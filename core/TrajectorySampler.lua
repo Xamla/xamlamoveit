@@ -4,7 +4,7 @@ local torch = require 'torch'
 local TrajectorySampler = torch.class('TrajectorySampler')
 
 
-local JUMP_ERROR_THRESHOLD = math.pi / 10
+local JUMP_ERROR_THRESHOLD = math.pi / 3
 
 
 -- Returns joints positions at time 't'
@@ -83,7 +83,7 @@ function TrajectorySampler:generateNextPoints(maxCount)
 
     local delta = torch.norm(q - self.qlast)
     if delta > JUMP_ERROR_THRESHOLD then
-      error(string.format('[TrajectorySampler] Error: Unexpected set point jump of %f rad at time %fs.', delta, self.t))
+      error(string.format('[TrajectorySampler] Error: Unexpected set point jump of %f rad at time %fs. [threshold: %f]', delta, self.t, JUMP_ERROR_THRESHOLD))
     end
     self.t = self.t + self.step
     pts[#pts+1] = q
