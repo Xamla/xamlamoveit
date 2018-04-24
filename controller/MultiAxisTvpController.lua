@@ -21,7 +21,8 @@ function MultiAxisTvpController:__init(dim)
     self.norm_max_vel = torch.ones(dim) * math.pi
     self.norm_max_acc = torch.ones(dim) * math.pi / 2
     self.last_goal = nil
-    self.convergence_threshold = 1e-4
+    self.convergence_threshold = 1e-2
+    self.goal_difference_threshold = 1e-3
     self.converged = true
 
     -- temporary tensors
@@ -38,7 +39,7 @@ function MultiAxisTvpController:update(goal, dt)
 
     local to_go = goal - self.state.pos
 
-    if not self.last_goal or (self.last_goal - goal):norm() > self.convergence_threshold then
+    if not self.last_goal or (self.last_goal - goal):norm() > self.goal_difference_threshold then
         assert(self.state.vel:norm() < 1e-8 and self.state.acc:norm() < 1e-8, 'Cannot handle inital non zero velocity or non zero acceleration.')
         self.last_goal = goal:clone()
         self.norm_max_vel:copy(self.max_vel)
@@ -102,7 +103,7 @@ function MultiAxisTvpController:update(goal, dt)
             -- compute v_max to reach goal
             local distance = math.abs(to_go[i])
 
-            if distance > 1e-8 then
+            if distance > self.goal_difference_threshold then
                 local v_max = distance / (0.5 * longest_acc + longest_cru + 0.5 * longest_dec)
 
                 -- compute a_max to reach v_max in longest times
@@ -186,25 +187,28 @@ function MultiAxisTvpController:generateOfflineTrajectory(start, goal, dt, start
     end
 
     result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
-    local T = 2 * dt
-    while T > dt / 4 do
-	counter = counter + 1
+    local T = self:update(goal, dt)
+    while T > dt do
         T = self:update(goal, dt)
+        counter = counter + 1
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
     end
 
     local final_delta = goal - self.state.pos
-    if final_delta:norm() >= self.convergence_threshold then
-        local correction_counter = 0
-        while final_delta:norm() >= self.convergence_threshold and correction_counter < 33 do
-            T = self:update(goal, dt)
-	    counter = counter + 1
-            result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
-            final_delta = goal - self.state.pos
-            correction_counter = correction_counter + 1
+    if dt < 0.02 then
+        -- Needed for correct convergence to convergence_threshold
+        if final_delta:norm() >= self.convergence_threshold then
+            local correction_counter = 0
+            while final_delta:norm() >= self.convergence_threshold and correction_counter < 33 do
+                T = self:update(goal, dt)
+                counter = counter + 1
+                result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
+                final_delta = goal - self.state.pos
+                correction_counter = correction_counter + 1
+            end
         end
+        assert(final_delta:norm() < self.convergence_threshold, 'Goal distance of generated TVP trajectory is too high.')
     end
-    assert(final_delta:norm() < self.convergence_threshold, 'Goal distance of generated TVP trajectory is too high.')
     counter = counter + 1
     result[counter] = createState(goal, self.state.vel:zero(), self.state.acc:zero())
     return result, final_delta
