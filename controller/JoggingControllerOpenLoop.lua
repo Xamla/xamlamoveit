@@ -9,6 +9,15 @@ local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
 local tvpPoseController = require 'xamlamoveit.controller.MultiAxisTvpController2'
 --local tvpPoseController = require 'xamlamoveit.controller.MultiAxisCppController'
 local xutils = require 'xamlamoveit.xutils'
+local error_codes = {
+    OK = 1,
+    INVALID_IK = -1,
+    SELFCOLLISION = -2,
+    CLOSE2SINGULARITY = -3,
+    FRAME_TRANSFORM_FAILURE = -4,
+    IK_JUMP_DETECTED = -5,
+    INVALID_LINK_NAME = -18
+}
 local transformListener
 function math.sign(x)
     assert(type(x) == 'number')
@@ -552,12 +561,12 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid 
                 diff = torch.norm(q_curr - q_des)
             end
         else
-            self.feedback_message.error_code = -2 --SELFCOLLISION
+            self.feedback_message.error_code = error_codes.SELFCOLLISION
             success = false
         end
     else
         --ros.INFO('q_des not checked')
-        self.feedback_message.error_code = -1 --INVALID_IK
+        self.feedback_message.error_code = error_codes.INVALID_IK
         success = false
     end
     --ros.WARN(string.format('Difference between q_des and q_curr diff = %f', diff))
@@ -834,7 +843,7 @@ end
 function JoggingControllerOpenLoop:update()
     local timeout_b = false
     -- Handle feedback
-    self.feedback_message.error_code = 1
+    self.feedback_message.error_code = error_codes.OK
     local status_msg = 'OK'
     local q_dot = self.lastCommandJointPositions:clone()
     q_dot.values:zero()
@@ -909,11 +918,12 @@ function JoggingControllerOpenLoop:update()
             self.mode = 1
         else
             ros.ERROR('transformation from pose to posture failed')
+            self.feedback_message.error_code = error_codes.FRAME_TRANSFORM_FAILURE
         end
 
         if torch.abs(q_dot.values):gt(math.pi / 2):sum() > 1 then
             ros.ERROR('detected jump in IK. ')
-            self.feedback_message.error_code = -1
+            self.feedback_message.error_code = error_codes.IK_JUMP_DETECTED
             q_dot.values:zero()
         end
         if not stop_received then
@@ -991,12 +1001,12 @@ function JoggingControllerOpenLoop:update()
                 '[twist] detected jump in IK. In %d number of joints threshold was exceeded.',
                 torch.abs(q_dot.values):gt(math.pi / 2):sum()
             )
-            self.feedback_message.error_code = -1
+            self.feedback_message.error_code = error_codes.IK_JUMP_DETECTED
             q_dot.values:zero()
         end
 
         if transformed_successful == false then
-            self.feedback_message.error_code = -18 --INVALID_LINK_NAME
+            self.feedback_message.error_code = error_codes.INVALID_LINK_NAME
         end
         if not stop_received then
             self.controller.converged = false
