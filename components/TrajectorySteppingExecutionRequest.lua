@@ -135,7 +135,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.allow_index_switch = false
     self.is_canceled = false
     self.simulated_time = ros.Duration(0)
-    self.dt = ros.Duration(1/50)
+    self.dt = ros.Duration(1/60)
     self.current_direction = MOTIONDIRECTIONS.stopped
 end
 
