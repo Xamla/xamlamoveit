@@ -116,7 +116,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.error_codes = errorCodes
     self.check_collision = self.goal.goal.check_collision
     self.velocity_scaling = self.goal.goal.veloctiy_scaling
-    self.position_deviation_threshold = math.rad(5.0)
+    self.position_deviation_threshold = math.rad(10.0)
     self.publisher = nil
     self.subscriber_next = nil
     self.subscriber_prev = nil
@@ -135,7 +135,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.allow_index_switch = false
     self.is_canceled = false
     self.simulated_time = ros.Duration(0)
-    self.dt = ros.Duration(1/50)
+    self.dt = ros.Duration(1/30)
     self.current_direction = MOTIONDIRECTIONS.stopped
 end
 
