@@ -97,8 +97,9 @@ function JointStateAggregator:onInitialize()
         self:shutdown()
         return
     end
-    ros.INFO('joint states  ready')
-    self.last_joint_state = self.joint_monitor:getPositionsTensor()
+    ros.INFO('joint states ready')
+    local ok
+    ok, self.last_joint_state = self.joint_monitor:getNextPositionsTensor(0.5)
     self.joint_names = self.joint_monitor:getJointNames()
 end
 

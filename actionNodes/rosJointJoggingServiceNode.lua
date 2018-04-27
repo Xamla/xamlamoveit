@@ -204,22 +204,22 @@ local function joggingServer(name)
     sub = nil
     local config = nh:getParamVariable(string.format('%s/controller_list', nh:getNamespace()))
     ros.INFO('get move group interface')
-
-    local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable())
-    local ready = false
-    local once = true
-    while not ready and ros.ok() do
-        ready = joint_monitor:waitReady(20.0)
-        if once then
-            ros.ERROR('joint states not ready')
-            once = false
-        end
-    end
-    ros.INFO('joint states ready')
     if not ros.ok() then
         return
     end
     local move_group = moveit.MoveGroupInterface(planningGroup)
+    local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable())
+    local ready = false
+    local once = true
+    while not ready and ros.ok() do
+        ready = joint_monitor:waitReady(30.0)
+        if once and not ready then
+            ros.ERROR('joint states not ready')
+            once = false
+            ros.spinOnce()
+        end
+    end
+    ros.INFO('joint states ready')
     cntr = controller.JoggingControllerOpenLoop(nh, joint_monitor, move_group, config, dt)
 
     while not cntr:connect('jogging_command', 'jogging_setpoint', 'jogging_twist') do

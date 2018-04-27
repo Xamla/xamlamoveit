@@ -324,11 +324,11 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.state = move_group:getCurrentState()
     self.time_last = ros.Time.now()
     self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
-
+    local ok, values = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.5), self.joint_set.joint_names)
     self.lastCommandJointPositions =
         createJointValues(
         self.joint_set.joint_names,
-        self.joint_monitor:getPositionsOrderedTensor(self.joint_set.joint_names)
+        values
     )
     self.controller = tvpController.new(#self.joint_set.joint_names)
     self.taskspace_controller = tvpPoseController.new(3)
