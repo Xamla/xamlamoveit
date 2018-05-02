@@ -18,6 +18,14 @@ local error_codes = {
     IK_JUMP_DETECTED = -5,
     INVALID_LINK_NAME = -18
 }
+
+local jogging_node_tracking_states = {
+    IDLE = 0,
+    POSTURE = 2,
+    POSE = 1,
+    TWIST = 3
+}
+
 local transformListener
 function math.sign(x)
     assert(type(x) == 'number')
@@ -251,6 +259,18 @@ local function resetGoals(self)
     self.goals = {pose_goal = nil, posture_goal = nil, twist_goal = nil}
 end
 
+local function setStopGoals(self)
+    if self.goals.pose_goal then
+        self.goals.pose_goal:setOrigin(self.goals.pose_goal:getOrigin() * 0 / 0)
+    end
+    if self.goals.posture_goal then
+        self.goals.posture_goal = nil
+    end
+    if self.goals.twist_goal then
+        self.goals.twist_goal:zero()
+    end
+end
+
 local function getEndEffectorMoveGroupMap(self)
     local move_group_names = self.kinematic_model:getJointModelGroupNames()
     local map = {}
@@ -325,11 +345,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.time_last = ros.Time.now()
     self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
     local ok, values = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.5), self.joint_set.joint_names)
-    self.lastCommandJointPositions =
-        createJointValues(
-        self.joint_set.joint_names,
-        values
-    )
+    self.lastCommandJointPositions = createJointValues(self.joint_set.joint_names, values)
     self.controller = tvpController.new(#self.joint_set.joint_names)
     self.taskspace_controller = tvpPoseController.new(3)
 
@@ -356,13 +372,13 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.subscriber_posture_goal = nil
     self.subscriber_twist_goal = nil
     self.publisher_feedback = nil
-    self.mode = 0
+    self.mode = jogging_node_tracking_states.IDLE
     self.max_vel = nil
     self.max_acc = nil
     self.taskspace_max_vel = torch.ones(3) * 0.2 --m/s
     self.taskspace_max_acc = torch.ones(3) * 0.8 --m/s^2
 
-    self.max_speed_scaling = 0.85 --50% of the max constraints allowed for jogging
+    self.max_speed_scaling = 0.85 --85% of the max constraints allowed for jogging
     self.speed_scaling = 1.0
     --(joint_max, joint_min, position_max, position_min, rotation_max, rotation_min)
     self.step_width_model = nil
@@ -371,7 +387,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.joint_step_width = self.step_width_model.joint_space.scaling_fkt(1)
     self.current_pose = nil --tf.Transform()
     self.target_pose = nil -- tf.Transform()
-    self.timeout = ros.Duration(1.0)
+    self.timeout = ros.Duration(0.25)
     self.cool_down_timeout = ros.Duration(0.3)
     self.synced = false
     self.no_collision_check = false
@@ -457,6 +473,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
                 twist[{{1, 3}}] = transform:getBasis() * twist[{{1, 3}}]
                 twist[{{4, 6}}] = transform:getBasis() * twist[{{4, 6}}]
             else
+                ros.ERROR('Twist message is invalid. lookupPose failed to find transformation')
                 twist:zero()
             end
         end
@@ -711,7 +728,7 @@ local function getPoseForFullStop(cntr, pose_desired, dt, msg)
     end
     pose_desired = poseTo6DTensor(pose_desired)
     local result = pose_desired:clone()
-    result[{{1, 3}}] = getPostureForFullStop(cntr, pose_desired[{{1, 3}}], dt/1.2, msg)
+    result[{{1, 3}}] = getPostureForFullStop(cntr, pose_desired[{{1, 3}}], dt / 1.2, msg)
     return tensor6DToPose(result)
 end
 
@@ -742,7 +759,7 @@ end
 
 function JoggingControllerOpenLoop:getFullRobotState()
     local names = self.joint_monitor:getJointNames()
-    local p = self.joint_monitor:getPositionsOrderedTensor( names)
+    local p = self.joint_monitor:getPositionsOrderedTensor(names)
     self.state:setVariablePositions(p, names)
     self.state:update()
 end
@@ -855,18 +872,22 @@ function JoggingControllerOpenLoop:update()
     local new_posture_message, posture_goal = self:getPostureGoal()
 
     local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
+
     --update state
     if self.controller.converged == true and self.cool_down_timeout:toSec() < (curr_time - self.start_time):toSec() then
         --sync with real world
 
-        self.mode = 0
+        self.mode = jogging_node_tracking_states.IDLE
         if self.synced == false or new_pose_message or new_posture_message or new_twist_message then
             self.synced = true
             self:getNewRobotState()
             self.taskspace_controller:reset()
             self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+            self.controller:reset()
+            self.controller.state.pos:copy(self.lastCommandJointPositions.values)
         end
     else
+        --self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin()) --feedback current position to xyz controller
         self.synced = false
         --open loop control. Use state from controllers
         self.state:setVariablePositions(
@@ -875,17 +896,15 @@ function JoggingControllerOpenLoop:update()
         )
         self.state:update()
         self.current_pose = self:getCurrentPose()
-        --self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin()) --feedback current position to xyz controller
-    end
-
-    if self.dt:toSec() * 2 < (curr_time - self.start_time):toSec() then
-        ros.DEBUG('reset goals')
-        resetGoals(self)
     end
 
     local stop_received = false
     -- Decide which goal is valid
-    if (self.mode < 2 and new_pose_message) or (self.mode == 1 and self.goals.pose_goal) then
+    if
+        ((self.mode == jogging_node_tracking_states.IDLE or self.mode == jogging_node_tracking_states.POSE) and
+            new_pose_message) or
+            (self.mode == jogging_node_tracking_states.POSE and self.goals.pose_goal)
+     then
         --set pose
         local isNan = false
         if pose_goal then
@@ -898,8 +917,8 @@ function JoggingControllerOpenLoop:update()
             pose_goal = self.goals.pose_goal:clone()
         end
 
-        if (new_pose_message and isNan) or self.mode == 0 then
-            if self.mode ~= 0 then
+        if (new_pose_message and isNan) or self.mode == jogging_node_tracking_states.IDLE then
+            if self.mode ~= jogging_node_tracking_states.IDLE then
                 ros.INFO('[Pose] Received stop signal')
                 stop_received = true
                 if detectNan(pose_goal:getOrigin()) then
@@ -915,7 +934,7 @@ function JoggingControllerOpenLoop:update()
         local posture_tmp_goal = transformPose2PostureTarget(self, tmp, q_dot:getNames())
         if posture_tmp_goal and self.lastCommandJointPositions then
             q_dot = posture_tmp_goal - self.lastCommandJointPositions
-            self.mode = 1
+            self.mode = jogging_node_tracking_states.POSE
         else
             ros.ERROR('transformation from pose to posture failed')
             self.feedback_message.error_code = error_codes.FRAME_TRANSFORM_FAILURE
@@ -928,40 +947,44 @@ function JoggingControllerOpenLoop:update()
         end
         if not stop_received then
             self.controller.converged = false
-            self.start_time = ros.Time.now()
         else
-            self.mode = 0
+            self.mode = jogging_node_tracking_states.IDLE
         end
-    elseif ((self.mode == 0 or self.mode == 2) and new_posture_message) or (self.mode == 2 and self.goals.posture_goal) then
+    elseif
+        ((self.mode == jogging_node_tracking_states.IDLE or self.mode == jogging_node_tracking_states.POSTURE) and
+            new_posture_message) or
+            (self.mode == jogging_node_tracking_states.POSTURE and self.goals.posture_goal)
+     then
         -- set posture
         if posture_goal ~= nil then
             self.goals.posture_goal = posture_goal:clone()
         elseif self.goals.posture_goal then
             posture_goal = self.goals.posture_goal:clone()
         end
-        self.mode = 2
+        self.mode = jogging_node_tracking_states.POSTURE
 
         q_dot = posture_goal:clone()
         q_dot:sub(self.lastCommandJointPositions)
         if q_dot.values:norm() < 1e-10 then
             self.goals.posture_goal = nil
             q_dot.values:zero()
-            self.mode = 0
+            self.mode = jogging_node_tracking_states.IDLE
         else
             self.controller.converged = false
-            self.start_time = ros.Time.now()
         end
-
-    elseif ((self.mode == 0 or self.mode == 3) and new_twist_message) or (self.mode == 3 and self.goals.twist_goal) then
+    elseif
+        ((self.mode == jogging_node_tracking_states.IDLE or self.mode == jogging_node_tracking_states.TWIST) and
+            new_twist_message) or
+            (self.mode == jogging_node_tracking_states.TWIST and self.goals.twist_goal)
+     then
         --set twist
-
         if twist_goal ~= nil then
             self.goals.twist_goal = twist_goal:clone()
-        elseif self.goals.twist_goal then
+        elseif self.goals.twist_goal ~= nil then
             twist_goal = self.goals.twist_goal:clone()
         end
-        if (new_twist_message and twist_goal:norm() < 1e-12) or self.mode == 0 then
-            if self.mode ~= 0 then
+        if (new_twist_message and twist_goal:norm() < 1e-12) or self.mode == jogging_node_tracking_states.IDLE then
+            if self.mode ~= jogging_node_tracking_states.IDLE then
                 ros.INFO('[twist] Received stop signal')
                 stop_received = true
             end
@@ -988,10 +1011,10 @@ function JoggingControllerOpenLoop:update()
 
         if posture_tmp_goal and self.lastCommandJointPositions then
             q_dot = posture_tmp_goal - self.lastCommandJointPositions
-            if self.mode == 0 then
+            if self.mode == jogging_node_tracking_states.IDLE then
                 q_dot.values:zero()
             end
-            self.mode = 3
+            self.mode = jogging_node_tracking_states.TWIST
         else
             ros.ERROR('transformation from pose to posture failed')
         end
@@ -1010,17 +1033,22 @@ function JoggingControllerOpenLoop:update()
         end
         if not stop_received then
             self.controller.converged = false
-            self.start_time = ros.Time.now()
         else
-            self.mode = 0
+            self.mode = jogging_node_tracking_states.IDLE
         end
     end
 
-    --Handle command time out and reset controllers (initialte stop of robot)
+    --Handle command timeout and reset controllers (initiate stop of robot)
+    if new_pose_message or new_posture_message or new_twist_message then
+        self.start_time = ros.Time.now()
+    end
 
     if self.timeout:toSec() < (ros.Time.now() - self.start_time):toSec() then
-        if self.controller.converged == false and self.mode ~= 0 then
-            ros.ERROR('TIMEOUT. REsetting controller and targets')
+        if self.controller.converged == false and self.mode ~= jogging_node_tracking_states.IDLE then
+            ros.ERROR_THROTTLE('JointJoggingTIMEOUT1', 0.1, 'TIMEOUT occured while tracking target. Set Stop targets')
+            setStopGoals(self)
+        else
+            resetGoals(self)
         end
         self.lastCommandJointPositions.values:copy(self.controller.state.pos)
         self.controller:reset()
@@ -1038,10 +1066,12 @@ function JoggingControllerOpenLoop:update()
         q_des.values = getPostureForFullStop(self.controller, q_des.values, self.dt:toSec(), 'joint control')
         ros.DEBUG('Locking')
     else
-        self.mode = 0
+        if timeout_b == true then
+            self.mode = jogging_node_tracking_states.IDLE
+        end
     end
     ros.DEBUG_THROTTLE('TrackingMode', 1, string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
-    if self.mode > 0 then
+    if self.mode > jogging_node_tracking_states.IDLE then
         --resorces are blocked ready to sent commands to robot
         if tryLock(self) then
             self:tracking(q_des, self.dt)
@@ -1135,7 +1165,7 @@ function JoggingControllerOpenLoop:reset()
         )
     end
 
-    self.mode = 0
+    self.mode = jogging_node_tracking_states.IDLE
     self.controller = tvpController.new(#self.joint_set.joint_names)
     self.controller.max_vel:copy(self.max_vel)
     self.controller.max_acc:copy(self.max_acc)

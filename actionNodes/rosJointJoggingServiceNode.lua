@@ -181,7 +181,7 @@ local function joggingServer(name)
     initSetup(name or 'joggingServer')
     local nh = node_handle
     local ns = nh:getNamespace()
-    local dt = ros.Rate(125)
+    local dt = ros.Rate(125/2)
     ros.INFO('Get robot description for robot model.')
     local robot_model_loader = moveit.RobotModelLoader('robot_description')
     local robot_model = robot_model_loader:getModel()
