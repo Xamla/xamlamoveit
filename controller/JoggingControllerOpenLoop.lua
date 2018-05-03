@@ -506,6 +506,13 @@ function JoggingControllerOpenLoop:getPostureGoal()
         msg = self.subscriber_posture_goal:read()
     end
     if msg then
+        if #msg.joint_names < 1 then
+            ros.WARN("received posture message without joint names specified")
+            return false, nil
+        elseif msg.joint_names[1] == '' then
+            ros.WARN("received posture message without joint names specified")
+            return false, nil
+        end
         newMessage = true
         local joint_set = datatypes.JointSet(msg.joint_names)
 
