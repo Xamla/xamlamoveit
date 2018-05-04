@@ -716,7 +716,7 @@ local function getPostureForFullStop(cntr, q_desired, dt, msg)
     local delta = q_desired - q_actual
 
     local minTime = torch.cdiv(delta, cntr.max_vel):abs():max()
-    local trunc_dt = 1.2 * dt
+    local trunc_dt = 2 * dt
     if torch.abs(delta):gt(1e-3):sum() > 0 and minTime > trunc_dt then
         -- truncate goal
         ros.DEBUG('truncate goal: %f, %s', trunc_dt / minTime, msg or '')
@@ -735,7 +735,7 @@ local function getPoseForFullStop(cntr, pose_desired, dt, msg)
     end
     pose_desired = poseTo6DTensor(pose_desired)
     local result = pose_desired:clone()
-    result[{{1, 3}}] = getPostureForFullStop(cntr, pose_desired[{{1, 3}}], dt / 1.2, msg)
+    result[{{1, 3}}] = getPostureForFullStop(cntr, pose_desired[{{1, 3}}], dt / 4, msg)
     return tensor6DToPose(result)
 end
 
@@ -887,11 +887,26 @@ function JoggingControllerOpenLoop:update()
         self.mode = jogging_node_tracking_states.IDLE
         if self.synced == false or new_pose_message or new_posture_message or new_twist_message then
             self.synced = true
+            local jointPositionsBeforeSync = self.lastCommandJointPositions:clone()
             self:getNewRobotState()
-            self.taskspace_controller:reset()
-            self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
-            self.controller:reset()
-            self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+            local diff = self.lastCommandJointPositions - jointPositionsBeforeSync
+            if diff.values:norm() < 1e-3 then
+                self.taskspace_controller:reset()
+                self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+                self.controller:reset()
+                self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+            else
+                ros.WARN("could not sync with controller state since last command is to far away from current robto state.")
+                self.start_time= ros.Time.now()
+                self.lastCommandJointPositions = jointPositionsBeforeSync
+                self.state:setVariablePositions(
+                    self.lastCommandJointPositions.values,
+                    self.lastCommandJointPositions:getNames()
+                )
+                self.state:update()
+                self.current_pose = self:getCurrentPose()
+                self.synced = false
+            end
         end
     else
         --self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin()) --feedback current position to xyz controller
@@ -1078,30 +1093,30 @@ function JoggingControllerOpenLoop:update()
         end
     end
     ros.DEBUG_THROTTLE('TrackingMode', 1, string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
-    if self.mode > jogging_node_tracking_states.IDLE then
+    --if self.mode > jogging_node_tracking_states.IDLE then
         --resorces are blocked ready to sent commands to robot
         if tryLock(self) then
             self:tracking(q_des, self.dt)
         end
-    else
-        if tryLock(self) then -- lock resouce since jogging node is still active
-            if
-                self:isValid(
-                    q_des.values,
-                    self.lastCommandJointPositions.values,
-                    self.lastCommandJointPositions:getNames()
-                )
-             then
-                assert(
-                    self.controller.state.pos:size(1) == q_des.values:size(1),
-                    string.format('inconsistent size: %dx%d', self.controller.state.pos:size(1), q_des.values:size(1))
-                )
-                self.controller:update(q_des.values, self.dt:toSec())
-                self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
-            end
-        end
-        self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
-    end
+    --else
+    --    if tryLock(self) then -- lock resouce since jogging node is still active
+    --        if
+    --            self:isValid(
+    --                q_des.values,
+    --                self.lastCommandJointPositions.values,
+    --                self.lastCommandJointPositions:getNames()
+    --            )
+    --         then
+    --            assert(
+    --                self.controller.state.pos:size(1) == q_des.values:size(1),
+    --                string.format('inconsistent size: %dx%d', self.controller.state.pos:size(1), q_des.values:size(1))
+    --            )
+    --            self.controller:update(q_des.values, self.dt:toSec())
+    --            self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
+    --        end
+    --    end
+    --    self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
+    --end
 
     ros.DEBUG('Feedback')
     sendFeedback(self)
