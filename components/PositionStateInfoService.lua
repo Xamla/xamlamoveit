@@ -50,7 +50,7 @@ end
 local function queryIKServiceHandler(self, request, response, header)
     local r_state = self.robot_state:clone()
     local last_good
-    ros.INFO(tostring(request))
+    ros.DEBUG(tostring(request))
     if request.seed then
         r_state:setVariablePositions(request.seed.positions, request.joint_names)
         r_state:update()
@@ -92,9 +92,9 @@ local function queryIKServiceHandler(self, request, response, header)
             local index = table.indexof(names, v)
             res[i] = state[index]
         end
-        point_msg.positions = res
-        response.solutions[point_index] = point_msg
         if response.error_codes[point_index].val == 1 then
+            point_msg.positions = res
+            response.solutions[point_index] = point_msg
             last_good:copy(res)
         end
         if request.const_seed == true then
