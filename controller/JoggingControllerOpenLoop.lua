@@ -605,9 +605,20 @@ function JoggingControllerOpenLoop:setStepWidthModel(
     rotation_max,
     rotation_min)
     local model = {joint_space = {}, taskspace = {position = {}, rotation = {}}}
-    assert(joint_max > joint_min)
-    assert(position_max > position_min)
-    assert(rotation_max > rotation_min)
+    if (joint_max > joint_min) then
+        ros.WARN('joint max and min values are not valid. specified min %f, max %f.', joint_min, joint_max)
+        return self.step_width_model
+    end
+
+    if (position_max > position_min) then
+        ros.WARN('Cartesian postion step max and min values are not valid. specified min %f, max %f.', position_min, position_max)
+        return self.step_width_model
+    end
+
+    if (rotation_max > rotation_min) then
+        ros.WARN('Cartesian rotation step max and min values are not valid. specified min %f, max %f.', rotation_min, rotation_max)
+        return self.step_width_model
+    end
     --joint_posture
     model.joint_space.min = joint_min
     model.joint_space.max = math.max(joint_max, math.rad(5))
