@@ -361,7 +361,7 @@ function TrajectorySteppingExecutionRequest:proceed()
             mPoint.time_from_start = ros.Duration(0.008) --TODO this is probably not optimal.
             m.points = {mPoint}
             self.publisher:publish(m)
-            if self.index >= #traj.points and self.allow_index_switch then
+            if self.index >= #traj.points and dist:gt(1e-3):sum() then
                 self.status = errorCodes.SUCCESS
             end
             local fb = ros.Message(progress_spec)
