@@ -362,6 +362,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     end
 
     self.start_time = ros.Time.now()
+    self.start_cool_down_time = ros.Time.now()
 
     self.controller_list = ctr_list
 
@@ -507,10 +508,10 @@ function JoggingControllerOpenLoop:getPostureGoal()
     end
     if msg then
         if #msg.joint_names < 1 then
-            ros.WARN("received posture message without joint names specified")
+            ros.WARN('received posture message without joint names specified')
             return false, nil
         elseif msg.joint_names[1] == '' then
-            ros.WARN("received posture message without joint names specified")
+            ros.WARN('received posture message without joint names specified')
             return false, nil
         end
         newMessage = true
@@ -611,12 +612,20 @@ function JoggingControllerOpenLoop:setStepWidthModel(
     end
 
     if (position_max < position_min) then
-        ros.WARN('Cartesian postion step max and min values are not valid. specified min %f, max %f.', position_min, position_max)
+        ros.WARN(
+            'Cartesian postion step max and min values are not valid. specified min %f, max %f.',
+            position_min,
+            position_max
+        )
         return self.step_width_model
     end
 
     if (rotation_max < rotation_min) then
-        ros.WARN('Cartesian rotation step max and min values are not valid. specified min %f, max %f.', rotation_min, rotation_max)
+        ros.WARN(
+            'Cartesian rotation step max and min values are not valid. specified min %f, max %f.',
+            rotation_min,
+            rotation_max
+        )
         return self.step_width_model
     end
     --joint_posture
@@ -892,7 +901,7 @@ function JoggingControllerOpenLoop:update()
     local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
 
     --update state
-    if self.controller.converged == true and self.cool_down_timeout:toSec() < (curr_time - self.start_time):toSec() then
+    if self.controller.converged == true and self.cool_down_timeout:toSec() < (curr_time - self.start_cool_down_time):toSec() then
         --sync with real world
 
         self.mode = jogging_node_tracking_states.IDLE
@@ -907,8 +916,10 @@ function JoggingControllerOpenLoop:update()
                 self.controller:reset()
                 self.controller.state.pos:copy(self.lastCommandJointPositions.values)
             else
-                ros.WARN("could not sync with controller state since last command is to far away from current robto state.")
-                self.start_time= ros.Time.now()
+                ros.WARN(
+                    'could not sync with controller state since last command is to far away from current robto state.'
+                )
+                self.start_cool_down_time = ros.Time.now()
                 self.lastCommandJointPositions = jointPositionsBeforeSync
                 self.state:setVariablePositions(
                     self.lastCommandJointPositions.values,
@@ -1074,6 +1085,7 @@ function JoggingControllerOpenLoop:update()
     --Handle command timeout and reset controllers (initiate stop of robot)
     if new_pose_message or new_posture_message or new_twist_message then
         self.start_time = ros.Time.now()
+        self.start_cool_down_time = ros.Time.now()
     end
 
     if self.timeout:toSec() < (ros.Time.now() - self.start_time):toSec() then
@@ -1105,10 +1117,10 @@ function JoggingControllerOpenLoop:update()
     end
     ros.DEBUG_THROTTLE('TrackingMode', 1, string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
     --if self.mode > jogging_node_tracking_states.IDLE then
-        --resorces are blocked ready to sent commands to robot
-        if tryLock(self) then
-            self:tracking(q_des, self.dt)
-        end
+    --resorces are blocked ready to sent commands to robot
+    if tryLock(self) then
+        self:tracking(q_des, self.dt)
+    end
     --else
     --    if tryLock(self) then -- lock resouce since jogging node is still active
     --        if
@@ -1136,7 +1148,7 @@ end
 
 function JoggingControllerOpenLoop:reset()
     ros.DEBUG('resetting ....')
-    while self.cool_down_timeout:toSec() > (ros.Time.now() - self.start_time):toSec() do
+    while self.cool_down_timeout:toSec() > (ros.Time.now() - self.start_cool_down_time):toSec() do
         ros.INFO_THROTTLE('coolDown', 1, '[JoggingControllerOpenLoop] need to cool down first')
         ros.spinOnce()
         self.dt:sleep()
