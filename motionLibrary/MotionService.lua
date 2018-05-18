@@ -168,6 +168,17 @@ function MotionService:queryCartesianPath(waypoints, sample_resolution)
 end
 
 function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector_link, attempts, timeout)
+    local seed_joint_values_tensor
+    assert(torch.isTypeOf(parameters, datatypes.PlanParameters),
+    string.format("parameters need to be of type [PlanParameters] but is of type [%s]", torch.type(parameters)))
+    if torch.isTypeOf(seed_joint_values, datatypes.JointValues) then
+        seed_joint_values_tensor = seed_joint_values.values
+    elseif torch.isTypeOf(seed_joint_values, torch.DoubleTensor) then
+        seed_joint_values_tensor = seed_joint_values
+    else
+        error("seed_joint_values are of unsupported type")
+    end
+
     local request = self.compute_ik_interface:createRequest()
     request.group_name = parameters.move_group_name
     request.joint_names = parameters.joint_names
@@ -176,8 +187,8 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     request.timeout = timeout or ros.Duration(0.1)
     request.points = poses2MsgArray(pose)
     request.const_seed = false
-    if seed_joint_values then
-        request.seed.positions = seed_joint_values
+    if seed_joint_values_tensor then
+        request.seed.positions = seed_joint_values_tensor
     end
     request.collision_check = true -- this is recomended to be true in all cases
     local response = self.compute_ik_interface:call(request)
