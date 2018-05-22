@@ -536,7 +536,8 @@ function JoggingControllerOpenLoop:getPostureGoal()
 end
 
 function JoggingControllerOpenLoop:getCurrentPose()
-    local link_name = self.end_effector_to_link_map[self.curr_end_effector_name]
+    --local link_name = self.end_effector_to_link_map[self.curr_end_effector_name]
+    local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
     if link_name and #link_name > 0 then
         return self.state:getGlobalLinkTransform(link_name)
     else
@@ -829,7 +830,7 @@ end
 
 local function transformPose2PostureTarget(self, pose_goal, joint_names)
     local world_link_name = 'world'
-    local link_name = self.end_effector_to_link_map[self.curr_end_effector_name]
+    local link_name =  self.move_groups[self.curr_move_group_name]:getEndEffectorLink() --self.end_effector_to_link_map[self.curr_end_effector_name]
     local posture_goal
     if link_name and #link_name > 0 then
         local dt = self.dt:toSec()
