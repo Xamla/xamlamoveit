@@ -151,6 +151,30 @@ function MoveGroup:planMoveL(end_effector_name, target, velocity_scaling, collis
     return ok, joint_trajectory, plan_parameters
 end
 
+function MoveGroup:planMoveP(end_effector_name, target, velocity_scaling, collision_check)
+    local plan_parameters = self:buildPlanParameters(velocity_scaling, collision_check)
+
+    -- get current pose
+    local start = self:getCurrentPose(end_effector_name)
+
+    -- generate path
+    local path = {start, target}
+
+    -- plan trajectory
+    local ok, joint_trajectory = self.motion_service:planMoveP(path, plan_parameters)
+    return ok, joint_trajectory, plan_parameters
+end
+
+function MoveGroup:moveP(end_effector_name, target, velocity_scaling, collision_check)
+    -- plan trajectory
+    local ok, joint_trajectory, plan_parameters = self:planMoveP(end_effector_name, target, velocity_scaling, collision_check)
+    assert(ok == 1, 'planMoveP failed')
+
+    -- start synchronous blocking execution
+    local ok, msg = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
+    assert(ok, 'executeTaskSpaceTrajectory failed. ' .. msg)
+end
+
 function MoveGroup:moveL(end_effector_name, target, velocity_scaling, collision_check)
     -- plan trajectory
     local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)

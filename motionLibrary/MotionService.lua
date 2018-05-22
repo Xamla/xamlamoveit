@@ -1,5 +1,6 @@
 local torch = require 'torch'
 local ros = require 'ros'
+local tf = ros.tf
 
 local datatypes = require 'xamlamoveit.datatypes'
 local PlanParameters = datatypes.PlanParameters
@@ -63,6 +64,10 @@ local function poses2MsgArray(points)
             table.insert(result, msg)
         end
     elseif torch.isTypeOf(points, datatypes.Pose) then
+        local msg = ros.Message(pose_msg_spec)
+        msg = points:toStampedPoseMsg()
+        table.insert(result, msg)
+    elseif torch.isTypeOf(points, tf.StampedTransform) then
         local msg = ros.Message(pose_msg_spec)
         msg = points:toStampedPoseMsg()
         table.insert(result, msg)
@@ -595,7 +600,7 @@ local function planMoveP_1(self, start, goal, parameters)
     ik_error_codes, goal = self:queryIK(goal, parameters, start.solutions[1])
     if ik_error_codes then
         if ik_error_codes[1].val ~= 1 then
-            print('goal suc ', suc.error_code.val)
+            ros.ERROR('goal suc ', error_codes[ik_error_codes[1].val])
             return false
         end
     else
@@ -613,13 +618,16 @@ local function planMoveP_2(self, waypoints, parameters)
     )
     local result = {}
     local js_error_code, seed = self:queryJointState(parameters.joint_names)
-    if js_error_code ~= 1 then
+
+    if js_error_code.val ~= 1 then
+        ros.ERROR('Error code: ' .. error_codes[js_error_code[1].val])
         return false
     end
     for i, v in ipairs(waypoints) do
         local suc, start = self:queryIK(v, parameters, seed)
         if suc then
             if suc[1].val ~= 1 then
+                ros.ERROR('Error code: ' .. error_codes[suc[1].val])
                 return false
             end
         else
