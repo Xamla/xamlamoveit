@@ -88,6 +88,33 @@ local function stopJogging()
     cntr:reset()
 end
 
+--setEndEffector(name)
+
+local function setEndEffectorHandler(request, response, header)
+    local new_end_effector_name = request.data
+    --stopJogging()
+    if cntr:getCurrentEndEffector() == new_end_effector_name then
+        response.success = true
+        response.message = 'Set end effector successfuly'
+    else
+        local succ, msg = cntr:setEndEffector(new_end_effector_name)
+        response.success = succ
+        response.message = msg
+        if not succ then
+            ros.ERROR(msg)
+        end
+        ros.INFO(msg)
+    end
+    return true
+end
+
+local function getEndEffectorHandler(request, response, header)
+    response.success = true
+    response.selected = cntr:getCurrentEndEffector() or ''
+    response.collection = {}
+    return true
+end
+
 local function setMoveGroupHandler(request, response, header)
     local new_move_group_name = request.data
     --stopJogging()
@@ -239,6 +266,9 @@ local function joggingServer(name)
     --set_movegroup
     local set_movegroup_server = nh:advertiseService('set_movegroup_name', set_string_spec, setMoveGroupHandler)
     local get_movegroup_server = nh:advertiseService('get_movegroup_name', get_string_spec, getMoveGroupHandler)
+    --set endeffector
+    local set_endeffector_server = nh:advertiseService('set_endeffector_name', set_string_spec, setEndEffectorHandler)
+    local get_endeffector_server = nh:advertiseService('get_endeffector_name', get_string_spec, getEndEffectorHandler)
 
     local start_stop_server = nh:advertiseService('start_stop_tracking', set_bool_spec, startStopHandler)
 

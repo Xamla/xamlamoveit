@@ -537,8 +537,12 @@ function JoggingControllerOpenLoop:getPostureGoal()
 end
 
 function JoggingControllerOpenLoop:getCurrentPose()
-    --local link_name = self.end_effector_to_link_map[self.curr_end_effector_name]
-    local link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
+    local link_name
+    if self.curr_end_effector_name then
+        link_name = self.end_effector_to_link_map[self.curr_end_effector_name]
+    else
+        link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
+    end
     if link_name and #link_name > 0 then
         return self.state:getGlobalLinkTransform(link_name)
     else
@@ -552,7 +556,7 @@ local function satisfiesBounds(self, positions, joint_names)
     state:setVariablePositions(positions, joint_names)
     state:update()
     self.planning_scene:syncPlanningScene()
-    local collisions = self.planning_scene:checkSelfCollision(state)
+    local collisions = not self.no_collision_check and self.planning_scene:checkSelfCollision(state)
     if state:satisfiesBounds(0.01) then
         if collisions then
             ros.ERROR('Self Collision detected')
@@ -564,7 +568,7 @@ local function satisfiesBounds(self, positions, joint_names)
         state:enforceBounds()
         state:update()
         --positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
-        collisions = self.planning_scene:checkSelfCollision(state)
+        collisions = not self.no_collision_check and self.planning_scene:checkSelfCollision(state)
         self.feedback_message.error_code = error_codes.OUT_OF_JOINT_LIMITS
         if not collisions then
             ros.WARN('Target position is out of bounds')
@@ -584,7 +588,7 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid 
     local success = true
     if q_des:nDimension() > 0 then
         ros.DEBUG('q_des checked')
-        if self.no_collision_check or satisfiesBounds(self, q_des, joint_names) then
+        if satisfiesBounds(self, q_des, joint_names) then
             ros.DEBUG('satisfiesBounds')
             if q_curr then
                 diff = torch.norm(q_curr - q_des)
@@ -832,7 +836,12 @@ end
 
 local function transformPose2PostureTarget(self, pose_goal, joint_names)
     local world_link_name = 'world'
-    local link_name =  self.move_groups[self.curr_move_group_name]:getEndEffectorLink() --self.end_effector_to_link_map[self.curr_end_effector_name]
+    local link_name
+    if self.curr_end_effector_name then
+        link_name = self.end_effector_to_link_map[self.curr_end_effector_name]
+    else
+        link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
+    end
     local posture_goal
     if link_name and #link_name > 0 then
         local dt = self.dt:toSec()
@@ -860,7 +869,8 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             self.target_pose:toTransform(),
             attempts,
             timeout,
-            false
+            false,
+            link_name
         )
         if suc then
             state:update()
@@ -1244,6 +1254,7 @@ function JoggingControllerOpenLoop:setMoveGroupInterface(name)
     self.curr_move_group_name = name
     local ready = self:reset()
     if ready then
+        self.curr_end_effector_name = nil
         --self:releaseResources()
         ros.INFO('Triggered reset with movegroup name: %s', self.move_groups[self.curr_move_group_name]:getName())
         return true, string.format('Successfully changed movegroup to %s', self.curr_move_group_name)
@@ -1255,17 +1266,21 @@ end
 
 function JoggingControllerOpenLoop:setEndEffector(name)
     assert(name)
-    local key =
-        table.findFirst(
-        self.end_effector_to_move_group_map,
-        function(x)
-            return x == name
+    local suc, msg = true, ''
+    local key
+    for k, v in pairs(self.end_effector_to_move_group_map) do
+        if k == name then
+            key = k
         end
-    )
+    end
+
+    if key == nil then
+        return false, 'could not find EndEffector definition'
+    end
 
     local index =
-        table.indexOf(
-        key,
+        table.indexof(
+        self.end_effector_to_move_group_map[key],
         function(x)
             return x == self.curr_move_group_name
         end
@@ -1274,11 +1289,20 @@ function JoggingControllerOpenLoop:setEndEffector(name)
         index = 1
     end
 
-    local move_group_name = key[index]
+    local move_group_name = self.end_effector_to_move_group_map[key][index]
     if move_group_name then
-        self.curr_end_effector_name = name
-        self:setMoveGroupInterface(move_group_name)
+        suc, msg = self:setMoveGroupInterface(move_group_name)
+        if suc then
+            self.curr_end_effector_name = name
+        else
+            self.curr_end_effector_name = nil
+        end
     end
+    return suc, msg
+end
+
+function JoggingControllerOpenLoop:getCurrentEndEffector()
+    return self.curr_end_effector_name
 end
 
 function JoggingControllerOpenLoop:getCurrentMoveGroup()
