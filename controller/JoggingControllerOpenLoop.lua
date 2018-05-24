@@ -553,7 +553,7 @@ local function satisfiesBounds(self, positions, joint_names)
     state:update()
     self.planning_scene:syncPlanningScene()
     local collisions = self.planning_scene:checkSelfCollision(state)
-    if state:satisfiesBounds(0.1) then
+    if state:satisfiesBounds(0.01) then
         if collisions then
             ros.ERROR('Self Collision detected')
             self:getFullRobotState()
