@@ -16,6 +16,7 @@ local error_codes = {
     CLOSE2SINGULARITY = -3,
     FRAME_TRANSFORM_FAILURE = -4,
     IK_JUMP_DETECTED = -5,
+    OUT_OF_JOINT_LIMITS = -6,
     INVALID_LINK_NAME = -18
 }
 
@@ -556,6 +557,7 @@ local function satisfiesBounds(self, positions, joint_names)
         if collisions then
             ros.ERROR('Self Collision detected')
             self:getFullRobotState()
+            self.feedback_message.error_code = error_codes.SELFCOLLISION
             return false, 'Self Collision detected'
         end
     else
@@ -563,6 +565,7 @@ local function satisfiesBounds(self, positions, joint_names)
         state:update()
         --positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
         collisions = self.planning_scene:checkSelfCollision(state)
+        self.feedback_message.error_code = error_codes.OUT_OF_JOINT_LIMITS
         if not collisions then
             ros.WARN('Target position is out of bounds')
             return false, 'Target position is out of bounds'
@@ -587,7 +590,6 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid 
                 diff = torch.norm(q_curr - q_des)
             end
         else
-            self.feedback_message.error_code = error_codes.SELFCOLLISION
             success = false
         end
     else
