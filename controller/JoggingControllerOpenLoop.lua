@@ -62,13 +62,25 @@ local function queryJointLimits(node_handle, joint_names, namespace)
     namespace = namespace or node_handle:getNamespace()
     local max_vel = torch.zeros(#joint_names)
     local max_acc = torch.zeros(#joint_names)
+    local max_min_pos = torch.zeros(#joint_names, 2)
     local nh = node_handle
     local root_path = string.format('%s/joint_limits', namespace) -- robot_description_planning
     for i, name in ipairs(joint_names) do
+        local has_pos_param = string.format('/%s/%s/has_position_limits', root_path, name)
+        local get_max_pos_param = string.format('/%s/%s/max_position', root_path, name)
+        local get_min_pos_param = string.format('/%s/%s/min_position', root_path, name)
         local has_vel_param = string.format('/%s/%s/has_velocity_limits', root_path, name)
         local get_vel_param = string.format('/%s/%s/max_velocity', root_path, name)
         local has_acc_param = string.format('/%s/%s/has_acceleration_limits', root_path, name)
         local get_acc_param = string.format('/%s/%s/max_acceleration', root_path, name)
+        local param_has_pos = nh:getParamVariable(has_pos_param)
+        if param_has_pos then
+            max_min_pos[i][1] = nh:getParamVariable(get_max_pos_param)
+            max_min_pos[i][2] = nh:getParamVariable(get_min_pos_param)
+        else
+            ros.WARN('Joint: %s has no velocity limit', name)
+        end
+
         if nh:getParamVariable(has_vel_param) then
             max_vel[i] = nh:getParamVariable(get_vel_param)
         else
@@ -81,7 +93,7 @@ local function queryJointLimits(node_handle, joint_names, namespace)
             ros.WARN('Joint: %s has no acceleration limit. Will be set to %f', name, max_acc[i])
         end
     end
-    return max_vel, max_acc
+    return max_min_pos, max_vel, max_acc
 end
 
 local function queryTaskSpaceLimits(self, name)
@@ -375,8 +387,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.subscriber_twist_goal = nil
     self.publisher_feedback = nil
     self.mode = jogging_node_tracking_states.IDLE
-    self.max_vel = nil
-    self.max_acc = nil
+    self.joint_limits = nil
     self.taskspace_max_vel = torch.ones(3) * 0.2 --m/s
     self.taskspace_max_acc = torch.ones(3) * 0.8 --m/s^2
 
@@ -553,11 +564,13 @@ end
 
 local function satisfiesBounds(self, positions, joint_names)
     local state = self.state:clone()
+    local tmp_joint_values = datatypes.JointValues(datatypes.JointSet(joint_names), positions)
     state:setVariablePositions(positions, joint_names)
     state:update()
     self.planning_scene:syncPlanningScene()
     local collisions = not self.no_collision_check and self.planning_scene:checkSelfCollision(state)
-    if state:satisfiesBounds(0.01) then
+
+    if self.joint_limits:satisfiesBounds(tmp_joint_values) then
         if collisions then
             ros.ERROR('Self Collision detected')
             self:getFullRobotState()
@@ -668,8 +681,8 @@ function JoggingControllerOpenLoop:setSpeedScaling(value)
     self.command_distance_threshold, self.command_rotation_threshold =
         self.step_width_model.taskspace.scaling_fkt(self.speed_scaling)
     ros.INFO('Speed scaling %f, command threshold %f', self.speed_scaling, self.command_distance_threshold)
-    self.controller.max_vel:copy(self.max_vel * self.speed_scaling)
-    self.controller.max_acc:copy(self.max_acc)
+    self.controller.max_vel:copy(self.joint_limits:getMaxVelocities(self.joint_set:getNames()) * self.speed_scaling)
+    self.controller.max_acc:copy(self.joint_limits:getMaxAccelerations(self.joint_set:getNames()))
 
     self.taskspace_controller.max_vel:copy(self.taskspace_max_vel * self.speed_scaling)
     self.taskspace_controller.max_acc:copy(self.taskspace_max_acc)
@@ -1192,9 +1205,10 @@ function JoggingControllerOpenLoop:reset()
     self:getFullRobotState()
     self.target_pose = self.current_pose:clone()
 
-    self.max_vel, self.max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
-    self.max_vel = self.max_vel * self.max_speed_scaling
-    self.max_acc = self.max_acc --* self.max_speed_scaling
+    local max_min_pos, max_vel, max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
+    max_vel = max_vel * self.max_speed_scaling
+
+    self.joint_limits = datatypes.JointLimits(self.joint_set, max_min_pos[{{},1}], max_min_pos[{{},2}], max_vel, max_acc)
 
     local key =
         table.findFirst(
@@ -1224,9 +1238,9 @@ function JoggingControllerOpenLoop:reset()
     end
 
     self.mode = jogging_node_tracking_states.IDLE
-    self.controller = tvpController.new(#self.joint_set.joint_names)
-    self.controller.max_vel:copy(self.max_vel)
-    self.controller.max_acc:copy(self.max_acc)
+    self.controller = tvpController.new(#self.joint_set:getNames())
+    self.controller.max_vel:copy(self.joint_limits:getMaxVelocities(self.joint_set:getNames()))
+    self.controller.max_acc:copy(self.joint_limits:getMaxAccelerations(self.joint_set:getNames()))
     self.controller.state.pos:copy(self.lastCommandJointPositions.values)
     self.taskspace_controller:reset()
     self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
