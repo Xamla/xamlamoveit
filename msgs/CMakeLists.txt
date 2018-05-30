@@ -64,6 +64,7 @@ add_message_files(
 add_service_files(
    FILES
    QueryMoveGroupInterfaces.srv
+   GetStrings.srv
    SetString.srv
    SetFlag.srv
    GetFlag.srv
