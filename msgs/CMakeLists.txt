@@ -65,8 +65,8 @@ add_service_files(
    FILES
    QueryMoveGroupInterfaces.srv
    SetString.srv
-   SetFloat.srv
-   GetFloat.srv
+   SetFlag.srv
+   GetFlag.srv
    GetSelected.srv
    StatusController.srv
    GetCurrentJointState.srv
