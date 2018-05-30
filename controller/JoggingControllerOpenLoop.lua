@@ -12,12 +12,13 @@ local xutils = require 'xamlamoveit.xutils'
 local error_codes = {
     OK = 1,
     INVALID_IK = -1,
-    SELFCOLLISION = -2,
-    CLOSE2SINGULARITY = -3,
+    SELF_COLLISION = -2,
+    SCENE_COLLISION = -3,
     FRAME_TRANSFORM_FAILURE = -4,
     IK_JUMP_DETECTED = -5,
-    OUT_OF_JOINT_LIMITS = -6,
-    INVALID_LINK_NAME = -18
+    CLOSE_TO_SINGULARITY = -6,
+    JOINT_LIMITS_VIOLATED = -7,
+    INVALID_LINK_NAME = -8
 }
 
 local jogging_node_tracking_states = {
@@ -265,6 +266,9 @@ local function sendFeedback(self)
     ) -- replace nan values by 0
     self.feedback_message.cartesian_distance:set(tmp)
     self.feedback_message.converged = self.controller.converged
+    self.feedback_message.self_collision_check_enabled = not self.no_self_collision_check
+    self.feedback_message.scene_collision_check_enabled = not self.no_scene_collision_check
+    self.feedback_message.joint_limits_check_enabled = not self.no_joint_limits_check
     self.publisher_feedback:publish(self.feedback_message)
 end
 
@@ -403,7 +407,9 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.timeout = ros.Duration(0.25)
     self.cool_down_timeout = ros.Duration(0.3)
     self.synced = false
-    self.no_collision_check = false
+    self.no_self_collision_check = false
+    self.no_scene_collision_check = false
+    self.no_joint_limits_check = false
 
     transformListener = tf.TransformListener()
     self.feedback_message = nil
@@ -568,25 +574,27 @@ local function satisfiesBounds(self, positions, joint_names)
     state:setVariablePositions(positions, joint_names)
     state:update()
     self.planning_scene:syncPlanningScene()
-    local collisions = not self.no_collision_check and self.planning_scene:checkSelfCollision(state)
+    local self_collisions = not self.no_self_collision_check and self.planning_scene:checkSelfCollision(state)
+    self.no_scene_collision_check = false --TODO
 
-    if self.joint_limits:satisfiesBounds(tmp_joint_values) then
-        if collisions then
+    if not self.no_joint_limits_check and self.joint_limits:satisfiesBounds(tmp_joint_values) then
+        if self_collisions then
             ros.ERROR('Self Collision detected')
             self:getFullRobotState()
-            self.feedback_message.error_code = error_codes.SELFCOLLISION
+            self.feedback_message.error_code = error_codes.SELF_COLLISION
             return false, 'Self Collision detected'
         end
     else
         state:enforceBounds()
         state:update()
         --positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
-        collisions = not self.no_collision_check and self.planning_scene:checkSelfCollision(state)
-        self.feedback_message.error_code = error_codes.OUT_OF_JOINT_LIMITS
-        if not collisions then
+        self_collisions = not self.no_self_collision_check and self.planning_scene:checkSelfCollision(state)
+        self.feedback_message.error_code = error_codes.JOINT_LIMITS_VIOLATED
+        if not self_collisions then
             ros.WARN('Target position is out of bounds')
             return false, 'Target position is out of bounds'
         else
+            self.feedback_message.error_code = error_codes.SELF_COLLISION
             self:getFullRobotState()
             ros.WARN('Target position is out of bounds and Self Collision detected')
             return false, 'Target position is out of bounds and Self Collision detected'
@@ -1245,7 +1253,9 @@ function JoggingControllerOpenLoop:reset()
     self.taskspace_controller:reset()
     self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
     self:setSpeedScaling(self.speed_scaling)
-    self:setCollisionChecksState(true)
+    self:setSelfCollisionChecksState(true)
+    self:setSceneCollisionChecksState(true)
+    self:setJointLimitsChecks(true)
     resetGoals(self)
     self.synced = true
     ros.INFO('resetting finished successfully')
@@ -1323,12 +1333,40 @@ function JoggingControllerOpenLoop:getCurrentMoveGroup()
     return self.move_groups[self.curr_move_group_name]
 end
 
-function JoggingControllerOpenLoop:setCollisionChecksState(check)
+function JoggingControllerOpenLoop:setSelfCollisionChecksState(check)
     assert(
         torch.type(check) == 'boolean',
-        '[JoggingControllerOpenLoop:setCollisionChecksState] Argument needs to be a boolean'
+        '[JoggingControllerOpenLoop:setSelfCollisionChecksState] Argument needs to be a boolean'
     )
-    self.no_collision_check = not check
+    self.no_self_collision_check = not check
+end
+
+function JoggingControllerOpenLoop:setSceneCollisionChecksState(check)
+    assert(
+        torch.type(check) == 'boolean',
+        '[JoggingControllerOpenLoop:setSceneCollisionChecksState] Argument needs to be a boolean'
+    )
+    self.no_scene_collision_check = not check
+end
+
+function JoggingControllerOpenLoop:setJointLimitsChecks(check)
+    assert(
+        torch.type(check) == 'boolean',
+        '[JoggingControllerOpenLoop:setJointLimitsChecks] Argument needs to be a boolean'
+    )
+    self.no_joint_limits_check = not check
+end
+
+function JoggingControllerOpenLoop:getSelfCollisionChecksState()
+    return not self.no_self_collision_check
+end
+
+function JoggingControllerOpenLoop:getSceneCollisionChecksState()
+    return not self.no_scene_collision_check
+end
+
+function JoggingControllerOpenLoop:getJointLimitsChecks()
+    return not self.no_joint_limits_check
 end
 
 return JoggingControllerOpenLoop

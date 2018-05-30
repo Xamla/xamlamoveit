@@ -50,8 +50,17 @@ local function shutdownSetup()
     ros.shutdown()
 end
 
+local FLAGS = {
+    [1] = 'self_collision_check_enabled',
+    [2] = 'scene_collision_check_enabled',
+    [3] = 'joint_limits_check_enabled'
+}
+
+local set_flag_spec = ros.SrvSpec('xamlamoveit_msgs/SetFlag')
+local get_flag_spec = ros.SrvSpec('xamlamoveit_msgs/GetFlag')
 local set_float_spec = ros.SrvSpec('xamlamoveit_msgs/SetFloat')
 local get_float_spec = ros.SrvSpec('xamlamoveit_msgs/GetFloat')
+local get_strings_spec = ros.SrvSpec('xamlamoveit_msgs/GetStrings')
 local get_string_spec = ros.SrvSpec('xamlamoveit_msgs/GetSelected')
 local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
 local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
@@ -150,12 +159,50 @@ local function getMoveGroupHandler(request, response, header)
     return true
 end
 
-local function collisionCheckHandler(request, response, header)
-    local checks_active = request.data
-    cntr:setCollisionChecksState(checks_active)
-    local success, message = true, 'Success'
-    response.success = success
-    response.message = message
+local function getFlagNamesHandler(request, response, header)
+    response.result = FLAGS
+    response.success = true
+    return true
+end
+
+local function setFlagHandler(request, response, header)
+    local flag_name = request.name
+    local value = request.value
+    local suc, index = findString(flag_name, FLAGS)
+    if suc then
+        response.success = false
+    end
+
+    if index == 1 then
+        cntr:setSelfCollisionChecksState(value)
+    elseif index == 2 then
+        cntr:setSceneCollisionChecksState(value)
+    elseif index == 3 then
+        cntr:setJointLimitsChecks(value)
+    end
+
+    response.success = true
+    return true
+end
+
+local function getFlagHandler(request, response, header)
+    local flag_name = request.name
+    local value = nil
+    local suc, index = findString(flag_name, FLAGS)
+    if suc then
+        response.success = false
+    end
+
+    if index == 1 then
+        value = cntr:getSelfCollisionChecksState()
+    elseif index == 2 then
+        value = cntr:getSceneCollisionChecksState()
+    elseif index == 3 then
+        value = cntr:getJointLimitsChecks()
+    end
+
+    response.value = value
+    response.success = value ~= nil
     return true
 end
 
@@ -208,7 +255,7 @@ local function joggingServer(name)
     initSetup(name or 'joggingServer')
     local nh = node_handle
     local ns = nh:getNamespace()
-    local dt = ros.Rate(125/2)
+    local dt = ros.Rate(125 / 2)
     ros.INFO('Get robot description for robot model.')
     local robot_model_loader = moveit.RobotModelLoader('robot_description')
     local robot_model = robot_model_loader:getModel()
@@ -272,7 +319,10 @@ local function joggingServer(name)
 
     local start_stop_server = nh:advertiseService('start_stop_tracking', set_bool_spec, startStopHandler)
 
-    local activate_collision_checks_server = nh:advertiseService('activate_collision_check', set_bool_spec, collisionCheckHandler)
+    local set_flag_server = nh:advertiseService('set_flag', set_flag_spec, setFlagHandler)
+    local get_flag_server = nh:advertiseService('get_flag', get_flag_spec, getFlagHandler)
+    local get_flag_names_server = nh:advertiseService('get_flag_names', get_strings_spec, getFlagNamesHandler)
+
     --status
     local status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 

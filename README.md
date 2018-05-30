@@ -1,8 +1,38 @@
 # XamlaMoveit
 
-## Heartbeats
+This package containts extentions to the ros/moveit framework.
+
+
+## start xamlamoveit
+
+### prerequirements
+
+Ros-Moveit setup needs to be started.
+
+### Launch-File
+
+start all xamla services/actions with:
 
 ```
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<launch>
+  <group>
+    <node name="xamlaMoveActions" pkg="xamlamoveit_server" type="moveJActionServer.lua" output="screen" />
+    <node name="xamlaMoveGroupServices" pkg="xamlamoveit_server" type="moveGroupServices.lua" output="screen" />
+    <node name="xamlaPlanningServices" pkg="xamlamoveit_server" type="planningServices.lua" output="screen" />
+    <node name="xamlaResourceLockService" pkg="xamlamoveit_server" type="resourceLockService.lua" output="screen" />
+  </group>
+</launch>
+```
+
+## Heartbeats
+
+If all components are healthy can be monitored by `xamla_sysmon`.
+Configure the xamla_sysmon node to listen to these topics:
+
+```
+/xamlaJointMonitor/heartbeat
+/xamlaMoveActions/heartbeat
 /xamlaMoveGroupServices/heartbeat
 /xamlaPlanningServices/heartbeat
 /xamlaResourceLockService/heartbeat
@@ -13,6 +43,7 @@
 - moveGroupServices
   - `/xamlaMoveGroupServices/query_fk`
   - `/xamlaMoveGroupServices/query_ik`
+  -
   - `/xamlaMoveGroupServices/query_joint_position_collision_check`
   - `/xamlaMoveGroupServices/query_move_group_current_position`
   - `/xamlaMoveGroupServices/query_move_group_interface`
@@ -24,9 +55,9 @@
   -  `/xamlaResourceLockService/query_resource_lock`
 
 ## Actions
-- xamlaMoveJAction
-- tvpSimulationActionNode
-- tvpSimulationControllerNode
+
+- `/moveJ_action`
+- `/moveJ_step_action`
 
 ## Todo
 
@@ -57,8 +88,6 @@ Die Joint states aktuallisieren sich mit einem feedback delay (parameters könne
 
 - delay: 0.150 sec
 - cycleTime: 0.008 sec
-
-
 
 ## Based on torch-moveit
 
