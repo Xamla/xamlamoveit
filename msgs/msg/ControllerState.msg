@@ -13,3 +13,11 @@ int64 error_code
 
 # Flag indicating whether the last set-point was reached (controller converged)
 bool converged
+
+# Flag indicating whether model-based self collision detection and prevention is enabled
+bool self_collision_check_enabled
+
+# Flag indicating whether joint-limits are enabled
+# Use caes: The joint limit check has to be disabled when the robot-state
+# is initially outside the limits to move it back into the limits.
+bool joint_limits_check_enabled
