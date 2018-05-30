@@ -575,26 +575,35 @@ local function satisfiesBounds(self, positions, joint_names)
     state:update()
     self.planning_scene:syncPlanningScene()
     local self_collisions = not self.no_self_collision_check and self.planning_scene:checkSelfCollision(state)
-    self.no_scene_collision_check = false --TODO
+    local is_state_colliding = not self.no_scene_collision_check and self.planning_scene:isStateColliding(nil, state, true)
 
     if not self.no_joint_limits_check and self.joint_limits:satisfiesBounds(tmp_joint_values) then
-        if self_collisions then
-            ros.ERROR('Self Collision detected')
+        if is_state_colliding then
+            ros.ERROR('Collision detected')
             self:getFullRobotState()
-            self.feedback_message.error_code = error_codes.SELF_COLLISION
-            return false, 'Self Collision detected'
+            if self_collisions then
+                self.feedback_message.error_code = error_codes.SELF_COLLISION
+            else
+                self.feedback_message.error_code = error_codes.SCENE_COLLISION
+            end
+            return false, 'Collision detected'
         end
     else
         state:enforceBounds()
         state:update()
         --positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
         self_collisions = not self.no_self_collision_check and self.planning_scene:checkSelfCollision(state)
+        is_state_colliding = not self.no_scene_collision_check and self.planning_scene:isStateColliding(nil, state, true)
         self.feedback_message.error_code = error_codes.JOINT_LIMITS_VIOLATED
-        if not self_collisions then
+        if not (self_collisions or is_state_colliding) then
             ros.WARN('Target position is out of bounds')
             return false, 'Target position is out of bounds'
         else
-            self.feedback_message.error_code = error_codes.SELF_COLLISION
+            if self_collisions then
+                self.feedback_message.error_code = error_codes.SELF_COLLISION
+            else
+                self.feedback_message.error_code = error_codes.SCENE_COLLISION
+            end
             self:getFullRobotState()
             ros.WARN('Target position is out of bounds and Self Collision detected')
             return false, 'Target position is out of bounds and Self Collision detected'
