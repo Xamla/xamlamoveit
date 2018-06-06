@@ -574,11 +574,23 @@ local function satisfiesBounds(self, positions, joint_names)
     state:setVariablePositions(positions, joint_names)
     state:update()
     self.planning_scene:syncPlanningScene()
-    local self_collisions = not self.no_self_collision_check and self.planning_scene:checkSelfCollision(state)
-    local is_state_colliding = not self.no_scene_collision_check and self.planning_scene:isStateColliding(nil, state, true)
+    local self_collisions = false
+    if not self.no_self_collision_check then
+        self_collisions = self.planning_scene:checkSelfCollision(state)
+    end
 
-    if not self.no_joint_limits_check and self.joint_limits:satisfiesBounds(tmp_joint_values) then
-        if is_state_colliding then
+    local is_state_colliding = false
+    if not self.no_scene_collision_check then
+        is_state_colliding = self.planning_scene:isStateColliding(nil, state, true)
+    end
+
+    local in_joint_limits = true
+    if not self.no_joint_limits_check then
+       in_joint_limits = self.joint_limits:satisfiesBounds(tmp_joint_values)
+    end
+
+    if in_joint_limits then
+        if is_state_colliding or self_collisions then
             ros.ERROR('Collision detected')
             self:getFullRobotState()
             if self_collisions then
@@ -1348,6 +1360,9 @@ function JoggingControllerOpenLoop:setSelfCollisionChecksState(check)
         '[JoggingControllerOpenLoop:setSelfCollisionChecksState] Argument needs to be a boolean'
     )
     self.no_self_collision_check = not check
+    if check == false then
+        self.no_scene_collision_check = true
+    end
 end
 
 function JoggingControllerOpenLoop:setSceneCollisionChecksState(check)
@@ -1356,6 +1371,9 @@ function JoggingControllerOpenLoop:setSceneCollisionChecksState(check)
         '[JoggingControllerOpenLoop:setSceneCollisionChecksState] Argument needs to be a boolean'
     )
     self.no_scene_collision_check = not check
+    if check == true then
+        self.no_self_collision_check = false
+    end
 end
 
 function JoggingControllerOpenLoop:setJointLimitsChecks(check)
