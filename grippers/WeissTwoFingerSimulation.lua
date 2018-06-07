@@ -94,6 +94,7 @@ local function initializeActionServerAndServices(self)
   self.action_server:start()
 
   self.joint_monitor = core.JointMonitor({self.actuated_joint_name})
+  self.last_status_update = ros.Time.now()
 
   -- Intialize joint monitor
   local ready = false
@@ -177,7 +178,7 @@ end
 
 
 function WeissTwoFingerSimulation:handleGetStatus(request, response, header)
-  response.status = self.gripper_sim:getStatusResponse()
+  response.status = self:getStatusResponse()
   return true
 end
 
@@ -292,6 +293,23 @@ function WeissTwoFingerSimulation:handleSetService(request, response, header)
   return true
 end
 
+function WeissTwoFingerSimulation:getStatusResponse()
+  local result = ros.Message(self.state_spec)
+  local current_positions = self.joint_monitor:getPositionsOrderedTensor(joint_names)
+  result.width = (current_positions[1] * 2.0) or 0
+  result.return_code = 0
+  result.connection_state = 1
+  result.current_force = self.current_state.target_force or 0
+  result.grasping_force = 0
+  result.acceleration = 0
+  result.current_speed = 0
+  local gsi = self.current_state.target_grasping_state_id or 0
+  result.grasping_state_id = gsi
+  result.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[gsi + 1]
+
+  return result
+end
+
 
 function WeissTwoFingerSimulation:shutdown()
   if self.action_server ~= nil then
@@ -316,6 +334,11 @@ end
 
 function WeissTwoFingerSimulation:spin()
   self.joint_command_worker:spin()
+  if ros.Time.now():toSec() - self.last_status_update:toSec() > 1 then
+    self.last_status_update = ros.Time.now()
+    local m = self:getStatusResponse()
+    self.state_publisher:publish(m)
+  end
 end
 
 
