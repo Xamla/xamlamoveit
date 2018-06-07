@@ -9,12 +9,19 @@ local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
 local set_double_sec = ros.SrvSpec('xamlamoveit_msgs/SetFloat')
 local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
 local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
+local set_flag_spec = ros.SrvSpec('xamlamoveit_msgs/SetFlag')
 
 local TrajectorySteppingExecutionRequest =
     torch.class('xamlamoveit.components.TrajectorySteppingExecutionRequest', components)
 
 local errorCodes = require 'xamlamoveit.core.ErrorCodes'.error_codes
 errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
+
+local FLAGS = {
+    [1] = 'self_collision_check_enabled',
+    [2] = 'scene_collision_check_enabled',
+    [3] = 'joint_limits_check_enabled'
+}
 
 local function checkStatusJoggingNode(self)
     local req = self.jogging_status_service:createRequest()
@@ -41,14 +48,19 @@ end
 
 local function setJoggingCheckCollisionState(self, state)
     local req = self.jogging_state_collision_check_service:createRequest()
-    req.data = state
-    local res = self.jogging_state_collision_check_service:call(req)
-    if res then
-        self.abort_action = not res.success
-    else
-        self.abort_action = true
+    req.value = state
+    for i = 1, 2 do
+        req.name = FLAGS[i]
+        local res = self.jogging_state_collision_check_service:call(req)
+        if res then
+            self.abort_action = not res.success
+        else
+            self.abort_action = true
+            return not self.abort_action
+        end
     end
     return not self.abort_action
+
 end
 
 local function setJoggingServiceStatus(self, status)
@@ -194,13 +206,13 @@ function TrajectorySteppingExecutionRequest:connect(
     start_stop_service,
     status_service,
     set_velocity_service,
-    set_collision_check_state,
+    set_flag,
     set_move_group_name)
     ros.INFO('[TrajectorySteppingExecutionRequest] Create service client for jogging node.')
     self.jogging_activation_service = ros.ServiceClient(start_stop_service, set_bool_spec)
     self.jogging_velocity_scaling_service = ros.ServiceClient(set_velocity_service, set_double_sec)
     self.jogging_status_service = ros.ServiceClient(status_service, get_status_spec)
-    self.jogging_state_collision_check_service = ros.ServiceClient(set_collision_check_state, set_bool_spec)
+    self.jogging_state_collision_check_service = ros.ServiceClient(set_flag, set_flag_spec)
     self.jogging_move_group_name_service = ros.ServiceClient(set_move_group_name, set_string_spec)
     local is_running, status_msg = checkStatusJoggingNode(self)
     if is_running then
@@ -244,7 +256,7 @@ function TrajectorySteppingExecutionRequest:accept()
             '/xamlaJointJogging/start_stop_tracking',
             '/xamlaJointJogging/status',
             '/xamlaJointJogging/set_velocity_scaling',
-            '/xamlaJointJogging/activate_collision_check',
+            '/xamlaJointJogging/set_flag',
             '/xamlaJointJogging/set_movegroup_name'
         )
 
