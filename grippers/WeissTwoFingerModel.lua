@@ -3,35 +3,79 @@ require "ros.actionlib.SimpleActionClient"
 local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
 local grippers = require 'xamlamoveit.grippers.env'
+local Task = ros.std.Task
+local TaskState = ros.std.TaskState
+
 local WeissTwoFingerModel = torch.class("xamlamoveit.grippers.WeissTwoFingerModel", grippers)
 WeissTwoFingerModel.ERROR_TYPE = {
-  ACTION_CLIENT_TIMEOUT = "ACTION_CLIENT_TIMEOUT",
-  ACTION_PREEMPT_TIMEOUT = "ACTION_PREEMPT_TIMEOUT",
-  ACTION_NOT_DONE = "ACTION_NOT_DONE",
-  NO_RESULT_RECEIVED = "NO_RESULT_RECEIVED",
   INITIALIZATION_FAILED = "INITIALIZATION_FAILED",
-  UNKNOWN_ERROR = "UNKOWN_ERROR",
   ACKNOWLEDGE_SERVICE_TIMEOUT = "ACKNOWLEDGE_SERVICE_TIMEOUT",
   STATUS_SERVICE_TIMEOUT = "STATUS_SERVICE_TIMEOUT",
-  WRONG_GRIPPER_STATE = "WRONG_GRIPPER_STATE"
+}
+
+local WeissWsgReturnCode = {
+  "E_SUCCESS",
+  "E_NOT_AVAILABLE",
+  "E_NO_SENSOR",
+  "E_NOT_INITIALIZED",
+  "E_ALREADY_RUNNING",
+  "E_FEATURE_NOT_SUPPORTED",
+  "E_INCONSISTENT_DATA",
+  "E_TIMEOUT",
+  "E_READ_ERROR",
+  "E_WRITE_ERROR",
+  "E_INSUFFICIENT_RESOURCES",
+  "E_CHECKSUM_ERROR",
+  "E_NO_PARAM_EXPECTED",
+  "E_NOT_ENOUGH_PARAMS",
+  "E_CMD_UNKNOWN",
+  "E_CMD_FORMAT_ERROR",
+  "E_ACCESS_DENIED",
+  "E_ALREADY_OPEN",
+  "E_CMD_FAILED",
+  "E_CMD_ABORTED",
+  "E_INVALID_HANDLE",
+  "E_NOT_FOUND",
+  "E_NOT_OPEN",
+  "E_IO_ERROR",
+  "E_INVALID_PARAMETER",
+  "E_INDEX_OUT_OF_BOUNDS",
+  "E_CMD_PENDING",
+  "E_OVERRUN",
+  "E_RANGE_ERROR",
+  "E_AXIS_BLOCKED",
+  "E_FILE_EXISTS",
+}
+
+local ConnectionState = {
+  NotConnected = 0,
+  Connected = 1,
+  'NOT_CONNECTED', 'CONNECTED',
 }
 
 local GraspingState = {
   Idle = 0,
+  Grasping = 1,
   NoPartFound = 2,
   PartLost = 3,
-  Hold = 4,
+  Holding = 4,
+  Releasing = 5,
+  Positioning = 6,
+  Error = 7,
+  Unkown = -1,
+  'IDLE', 'GRASPING', 'NO_PART_FOUND', 'PART_LOST', 'HOLDING', 'RELEASING', 'POSITIONING', 'ERROR'
 }
 
 local GripperCommand = {
   Move = 101,
   Grasp = 102,
   Release = 103,
-  Homeing = 104,
+  Homing = 104,
 }
 
 
 local function initializeActionClient(self, gripper_action_name)
+  ros.INFO('Connect to gripper action server \'%s\'', gripper_action_name)
   self.gripper_action_client = actionlib.SimpleActionClient('wsg_50_common/Command', gripper_action_name, self.nh)
 end
 
@@ -41,8 +85,9 @@ function WeissTwoFingerModel:__init(nodehandle, gripper_namespace, gripper_actio
     self.gripperStatus = nil
     self.gripper_status_client = self.nh:serviceClient(gripper_namespace .. '/get_gripper_status', 'wsg_50_common/GetGripperStatus')
     self.ack_error_client = self.nh:serviceClient(gripper_namespace .. '/acknowledge_error', 'std_srvs/Empty')
+    self.gripper_action = gripper_namespace .. '/' .. gripper_action_name
 
-    local ok, err = pcall(function() initializeActionClient(self, gripper_action_name) end)
+    local ok, err = pcall(function() initializeActionClient(self, self.gripper_action) end)
     if not ok then
       ros.ERROR('Initialization of gripper action client has failed: ' .. err)
       error(WeissTwoFingerModel.ERROR_TYPE.INITIALIZATION_FAILED)
@@ -50,7 +95,7 @@ function WeissTwoFingerModel:__init(nodehandle, gripper_namespace, gripper_actio
 end
 
 
-function WeissTwoFingerModel:ackGripper()
+function WeissTwoFingerModel:acknowledgeError()
   if self.ack_error_client:exists() then
     local req = self.ack_error_client:createRequest()
     local r = self.ack_error_client:call(req)
@@ -84,220 +129,240 @@ function WeissTwoFingerModel:getGripperStatus()
 end
 
 
-function WeissTwoFingerModel:waitForResult(execute_timeout)
-  if self.gripper_action_client:waitForResult(execute_timeout) then
-    ros.DEBUG_NAMED("actionlib", "Goal finished within specified execute_timeout [%.2f]", execute_timeout:toSec())
-    return self.gripper_action_client:getState()
+local function readGripperStatus(goal_result)
+  local gripper_return_code = '<No return code>'
+  local gripper_grasping_state = 'Unkown state'
+  local gripper_connection_state = 'Unkown state'
+
+  if goal_result and goal_result.status then
+    if goal_result.status.return_code then
+      gripper_return_code = WeissWsgReturnCode[goal_result.status.return_code + 1]
+    end
+
+    if goal_result.status.grasping_state_id and goal_result.status.grasping_state_id ~= -1 then
+      gripper_grasping_state = GraspingState[goal_result.status.grasping_state_id + 1]
+    end
+
+    if goal_result.status.connection_state then
+      gripper_connection_state = ConnectionState[goal_result.status.connection_state + 1]
+    end
   end
-  ros.DEBUG_NAMED("actionlib", "Goal didn't finish within specified execute_timeout [%.2f]", execute_timeout:toSec())
-  -- it didn't finish in time, so we need to preempt it
-  self.gripper_action_client:cancelGoal()
-  -- now wait again and see if it finishes
-  if self.gripper_action_client:waitForResult(execute_timeout) then
-    ros.DEBUG_NAMED("actionlib", "Preempt finished within execute_timeout [%.2f]", execute_timeout:toSec())
+
+  return gripper_return_code, gripper_grasping_state, gripper_connection_state
+end
+
+
+local function doneCallbackHandler(task, action_type, goal_state, goal_result)
+  ros.INFO('%s action completed with state: %d (%s)', action_type, goal_state, SimpleClientGoalState[goal_state])
+  local status
+  if goal_result and goal_result.status then
+    status = goal_result.status
+  end
+
+  if goal_state == SimpleClientGoalState.SUCCEEDED then
+    task:setResult(TaskState.Succeeded, {gripper_status = status, error_message = ''})
+  elseif goal_state == SimpleClientGoalState.RECALLED or goal_state == SimpleClientGoalState.PREEMPTED then
+    task:setResult(TaskState.Cancelled, {gripper_status = status, error_message = string.format('%s was cancelled. Action client reported: \'%s\'', action_type, SimpleClientGoalState[goal_state])})
+  elseif goal_state == SimpleClientGoalState.REJECTED or goal_state == SimpleClientGoalState.ABORTED or goal_state == SimpleClientGoalState.LOST then
+    local return_code, grasping_state, gripper_connection_state = readGripperStatus(goal_result)
+    task:setResult(TaskState.Failed, {gripper_status = status, error_message = string.format('%s failed. Action client reported: \'%s\'. Connection state: \'%s\', Grasping state: \'%s\', Command return code: \'%s\'', action_type, SimpleClientGoalState[goal_state], gripper_connection_state, grasping_state, return_code)})
   else
-    ros.DEBUG_NAMED("actionlib", "Preempt didn't finish within execute_timeout [%.2f]", execute_timeout:toSec())
-    error(WeissTwoFingerModel.ERROR_TYPE.ACTION_PREEMPT_TIMEOUT)
+    local return_code, grasping_state, gripper_connection_state = readGripperStatus(goal_result)
+    task:setResult(TaskState.Failed, {gripper_status = status, error_message = string.format('%s failed with unkown error. Action client reported: \'%s\'. Connection state: \'%s\', Grasping state: \'%s\', Command return code: \'%s\'', action_type, SimpleClientGoalState[goal_state], gripper_connection_state, grasping_state, return_code)})
   end
-  return self.gripper_action_client:getState()
+end
+
+
+local function waitForCommand(task, action_type, timeout_in_ms)
+  timeout_in_ms = timeout_in_ms or 5000
+  local completed_in_time = task:waitForCompletion(timeout_in_ms)
+  if not completed_in_time then
+    ros.ERROR('%s timed out.', action_type)
+    task:cancel()
+    error(string.format('%s command timed out.', action_type))
+  end
+
+  if task:hasCompletedSuccessfully() then
+    ros.INFO('%s was successful.', action_type)
+  else
+    local result = task:getResult()
+    local err = result.error_message or 'Unkown error'
+    ros.ERROR('%s failed. The following error was reported: \'%s\'', action_type, err)
+    error(result.error_message)
+  end
 end
 
 
 function WeissTwoFingerModel:homeGripperAsync()
-  print('Homeing gripper...')
-  if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
-    local g = self.gripper_action_client:createGoal()
-    g.command.command_id = GripperCommand.Homeing -- 104
-    self.gripper_action_client:sendGoal(g)
-  else
-    ros.ERROR("Could not contact gripper action server.")
-    error(WeissTwoFingerModel.ERROR_TYPE.ACTION_CLIENT_TIMEOUT)
-  end
-end
-
-
-function WeissTwoFingerModel:waitForHome(execute_timeout)
-  local state = self:waitForResult(execute_timeout)
-  local result = self.gripper_action_client:getResult()
-  -- Check if gripper has been homed successful
-  if state == 7 and result ~= nil and result.status ~= nil and result.status.return_code == 0 then
-    ros.INFO("Homed gripper successfully")
-  else
-    ros.ERROR("Could not home gripper")
-    if result == nil then
-      ros.ERROR("Result message from action server was empty.")
-      error(WeissTwoFingerModel.ERROR_TYPE.NO_RESULT_RECEIVED)
-    elseif state ~= 7 then
-      ros.ERROR("Action has not been suceeded and is in state: %s", SimpleClientGoalState[state])
-      error(WeissTwoFingerModel.ERROR_TYPE.ACTION_NOT_DONE)
-    else
-      ros.ERROR("An unkown error has ocurred.")
-      error(WeissTwoFingerModel.ERROR_TYPE.UNKNOWN_ERROR)
+  local start_handler = function(task)
+    local done_callback = function(goal_state, goal_result)
+      doneCallbackHandler(task, 'Home', goal_state, goal_result)
     end
-  end
-end
 
-
-function WeissTwoFingerModel:homeGripper(execute_timeout)
-  self:homeGripperAsync()
-  self:waitForHome(execute_timeout)
-end
-
-
-function WeissTwoFingerModel:openGripperAsync(width, force, speed, acceleration)
-  width = width or 0.05
-  force = force or 10
-  speed = speed or 0.2
-  acceleration = acceleration or 0.8
-  print('Opening gripper...')
-  if self.gripper_status_client:exists() then
     if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
-      local gripper_status = self.gripper_status_client:call()
       local g = self.gripper_action_client:createGoal()
-      if (gripper_status ~= nil and gripper_status.status ~= nil) then
-        if gripper_status.status.grasping_state_id == GraspingState.Idle then
-          g.command.command_id = GripperCommand.Move -- 101
-        elseif gripper_status.status.grasping_state_id == GraspingState.Hold
-          or gripper_status.status.grasping_state_id == GraspingState.NoPartFound
-          or gripper_status.status.grasping_state_id == GraspingState.PartLost then
-          g.command.command_id = GripperCommand.Release -- 103
-        else
-          ros.ERROR("Gripper is in wrong state. Please acknowledge any error and use homing. Grasping State: %d", gripper_status.status.grasping_state_id)
-          error(WeissTwoFingerModel.ERROR_TYPE.WRONG_GRIPPER_STATE)
-        end
-      else
-        ros.ERROR("Gripper is in wrong state. Please acknowledge any error and use homing. Grasping State: nil")
-        error(WeissTwoFingerModel.ERROR_TYPE.WRONG_GRIPPER_STATE)
-      end
-      g.command.width = width
-      g.command.speed = speed
-      g.command.acceleration = acceleration
-      g.command.force = force
-      self.gripper_action_client:sendGoal(g)
+      g.command.command_id = GripperCommand.Homing -- 104
+      self.gripper_action_client:sendGoal(g, done_callback)
     else
       ros.ERROR("Could not contact gripper action server")
-      error(WeissTwoFingerModel.ERROR_TYPE.ACTION_CLIENT_TIMEOUT)
+      task:setResult(TaskState.Failed, {error_message = string.format('Could not contact action server: \'%s\'', self.gripper_action)})
     end
-  else
-    ros.ERROR("Could not query gripper status")
-    error(WeissTwoFingerModel.ERROR_TYPE.STATUS_SERVICE_TIMEOUT)
   end
+
+  local cancel_handler = function(task)
+    self.gripper_action_client:cancelGoal()
+  end
+
+  return Task.create(start_handler, cancel_handler, nil, true)
 end
 
 
-function WeissTwoFingerModel:waitForOpen(execute_timeout)
-  execute_timeout = execute_timeout or ros.Duration(5.0)
-  local state = self:waitForResult(execute_timeout)
-  local result = self.gripper_action_client:getResult()
-  -- Check if gripper has been opened successful
-  if state == 7 and result ~= nil and result.status ~= nil and result.status.return_code == 0 then
-    ros.INFO("Opened gripper successfully.")
-  else
-    ros.ERROR("Could not open gripper.")
-    if result == nil then
-      ros.ERROR("Result message from action server was empty.")
-      error(WeissTwoFingerModel.ERROR_TYPE.NO_RESULT_RECEIVED)
-    elseif state ~= 7 then
-      ros.ERROR("Action has not been suceeded and is in state: %s", SimpleClientGoalState[state])
-      error(WeissTwoFingerModel.ERROR_TYPE.ACTION_NOT_DONE)
-    else
-      ros.ERROR("An unkown error has ocurred.")
-      error(WeissTwoFingerModel.ERROR_TYPE.UNKNOWN_ERROR)
-    end
-  end
+function WeissTwoFingerModel:waitForHome(task, timeout_in_ms)
+  waitForCommand(task, 'Home', timeout_in_ms)
 end
 
 
-function WeissTwoFingerModel:openGripper(width, force, speed, acceleration, execute_timeout)
+function WeissTwoFingerModel:home(timeout_in_ms)
+  local task = self:homeGripperAsync()
+  local success = pcall(function() self:waitForHome(task, timeout_in_ms) end)
+  return task
+end
+
+
+function WeissTwoFingerModel:releaseAsync(width, speed)
   width = width or 0.05
-  force = force or 10
   speed = speed or 0.2
-  acceleration = acceleration or 0.8
-  execute_timeout = execute_timeout or ros.Duration(5.0)
-  self:openGripperAsync(width, force, speed, acceleration)
-  self:waitForOpen(execute_timeout)
+
+  local start_handler = function(task)
+    local done_callback = function(goal_state, goal_result)
+      doneCallbackHandler(task, 'Release', goal_state, goal_result)
+    end
+
+    if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
+      local g = self.gripper_action_client:createGoal()
+      g.command.command_id = GripperCommand.Release -- 103
+      g.command.width = width
+      g.command.speed = speed
+      self.gripper_action_client:sendGoal(g, done_callback)
+    else
+      ros.ERROR("Could not contact gripper action server")
+      task:setResult(TaskState.Failed, {error_message = string.format('Could not contact action server: \'%s\'', self.gripper_action)})
+    end
+  end
+
+  local cancel_handler = function(task)
+    self.gripper_action_client:cancelGoal()
+  end
+
+  return Task.create(start_handler, cancel_handler, nil, true)
 end
 
 
-function WeissTwoFingerModel:closeGripperAsync(width, force, speed, acceleration)
+function WeissTwoFingerModel:waitForRelease(task, timeout_in_ms)
+  waitForCommand(task, 'Release', timeout_in_ms)
+end
+
+
+function WeissTwoFingerModel:release(width, speed, timeout_in_ms)
+  width = width or 0.05
+  speed = speed or 0.2
+  timeout_in_ms = timeout_in_ms or 5000
+  local task = self:releaseAsync(width, speed)
+  local success = pcall(function() self:waitForRelease(task, timeout_in_ms) end)
+  return task
+end
+
+
+function WeissTwoFingerModel:graspAsync(width, speed, force)
   width = width or 0.001
   force = force or 10
   speed = speed or 0.2
-  acceleration = acceleration or 0.8
-  execute_timeout = execute_timeout or ros.Duration(5.0)
-  print('Closing gripper...')
-  if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
-    local g = self.gripper_action_client:createGoal()
-    g.command.command_id = GripperCommand.Grasp -- 102
-    g.command.width = width
-    g.command.speed = speed
-    g.command.acceleration = acceleration
-    g.command.force = force
-    self.gripper_action_client:sendGoal(g)
-  else
-    ros.ERROR("Could not contact gripper action server")
-    error(WeissTwoFingerModel.ERROR_TYPE.ACTION_CLIENT_TIMEOUT)
+
+  local start_handler = function(task)
+    local done_callback = function(goal_state, goal_result)
+      doneCallbackHandler(task, 'Grasp', goal_state, goal_result)
+    end
+
+    if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
+      local g = self.gripper_action_client:createGoal()
+      g.command.command_id = GripperCommand.Grasp -- 102
+      g.command.width = width
+      g.command.speed = speed
+      g.command.force = force
+      self.gripper_action_client:sendGoal(g, done_callback)
+    else
+      ros.ERROR("Could not contact gripper action server")
+      task:setResult(TaskState.Failed, {error_message = string.format('Could not contact action server: \'%s\'', self.gripper_action)})
+    end
   end
+
+  local cancel_handler = function(task)
+    self.gripper_action_client:cancelGoal()
+  end
+
+  return Task.create(start_handler, cancel_handler, nil, true)
 end
 
 
-function WeissTwoFingerModel:waitForClose(execute_timeout)
-  execute_timeout = execute_timeout or ros.Duration(5.0)
-  local state = self:waitForResult(execute_timeout)
-  local result = self.gripper_action_client:getResult()
-  -- Check if gripper has been closed successful
-  if state == 7 then
-    if result ~= nil and result.status ~= nil then
-      if result.status.return_code == 0 and result.status.grasping_state_id == GraspingState.Hold then
-        ros.INFO("Picked part successfully")
-      else
-        ros.ERROR("Could not pick part. gripper return code: %d, grasping state %d", result.status.return_code, result.status.grasping_state_id)
-        error(WeissTwoFingerModel.ERROR_TYPE.ACTION_NOT_DONE)
-      end
-    else
-      if result == nil then
-        ros.ERROR("Result message from action server was empty.")
-        error(WeissTwoFingerModel.ERROR_TYPE.NO_RESULT_RECEIVED)
-      else
-        ros.ERROR("An unkown error has ocurred.")
-        error(WeissTwoFingerModel.ERROR_TYPE.UNKNOWN_ERROR)
-      end
-    end
-  else
-    if state == 6 then
-      if result ~= nil and result.status ~= nil then
-        ros.INFO("Closed gripper successfully")
-      else
-        if result == nil then
-          ros.ERROR("Result message from action server was empty.")
-          error(WeissTwoFingerModel.ERROR_TYPE.NO_RESULT_RECEIVED)
-        else
-          ros.ERROR("An unkown error has ocurred.")
-          error(WeissTwoFingerModel.ERROR_TYPE.UNKNOWN_ERROR)
-        end
-      end
-    else
-      ros.ERROR("Could not close gripper: action server returned state: %d: %s", state, SimpleClientGoalState[state])
-      error(WeissTwoFingerModel.ERROR_TYPE.ACTION_NOT_DONE)
-    end
-  end
+function WeissTwoFingerModel:waitForGrasp(task, timeout_in_ms)
+  waitForCommand(task, 'Grasp', timeout_in_ms)
 end
 
 
-function WeissTwoFingerModel:closeGripper(width, force, speed, acceleration, execute_timeout)
+function WeissTwoFingerModel:grasp(width, speed, force, timeout_in_ms)
   width = width or 0.001
   force = force or 10
   speed = speed or 0.2
-  acceleration = acceleration or 0.8
-  execute_timeout = execute_timeout or ros.Duration(5.0)
-  self:closeGripperAsync(width, force, speed)
-  self:waitForClose(execute_timeout)
+  timeout_in_ms = timeout_in_ms or 5000
+  local task = self:graspAsync(width, speed, force)
+  local success = pcall(function() self:waitForGrasp(task, timeout_in_ms) end)
+  return task
 end
 
 
-function WeissTwoFingerModel:connect()
-  -- could home the gripper at this point
-  -- self:homeGripper(execute_timeout)
+function WeissTwoFingerModel:moveAsync(width, speed)
+  width = width or 0.001
+  force = 0
+  speed = speed or 0.2
+
+  local start_handler = function(task)
+    local done_callback = function(goal_state, goal_result)
+      doneCallbackHandler(task, 'Move', goal_state, goal_result)
+    end
+
+    if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
+      local g = self.gripper_action_client:createGoal()
+      g.command.command_id = GripperCommand.Move -- 101
+      g.command.width = width
+      g.command.speed = speed
+      g.command.force = force
+      self.gripper_action_client:sendGoal(g, done_callback)
+    else
+      ros.ERROR("Could not contact gripper action server")
+      task:setResult(TaskState.Failed, {error_message = string.format('Could not contact action server: \'%s\'', self.gripper_action)})
+    end
+  end
+
+  local cancel_handler = function(task)
+    self.gripper_action_client:cancelGoal()
+  end
+
+  return Task.create(start_handler, cancel_handler, nil, true)
+end
+
+
+function WeissTwoFingerModel:waitForMove(task, timeout_in_ms)
+  waitForCommand(task, 'Move', timeout_in_ms)
+end
+
+
+function WeissTwoFingerModel:move(width, speed, timeout_in_ms)
+  width = width or 0.001
+  speed = speed or 0.2
+  timeout_in_ms = timeout_in_ms or 5000
+  local task = self:moveAsync(width, speed)
+  local success = pcall(function() self:waitForMove(task, timeout_in_ms) end)
+  return task
 end
 
 
@@ -305,26 +370,6 @@ function WeissTwoFingerModel:shutdown()
   if self.gripper_action_client ~= nil then
     self.gripper_action_client:shutdown()
   end
-end
-
-
-function WeissTwoFingerModel:open(width, force, speed, acceleration, execute_timeout_in_s)
-  width = width or 0.05
-  force = force or 10
-  speed = speed or 0.2
-  acceleration = acceleration or 0.8
-  execute_timeout_in_s = execute_timeout_in_s or 5
-  self:openGripper(width, force, speed, acceleration, ros.Duration(execute_timeout_in_s))
-end
-
-
-function WeissTwoFingerModel:close(width, force, speed, acceleration, execute_timeout_in_s)
-  width = width or 0.001
-  force = force or 10
-  speed = speed or 0.2
-  acceleration = acceleration or 0.8
-  execute_timeout_in_s = execute_timeout_in_s or 5
-  self:closeGripper(width, force, speed, acceleration, ros.Duration(execute_timeout_in_s))
 end
 
 
