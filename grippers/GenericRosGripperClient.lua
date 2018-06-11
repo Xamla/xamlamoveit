@@ -4,6 +4,9 @@ local actionlib = ros.actionlib
 local SimpleClientGoalState = actionlib.SimpleClientGoalState
 local grippers = require 'xamlamoveit.grippers.env'
 local GenericRosGripperClient = torch.class('xamlamoveit.grippers.GenericRosGripperClient', grippers)
+local Task = ros.std.Task
+local TaskState = ros.std.TaskState
+
 GenericRosGripperClient.ERROR_TYPE = {
   ACTION_CLIENT_TIMEOUT = "ACTION_CLIENT_TIMEOUT",
   ACTION_PREEMPT_TIMEOUT = "ACTION_PREEMPT_TIMEOUT",
@@ -33,81 +36,102 @@ function GenericRosGripperClient:__init(node_handle, gripper_action_name)
 end
 
 
-function GenericRosGripperClient:moveGripperAsync(width_in_m, force_in_n)
+local function doneCallbackHandler(task, action_type, goal_state, goal_result)
+  ros.INFO('%s action completed with state: %d (%s)', action_type, goal_state, SimpleClientGoalState[goal_state])
+  print(goal_result)
+end
+
+
+local function waitForCommand(task, action_type, timeout_in_ms)
+  timeout_in_ms = timeout_in_ms or 5000
+  local completed_in_time = task:waitForCompletion(timeout_in_ms)
+  if not completed_in_time then
+    ros.ERROR('%s timed out.', action_type)
+    task:cancel(string.format('%s command timed out.', action_type))
+    error(string.format('%s command timed out.', action_type))
+  end
+
+  if task:hasCompletedSuccessfully() then
+    ros.INFO('%s was successful.', action_type)
+  else
+    local result = task:getResult()
+    local err = result.error_message or 'Unkown error'
+    ros.ERROR('%s failed. The following error was reported: \'%s\'', action_type, err)
+    error(result.error_message)
+  end
+end
+
+
+function GenericRosGripperClient:moveAsync(width_in_m, force_in_n, fail_on_stall)
   width_in_m = width_in_m or 0
   force_in_n = force_in_n or 0
-  if self.action_client:waitForServer(ros.Duration(5.0)) then
-    local g = self.action_client:createGoal()
-
-    g.command.position = width_in_m
-    g.command.max_effort = force_in_n
-    self.action_client:sendGoal(g)
-  else
-    ros.ERROR("Could not contact gripper action server")
-    error(GenericRosGripperClient.error_type.ACTION_CLIENT_TIMEOUT)
+  if fail_on_stall == nil then
+    fail_on_stall = true
   end
-end
 
+  local start_handler = function(task)
+    local done_callback = function(goal_state, goal_result)
+      if goal_result ~= nil and goal_result.stalled ~= nil and goal_result.reached_goal ~= nil then
+        if goal_result.stalled == false and goal_result.reached_goal == true then
+          task:setResult(TaskState.Succeeded, {gripper_status = goal_result, error_message = ''})
+        else
+          if fail_on_stall == true then
+            local stalled = 'false'
+            if goal_result.stalled == true then
+              stalled = 'true'
+            end
+            local reached_goal = 'false'
+            if goal_result.reached_goal == true then
+              reached_goal = 'true'
+            end
+            task:setResult(TaskState.Failed, {gripper_status = goal_result, error_message = string.format('Gripper did not reach goal. Action server reported: \'%s\', Stalled: %s, Reached goal: %s', SimpleClientGoalState[goal_state], stalled, reached_goal)})
+          else
+            task:setResult(TaskState.Succeeded, {gripper_status = goal_result, error_message = ''})
+          end
+        end
+      else
+        task:setResult(TaskState.Failed, {gripper_status = goal_result, error_message = 'Action server returned invalid result.'})
+      end
+    end
 
-function GenericRosGripperClient:waitForMove(execute_timeout_in_s)
-  local state = self:waitForResult(execute_timeout_in_s)
-  local result = self.action_client:getResult()
-
-  -- Check if gripper has been homed successful
-  if state == 7 and result ~= nil and result.stalled == false and result.reached_goal == true then
-    ros.INFO("Executed move command successfully")
-  else
-    if result == nil then
-      ros.ERROR("Result message from action server was empty.")
-      error(GenericRosGripperClient.error_type.NO_RESULT_RECEIVED)
-    elseif state ~= 7 then
-      ros.ERROR("Action has not been suceeded and is in state: %s", SimpleClientGoalState[state])
-      error(GenericRosGripperClient.error_type.ACTION_NOT_DONE)
-    elseif result.stalled == true then
-      ros.ERROR("Gripper reports that it is stalled.")
-      error(GenericRosGripperClient.error_type.GRIPPER_STALLED)
-    elseif result.reached_goal == false then
-      ros.ERROR("Gripper reports that it has not reached the goal.")
-      error(GenericRosGripperClient.error_type.DID_NOT_REACH_GOAL)
+    if self.action_client:waitForServer(ros.Duration(5.0)) then
+      local g = self.action_client:createGoal()
+      g.command.position = width_in_m
+      g.command.max_effort = force_in_n
+      self.action_client:sendGoal(g, done_callback)
     else
-      ros.ERROR("An unkown error has ocurred.")
-      error(GenericRosGripperClient.error_type.UNKNOWN_ERROR)
+      ros.ERROR("Could not contact gripper action server")
+      task:setResult(TaskState.Failed, {error_message = string.format('Could not contact action server: \'%s\'', self.gripper_action)})
     end
   end
-end
 
-
-function GenericRosGripperClient:waitForResult(execute_timeout_in_s)
-  if self.action_client:waitForResult(execute_timeout_in_s) then
-    return self.action_client:getState()
-  end
-  ros.DEBUG_NAMED("actionlib", "Goal didn't finish within specified execute_timeout [%.2f]", execute_timeout_in_s:toSec())
-  -- it didn't finish in time, so we need to preempt it
-  self.action_client:cancelGoal()
-  -- now wait again and see if it finishes
-  if self.action_client:waitForResult(execute_timeout) then
-    ros.DEBUG_NAMED("actionlib", "Preempt finished within execute_timeout [%.2f]", execute_timeout_in_s:toSec())
-  else
-    ros.DEBUG_NAMED("actionlib", "Preempt didn't finish within execute_timeout [%.2f]", execute_timeout_in_s:toSec())
-    error(GenericRosGripperClient.error_type.ACTION_PREEMPT_TIMEOUT)
+  local cancel_handler = function(task)
+    self.action_client:cancelGoal()
   end
 
-  return self.action_client:getState()
+  return Task.create(start_handler, cancel_handler, nil, true)
 end
 
 
-function GenericRosGripperClient:moveGripper(width_in_m, force_in_n, execute_timeout_in_s)
-  self:moveGripperAsync(width_in_m, force_in_n)
-  self:waitForMove(ros.Duration(execute_timeout_in_s))
+function GenericRosGripperClient:waitForMove(task, timeout_in_ms)
+  waitForCommand(task, 'Move', timeout_in_ms)
 end
 
 
-function GenericRosGripperClient:tryMoveGripper(width_in_m, force_in_n, execute_timeout_in_s)
-  return pcall(
-    function()
-      self:moveGripper(width_in_m, force_in_n, execute_timeout_in_s)
-    end
-  )
+function GenericRosGripperClient:waitForRelease(task, timeout_in_ms)
+  waitForCommand(task, 'Release', timeout_in_ms)
+end
+
+
+function GenericRosGripperClient:waitForGrasp(task, timeout_in_ms)
+  waitForCommand(task, 'Grasp', timeout_in_ms)
+end
+
+
+function GenericRosGripperClient:move(width_in_m, force_in_n, timeout_in_ms)
+  local task = self:moveAsync(width_in_m, force_in_n)
+  local sucess = pcall(function () self:waitForMove(task, timeout_in_ms) end)
+  return task
 end
 
 
@@ -118,23 +142,36 @@ function GenericRosGripperClient:shutdown()
 end
 
 
-function GenericRosGripperClient:connect()
-end
-
-
-function GenericRosGripperClient:open(width, force, speed, acceleration, execute_timeout_in_s)
+function GenericRosGripperClient:release(width, timeout_in_ms)
   width = width or 0.065
-  force = force or 10
-  execute_timeout_in_s = execute_timeout_in_s or 5
-  self:tryMoveGripper(width, force, execute_timeout_in_s)
+  force = 0
+  timeout_in_ms = timeout_in_ms or 5000
+  local task = self:moveAsync(width_in_m, force_in_n)
+  local sucess = pcall(function () self:waitForRelease(task, timeout_in_ms) end)
+  return task
 end
 
 
-function GenericRosGripperClient:close(width, force, speed, acceleration, execute_timeout_in_s)
+function GenericRosGripperClient:grasp(width, force, timeout_in_ms)
   width = width or 0.0025
   force = force or 10
-  execute_timeout_in_s = execute_timeout_in_s or 5
-  self:tryMoveGripper(width, force, execute_timeout_in_s)
+  timeout_in_ms = timeout_in_ms or 5000
+  local task = self:moveAsync(width_in_m, force_in_n, false)
+  local sucess = pcall(function () self:waitForGrasp(task, timeout_in_ms) end)
+  return task
+end
+
+function GenericRosGripperClient:releaseAsync(width)
+  width = width or 0.04
+  force = 10
+  return self:moveAsync(width, force)
+end
+
+
+function GenericRosGripperClient:graspAsync(width, force)
+  width = width or 0.0025
+  force = force or 10
+  return self:moveAsync(width, force, false)
 end
 
 
