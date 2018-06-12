@@ -173,9 +173,9 @@ local function doneCallbackHandler(task, action_type, goal_state, goal_result)
 end
 
 
-local function waitForCommand(task, action_type, timeout_in_ms)
-  timeout_in_ms = timeout_in_ms or 5000
-  local completed_in_time = task:waitForCompletion(timeout_in_ms)
+local function waitForCommand(task, action_type, timeout)
+  timeout = timeout or 5000
+  local completed_in_time = task:waitForCompletion(timeout)
   if not completed_in_time then
     ros.ERROR('%s timed out.', action_type)
     task:cancel()
@@ -193,6 +193,8 @@ local function waitForCommand(task, action_type, timeout_in_ms)
 end
 
 
+--- Performs homing asynchronous
+-- @return ros.std.Task
 function WeissTwoFingerModel:homeGripperAsync()
   local start_handler = function(task)
     local done_callback = function(goal_state, goal_result)
@@ -217,21 +219,36 @@ function WeissTwoFingerModel:homeGripperAsync()
 end
 
 
-function WeissTwoFingerModel:waitForHome(task, timeout_in_ms)
-  waitForCommand(task, 'Home', timeout_in_ms)
+function WeissTwoFingerModel:waitForHome(task, timeout)
+  waitForCommand(task, 'Home', timeout)
 end
 
 
-function WeissTwoFingerModel:home(timeout_in_ms)
+--- Performs homing and waits until the task has completed
+-- @param args table which allows the following arguments: timeout
+-- @return ros.std.Task
+function WeissTwoFingerModel:home(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.timeout = args.timeout or 5000
   local task = self:homeGripperAsync()
-  local success = pcall(function() self:waitForHome(task, timeout_in_ms) end)
+  local success = pcall(function() self:waitForHome(task, args.timeout) end)
   return task
 end
 
 
-function WeissTwoFingerModel:releaseAsync(width, speed)
-  width = width or 0.05
-  speed = speed or 0.2
+--- Performs a release asynchronous
+-- @param args table which allows the following arguments: width, speed
+-- @return ros.std.Task
+function WeissTwoFingerModel:releaseAsync(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.width = args.width or 0.05
+  args.speed = args.speed or 0.2
 
   local start_handler = function(task)
     local done_callback = function(goal_state, goal_result)
@@ -241,8 +258,8 @@ function WeissTwoFingerModel:releaseAsync(width, speed)
     if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
       local g = self.gripper_action_client:createGoal()
       g.command.command_id = GripperCommand.Release -- 103
-      g.command.width = width
-      g.command.speed = speed
+      g.command.width = args.width
+      g.command.speed = args.speed
       self.gripper_action_client:sendGoal(g, done_callback)
     else
       ros.ERROR("Could not contact gripper action server")
@@ -258,25 +275,37 @@ function WeissTwoFingerModel:releaseAsync(width, speed)
 end
 
 
-function WeissTwoFingerModel:waitForRelease(task, timeout_in_ms)
-  waitForCommand(task, 'Release', timeout_in_ms)
+function WeissTwoFingerModel:waitForRelease(task, timeout)
+  waitForCommand(task, 'Release', timeout)
 end
 
 
-function WeissTwoFingerModel:release(width, speed, timeout_in_ms)
-  width = width or 0.05
-  speed = speed or 0.2
-  timeout_in_ms = timeout_in_ms or 5000
-  local task = self:releaseAsync(width, speed)
-  local success = pcall(function() self:waitForRelease(task, timeout_in_ms) end)
+--- Performs a release and waits for the task to complete
+-- @param args table which allows the following arguments: width, speed, timeout
+-- @return ros.std.Task
+function WeissTwoFingerModel:release(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.timeout = args.timeout or 5000
+  local task = self:releaseAsync(args)
+  local success = pcall(function() self:waitForRelease(task, args.timeout) end)
   return task
 end
 
 
-function WeissTwoFingerModel:graspAsync(width, speed, force)
-  width = width or 0.001
-  force = force or 10
-  speed = speed or 0.2
+--- Performs a grasp asynchronous
+-- @param args table which allows the following arguments: width, speed, force
+-- @return ros.std.Task
+function WeissTwoFingerModel:graspAsync(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.width = args.width or 0.001
+  args.force = args.force or 10
+  args.speed = args.speed or 0.2
 
   local start_handler = function(task)
     local done_callback = function(goal_state, goal_result)
@@ -286,9 +315,9 @@ function WeissTwoFingerModel:graspAsync(width, speed, force)
     if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
       local g = self.gripper_action_client:createGoal()
       g.command.command_id = GripperCommand.Grasp -- 102
-      g.command.width = width
-      g.command.speed = speed
-      g.command.force = force
+      g.command.width = args.width
+      g.command.speed = args.speed
+      g.command.force = args.force
       self.gripper_action_client:sendGoal(g, done_callback)
     else
       ros.ERROR("Could not contact gripper action server")
@@ -304,28 +333,39 @@ function WeissTwoFingerModel:graspAsync(width, speed, force)
 end
 
 
-function WeissTwoFingerModel:waitForGrasp(task, timeout_in_ms)
-  waitForCommand(task, 'Grasp', timeout_in_ms)
+function WeissTwoFingerModel:waitForGrasp(task, timeout)
+  waitForCommand(task, 'Grasp', timeout)
 end
 
 
-function WeissTwoFingerModel:grasp(width, speed, force, timeout_in_ms)
-  width = width or 0.001
-  force = force or 10
-  speed = speed or 0.2
-  timeout_in_ms = timeout_in_ms or 5000
-  local task = self:graspAsync(width, speed, force)
-  local success = pcall(function() self:waitForGrasp(task, timeout_in_ms) end)
+--- Performs a grasp and waits for the task
+-- @param args table which allows the following arguments: width, speed, force, timeout
+-- @return ros.std.Task
+function WeissTwoFingerModel:grasp(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.timeout = args.timeout or 5000
+  local task = self:graspAsync(args)
+  local success = pcall(function() self:waitForGrasp(task, args.timeout) end)
   return task
 end
 
 
-function WeissTwoFingerModel:moveAsync(width, speed, force, stop_on_block)
-  width = width or 0.001
-  force = force or 20
-  speed = speed or 0.2
-  if stop_on_block == nil then
-    stop_on_block = true
+--- Moves the gripper asynchronous
+-- @param args table which allows the following arguments: width, speed, force, stop_on_block
+-- @return ros.std.Task
+function WeissTwoFingerModel:moveAsync(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.width = args.width or 0.001
+  args.force = args.force or 20
+  args.speed = args.speed or 0.2
+  if args.stop_on_block == nil then
+    args.stop_on_block = true
   end
 
   local start_handler = function(task)
@@ -336,10 +376,10 @@ function WeissTwoFingerModel:moveAsync(width, speed, force, stop_on_block)
     if self.gripper_action_client:waitForServer(ros.Duration(5.0)) then
       local g = self.gripper_action_client:createGoal()
       g.command.command_id = GripperCommand.Move -- 101
-      g.command.width = width
-      g.command.speed = speed
-      g.command.force = force
-      g.command.stop_on_block = stop_on_block
+      g.command.width = args.width
+      g.command.speed = args.speed
+      g.command.force = args.force
+      g.command.stop_on_block = args.stop_on_block
       self.gripper_action_client:sendGoal(g, done_callback)
     else
       ros.ERROR("Could not contact gripper action server")
@@ -355,15 +395,23 @@ function WeissTwoFingerModel:moveAsync(width, speed, force, stop_on_block)
 end
 
 
-function WeissTwoFingerModel:waitForMove(task, timeout_in_ms)
-  waitForCommand(task, 'Move', timeout_in_ms)
+function WeissTwoFingerModel:waitForMove(task, timeout)
+  waitForCommand(task, 'Move', timeout)
 end
 
 
-function WeissTwoFingerModel:move(width, speed, force, stop_on_block, timeout_in_ms)
-  timeout_in_ms = timeout_in_ms or 5000
-  local task = self:moveAsync(width, speed, force, stop_on_block)
-  local success = pcall(function() self:waitForMove(task, timeout_in_ms) end)
+--- Moves the gripper and waits for the task to end
+-- @param args table which allows the following arguments: width, speed, force, stop_on_block, timeout
+-- @return ros.std.Task
+function WeissTwoFingerModel:move(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.timeout = args.timeout or 5000
+
+  local task = self:moveAsync(args)
+  local success = pcall(function() self:waitForMove(task, args.timeout) end)
   return task
 end
 

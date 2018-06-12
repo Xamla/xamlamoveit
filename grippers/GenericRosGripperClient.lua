@@ -42,9 +42,9 @@ local function doneCallbackHandler(task, action_type, goal_state, goal_result)
 end
 
 
-local function waitForCommand(task, action_type, timeout_in_ms)
-  timeout_in_ms = timeout_in_ms or 5000
-  local completed_in_time = task:waitForCompletion(timeout_in_ms)
+local function waitForCommand(task, action_type, timeout)
+  timeout = timeout or 5000
+  local completed_in_time = task:waitForCompletion(timeout)
   if not completed_in_time then
     ros.ERROR('%s timed out.', action_type)
     task:cancel(string.format('%s command timed out.', action_type))
@@ -62,11 +62,18 @@ local function waitForCommand(task, action_type, timeout_in_ms)
 end
 
 
-function GenericRosGripperClient:moveAsync(width_in_m, force_in_n, fail_on_stall)
-  width_in_m = width_in_m or 0
-  force_in_n = force_in_n or 0
-  if fail_on_stall == nil then
-    fail_on_stall = true
+--- Moves the gripper asynchronous
+-- @param args table which allows the following arguments: width, force, stop_on_block
+-- @return ros.std.Task
+function GenericRosGripperClient:moveAsync(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.width = args.width or 0
+  args.force = args.force or 0
+  if args.stop_on_block == nil then
+    args.stop_on_block = true
   end
 
   local start_handler = function(task)
@@ -75,7 +82,7 @@ function GenericRosGripperClient:moveAsync(width_in_m, force_in_n, fail_on_stall
         if goal_result.stalled == false and goal_result.reached_goal == true then
           task:setResult(TaskState.Succeeded, {gripper_status = goal_result, error_message = ''})
         else
-          if fail_on_stall == true then
+          if args.stop_on_block == true then
             local stalled = 'false'
             if goal_result.stalled == true then
               stalled = 'true'
@@ -96,8 +103,8 @@ function GenericRosGripperClient:moveAsync(width_in_m, force_in_n, fail_on_stall
 
     if self.action_client:waitForServer(ros.Duration(5.0)) then
       local g = self.action_client:createGoal()
-      g.command.position = width_in_m
-      g.command.max_effort = force_in_n
+      g.command.position = args.width
+      g.command.max_effort = args.force
       self.action_client:sendGoal(g, done_callback)
     else
       ros.ERROR("Could not contact gripper action server")
@@ -113,24 +120,32 @@ function GenericRosGripperClient:moveAsync(width_in_m, force_in_n, fail_on_stall
 end
 
 
-function GenericRosGripperClient:waitForMove(task, timeout_in_ms)
-  waitForCommand(task, 'Move', timeout_in_ms)
+function GenericRosGripperClient:waitForMove(task, timeout)
+  waitForCommand(task, 'Move', timeout)
 end
 
 
-function GenericRosGripperClient:waitForRelease(task, timeout_in_ms)
-  waitForCommand(task, 'Release', timeout_in_ms)
+function GenericRosGripperClient:waitForRelease(task, timeout)
+  waitForCommand(task, 'Release', timeout)
 end
 
 
-function GenericRosGripperClient:waitForGrasp(task, timeout_in_ms)
-  waitForCommand(task, 'Grasp', timeout_in_ms)
+function GenericRosGripperClient:waitForGrasp(task, timeout)
+  waitForCommand(task, 'Grasp', timeout)
 end
 
 
-function GenericRosGripperClient:move(width_in_m, force_in_n, timeout_in_ms)
-  local task = self:moveAsync(width_in_m, force_in_n)
-  local sucess = pcall(function () self:waitForMove(task, timeout_in_ms) end)
+--- Moves the gripper and waits for the task to end
+-- @param args table which allows the following arguments: width, force, stop_on_block, timeout
+-- @return ros.std.Task
+function GenericRosGripperClient:move(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.timeout = args.timeout or 5000
+  local task = self:moveAsync(args)
+  local sucess = pcall(function () self:waitForMove(task, args.timeout) end)
   return task
 end
 
@@ -142,36 +157,76 @@ function GenericRosGripperClient:shutdown()
 end
 
 
-function GenericRosGripperClient:release(width, timeout_in_ms)
-  width = width or 0.065
-  force = 0
-  timeout_in_ms = timeout_in_ms or 5000
-  local task = self:moveAsync(width_in_m, force_in_n)
-  local sucess = pcall(function () self:waitForRelease(task, timeout_in_ms) end)
+--- Performs a release and waits for the task to complete
+-- @param args table which allows the following arguments: width, timeout
+-- @return ros.std.Task
+function GenericRosGripperClient:release(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.timeout = args.timeout or 5000
+  local task = self:releaseAsync(args)
+  local sucess = pcall(function () self:waitForRelease(task, args.timeout) end)
   return task
 end
 
 
-function GenericRosGripperClient:grasp(width, force, timeout_in_ms)
-  width = width or 0.0025
-  force = force or 10
-  timeout_in_ms = timeout_in_ms or 5000
-  local task = self:moveAsync(width_in_m, force_in_n, false)
-  local sucess = pcall(function () self:waitForGrasp(task, timeout_in_ms) end)
+--- Performs a grasp and waits for the task
+-- @param args table which allows the following arguments: width, force, timeout
+-- @return ros.std.Task
+function GenericRosGripperClient:grasp(args)
+  if args == nil then
+    args = {}
+  end
+
+  args.timeout = args.timeout or 5000
+  local task = self:graspAsync(args)
+  local sucess = pcall(function () self:waitForGrasp(task, args.timeout) end)
   return task
 end
 
-function GenericRosGripperClient:releaseAsync(width)
-  width = width or 0.04
-  force = 10
-  return self:moveAsync(width, force)
+
+--- Performs a release asynchronous
+-- @param args table which allows the following arguments: width
+-- @return ros.std.Task
+function GenericRosGripperClient:releaseAsync(args)
+  if args == nil then
+    args = {}
+  end
+  args.width = args.width or 0.04
+  args.force = args.force or 1
+  return self:moveAsync(args)
 end
 
 
-function GenericRosGripperClient:graspAsync(width, force)
-  width = width or 0.0025
-  force = force or 10
-  return self:moveAsync(width, force, false)
+--- Performs a grasp asynchronous
+-- @param args table which allows the following arguments: width,  force
+-- @return ros.std.Task
+function GenericRosGripperClient:graspAsync(args)
+  if args == nil then
+    args = {}
+  end
+  args.width = args.width or  0.0025
+  args.force = args.force or 10
+  args.stop_on_block = false
+
+  return self:moveAsync(args)
+end
+
+
+function GenericRosGripperClient:home()
+  return Task.create(function(task) ros.WARN("home not implemented") task:setResult(TaskState.Succeeded, {error_message = ''}) end, nil, nil, true)
+end
+
+
+function GenericRosGripperClient:homeAsync()
+  return Task.create(function() ros.WARN("homeAsync not implemented") task:setResult(TaskState.Succeeded, {error_message = ''}) end, nil, nil, true)
+end
+
+
+function GenericRosGripperClient:waitForHome(task, timeout)
+  waitForCommand(task, 'Home', timeout)
 end
 
 
