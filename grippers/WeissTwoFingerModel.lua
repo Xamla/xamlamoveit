@@ -320,10 +320,13 @@ function WeissTwoFingerModel:grasp(width, speed, force, timeout_in_ms)
 end
 
 
-function WeissTwoFingerModel:moveAsync(width, speed)
+function WeissTwoFingerModel:moveAsync(width, speed, force, stop_on_block)
   width = width or 0.001
-  force = 0
+  force = force or 20
   speed = speed or 0.2
+  if stop_on_block == nil then
+    stop_on_block = true
+  end
 
   local start_handler = function(task)
     local done_callback = function(goal_state, goal_result)
@@ -336,6 +339,7 @@ function WeissTwoFingerModel:moveAsync(width, speed)
       g.command.width = width
       g.command.speed = speed
       g.command.force = force
+      g.command.stop_on_block = stop_on_block
       self.gripper_action_client:sendGoal(g, done_callback)
     else
       ros.ERROR("Could not contact gripper action server")
@@ -356,11 +360,9 @@ function WeissTwoFingerModel:waitForMove(task, timeout_in_ms)
 end
 
 
-function WeissTwoFingerModel:move(width, speed, timeout_in_ms)
-  width = width or 0.001
-  speed = speed or 0.2
+function WeissTwoFingerModel:move(width, speed, force, stop_on_block, timeout_in_ms)
   timeout_in_ms = timeout_in_ms or 5000
-  local task = self:moveAsync(width, speed)
+  local task = self:moveAsync(width, speed, force, stop_on_block)
   local success = pcall(function() self:waitForMove(task, timeout_in_ms) end)
   return task
 end
