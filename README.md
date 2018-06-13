@@ -1,7 +1,70 @@
 # XamlaMoveit
 
-This package containts extentions to the ros/moveit framework.
+This package containts extentions to the ros/moveit framework, which is used in ROSVITA for the motion generation.
 
+Major features are:
+
+1. Resource locking system
+2. Time optimal trajectory generation
+3. Teleoperation functionality with diverse modalities
+4. Supervised trajectory execution for debugging with user interaction
+
+## Resource locking system
+
+Code example
+```lua
+--- Import libs
+local ros = require 'ros'
+local core = require 'xamlamoveit.core'
+local LeasedBaseLockClient = core.LeasedBaseLockClient
+
+local my_resources = {'JointA', 'CamA', 'Sensor'}
+--- Create node
+ros.init('lockTest')
+local nh = ros.NodeHandle('~')
+local sp = ros.AsyncSpinner() -- background job
+sp:start()
+
+--- Create lock client
+local lock_client = LeasedBaseLockClient(node_handle)
+local lock = nil
+
+-- get lock
+lock = lock_client:lock(my_resources)
+
+-- update lock
+lock = lock_client:lock(lock.resources, lock.id)
+
+-- release lock
+lock_client:release (lock.resources, lock.id)
+
+-- clean up
+sp:stop()
+ros.shutdown()
+
+```
+
+## Time optimal trajectory generation
+
+This framework provides moveL (executes trajectory planed in cartesian space), moveJ (executes trajectory planed in joint space) motion calles. Both can be parameterized with velocity and acceleration limits in an tvp planning component.
+
+Code example moveJ
+```lua
+```
+
+Code example moveL
+```lua
+```
+
+## Teleoperation functionality with diverse modalities
+
+Code example
+```lua
+```
+
+## Supervised trajectory execution for debugging with user interaction
+
+Code example can be found in `xamlamoveit/demos/moveInSteps.lua`
 
 ## start xamlamoveit
 
@@ -41,53 +104,38 @@ Configure the xamla_sysmon node to listen to these topics:
 ## Services
 
 - moveGroupServices
-  - `/xamlaMoveGroupServices/query_fk`
-  - `/xamlaMoveGroupServices/query_ik`
-  -
-  - `/xamlaMoveGroupServices/query_joint_position_collision_check`
-  - `/xamlaMoveGroupServices/query_move_group_current_position`
-  - `/xamlaMoveGroupServices/query_move_group_interface`
-
+```
+/xamlaMoveGroupServices/query_fk
+/xamlaMoveGroupServices/query_ik
+/xamlaMoveGroupServices/query_joint_position_collision_check
+/xamlaMoveGroupServices/query_move_group_current_position
+/xamlaMoveGroupServices/query_move_group_interface
+```
 - xamlaPlanningServices
-  - `/xamlaPlanningServices/query_joint_path`
-  - `/xamlaPlanningServices/query_joint_trajectory`
+```
+/xamlaPlanningServices/query_joint_path
+/xamlaPlanningServices/query_joint_trajectory
+```
 - xamlaResourceLockServices
-  -  `/xamlaResourceLockService/query_resource_lock`
+  `/xamlaResourceLockService/query_resource_lock`
 
-## Actions
+### Robot simulation
 
-- `/moveJ_action`
-- `/moveJ_step_action`
+Node: [tvpSimulationControllerNode](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/tvpSimulationControllerNode.lua)
 
-## Todo
+This node expects on the ros param server a `controller_list` in its namespace.
+ Here all joints for each controller are specified. Each joint get then published to `joint_states`. The Joint values are zero initialized. A tvp controller is used to simulate the kinematics of the joints using the velocitiy limits specified in the `urdf`.
 
-### Execution Monitoring
-
-- was wurde als command geschickt?
-- was wurde gefahren
-- detection von der initialen Roboterbewegung zur t0 Festlegung
-- Dirigent sammelt die Aufmerksamkeit des Orchesters. Im Falle von Verzögerungen im Start prozess der einzelnen roboter (siehe start up time ur5), wird ein sog. Dirigent verwendet, der für die Koordinerung der generierten Pläne zuständig ist. Besonders wichtig wird diese Funktion bei sog. `hand over tasks`.
-
-### NodeServer
-
-Plänne und Jogging Kommandos sollen hier durchgehen:
-
-- jogging wird nur activiert wenn alle actions aus sind
-- moveJ nur mit start und goal 0 velocity am ende und start
-- Collision Checks mit distanz informationen
-
-
-### Robot emulation
-
-Node: [tvpSimulationNode](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/tvpSimulationNode.lua)
-
-Dieser Node ist aktuell nur auf den sda10d eingestellt. Dies kann aber leicht noch erweitert werden auf beliebige roboter typen.
-Der Node startet für jede controller gruppe, die in config spezfiziert ist, einen tvp-controler.
-Die config tabele muss mit der controller.yaml übereinstimmen damit moveit trajektorien abspielen kann.
-Die Joint states aktuallisieren sich mit einem feedback delay (parameters können noch nicht von aussen gestzt werden):
+The Joint states can be published with a feedback delay and a specific refresh rate:
 
 - delay: 0.150 sec
 - cycleTime: 0.008 sec
+
+Node: [tvpSimulationActionNode](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/tvpSimulationActionNode.lua)
+
+This nodes organizes `follow_trajectory_actions` used by moveit and will connect to the `tvpSimulationControllerNode`
+
+These two nodes are unmanaged controller nodes which enables to test your setup with moveit with out having the real robot in the loop.
 
 ## Based on torch-moveit
 
