@@ -27,9 +27,10 @@ local end_effector_name = end_effector_names[1]
 --Define Xamla move group
 local move_group_name = end_effector_details[end_effector_name].move_group_name
 local xamla_mg = motionLibrary.MoveGroup(motion_service, move_group_name) -- motion client
+local xamla_ee = xamla_mg:getEndEffector(end_effector_name)
 
 --Specify targets relative to 'end_effector_link_name'
-local end_effector_link_name = end_effector_details[end_effector_name].end_effector_link_name
+local end_effector_link_name = xamla_ee.link_name
 local A, B, C, D, E, F
 A = tf.StampedTransform()
 A:set_frame_id(end_effector_link_name)
@@ -51,10 +52,11 @@ F:set_frame_id(end_effector_link_name)
 F:setOrigin(torch.Tensor { 0.0, -0.02, -0.01})
 
 local velocity_scaling = 1
+local acceleration_scaling = 1
 local check_for_collisions = true
 --Start motion
 for i, target in ipairs({A, B, C, D, E, F}) do
-    xamla_mg:moveL(end_effector_name, target, velocity_scaling, check_for_collisions)
+    xamla_ee:movePoseLinear(target, velocity_scaling, check_for_collisions, acceleration_scaling)
 end
 
 -- shutdown ROS

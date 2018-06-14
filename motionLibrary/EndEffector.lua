@@ -35,5 +35,80 @@ function EndEffector:computePose(joint_values)
 end
 
 function EndEffector:getCurrentPose()
-     return self:computePose(self.move_group:getCurrentJointValues())
+     return self.move_group:getCurrentPose(self.name)
+end
+
+function EndEffector:planMovePoseLinear(target, velocity_scaling, collision_check, acceleration_scaling)
+    local plan_parameters = self.move_group:buildTaskSpacePlanParameters(self.name, velocity_scaling, acceleration_scaling, collision_check)
+
+    -- get current pose
+    local seed = self.move_group:getCurrentJointValues()
+    local start = self:getCurrentPose()
+
+    -- generate path
+    local path = {start, target}
+
+    -- plan trajectory
+    local ok, joint_trajectory = self.motion_service:planMoveLinear(seed, path, plan_parameters)
+    return ok, joint_trajectory, plan_parameters
+end
+
+function EndEffector:movePoseLinear(target, velocity_scaling, collision_check, acceleration_scaling)
+    assert(torch.isTypeOf(target, datatypes.Pose), 'Invalid argument `target`: Pose object expected.')
+    -- plan trajectory
+    local ok, joint_trajectory, plan_parameters = self:planMovePoseLinear(target, velocity_scaling, collision_check, acceleration_scaling)
+    assert(ok == 1, 'movePoseLinear failed')
+
+    -- start synchronous blocking execution
+    local ok, msg = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
+    assert(ok, 'executeTaskSpaceTrajectory failed. ' .. msg)
+end
+
+function EndEffector:movePoseLinearAsync(target, velocity_scaling, collision_check, acceleration_scaling, done_cb)
+    -- plan trajectory
+    local ok, joint_trajectory, plan_parameters = self:planMoveLinear(target, velocity_scaling, collision_check, acceleration_scaling)
+    assert(ok == 1, 'movePoseLinear failed')
+
+    local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
+    return simple_action_client
+end
+
+function EndEffector:movePoseLinearSupervised(target, velocity_scaling, collision_check, accelerationScaling, done_cb)
+    assert(torch.isTypeOf(target, datatypes.Pose), 'Invalid argument `target`: Pose object expected.')
+    if seed then
+        assert(torch.isTypeOf(seed, datatypes.JointValues), 'Invalid argument `joint_values`: JointValues object expected.')
+    end
+    if done_cb then
+        assert(torch.type(done_cb) == 'function', 'Invalid argument `done_cb`: function expected.')
+    end
+    -- plan trajectory
+    local ok, joint_trajectory, plan_parameters = self:planMovePoseLinear(target, velocity_scaling, collision_check, accelerationScaling)
+    assert(ok == 1, 'movePoseLinear failed')
+
+    -- start asynchronous execution
+    local controller_handle = self.motion_service:executeSupervisedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
+    return controller_handle
+end
+
+function EndEffector:planMovePoseLinearWaypoints(waypoints, velocity_scaling, collision_check, max_deviation, accelerationScaling)
+    max_deviation = max_deviation or 0.2
+    local plan_parameters = self:buildTaskSpacePlanParameters(self.name, velocity_scaling, collision_check, accelerationScaling)
+
+    -- get current pose
+    local seed = self.move_group:getCurrentJointValues()
+    local start = self:getCurrentPose()
+
+    local ok, joint_trajectory = self.motion_service:planMoveLinear(seed, waypoints, plan_parameters)
+    return ok, joint_trajectory, plan_parameters
+end
+
+function EndEffector:movePoseLinearWaypoints(waypoints, velocity_scaling, collision_check, max_deviation, accelerationScaling)
+    assert(#waypoints ~= 0, 'Waypoints are empty.')
+
+    local ok, joint_trajectory, plan_parameters = self:planMovePoseLinearWaypoints(waypoints, velocity_scaling, collision_check, max_deviation, accelerationScaling)
+    assert(ok == 1, 'planMovePoseLinearWaypoints failed')
+
+    -- start synchronous blocking execution
+    local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
+    assert(ok, 'executeJointTrajectory failed.')
 end

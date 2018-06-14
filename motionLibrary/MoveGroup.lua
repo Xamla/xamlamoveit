@@ -86,7 +86,7 @@ local function apply(dst, src)
     end
 end
 
-function MoveGroup:buildTaskSpacePlanParameters(end_effector_name, velocity_scaling, collision_check, max_deviation, ik_jump_threshold, dt)
+function MoveGroup:buildTaskSpacePlanParameters(end_effector_name, velocity_scaling, acceleration_scaling, collision_check, max_deviation, ik_jump_threshold, dt)
     -- check input or use member values if arguments where not provided
     if end_effector_name == nil then
         end_effector_name = self.default_end_effector_name
@@ -96,6 +96,13 @@ function MoveGroup:buildTaskSpacePlanParameters(end_effector_name, velocity_scal
     else
         assert(type(velocity_scaling) == 'number', 'Invalid type of argument `velocity_scaling`. Number expected.')
         assert(velocity_scaling > 0 and velocity_scaling <= 1, 'Argument `velocity_scaling` must lie in range (0-1).')
+    end
+
+    if acceleration_scaling == nil then
+        acceleration_scaling = self.velocity_scaling
+    else
+        assert(type(acceleration_scaling) == 'number', 'Invalid type of argument `acceleration_scaling`. Number expected.')
+        assert(acceleration_scaling > 0 and acceleration_scaling <= 1, 'Argument `acceleration_scaling` must lie in range (0-1).')
     end
     if collision_check == nil then
         collision_check = self.collision_check
@@ -117,10 +124,10 @@ function MoveGroup:buildTaskSpacePlanParameters(end_effector_name, velocity_scal
     end
 
     if t.max_xyz_velocity ~= nil then
-        t.max_xyz_velocity = t.max_xyz_velocity * velocity_scaling
+        t.max_xyz_velocity = t.max_xyz_velocity * acceleration_scaling
     end
     if t.max_xyz_acceleration ~= nil then
-        t.max_xyz_acceleration = t.max_xyz_acceleration * velocity_scaling
+        t.max_xyz_acceleration = t.max_xyz_acceleration * acceleration_scaling
     end
 
     if t.max_angular_velocity ~= nil then
@@ -135,76 +142,6 @@ function MoveGroup:buildTaskSpacePlanParameters(end_effector_name, velocity_scal
     result:fromTable(t)
     return result
 end
-
-function MoveGroup:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
-    local plan_parameters = self:buildTaskSpacePlanParameters(end_effector_name, velocity_scaling, collision_check)
-
-    -- get current pose
-    local seed = self:getCurrentJointValues()
-    local start = self:getCurrentPose(end_effector_name)
-
-    -- generate path
-    local path = {start, target}
-
-    -- plan trajectory
-    local ok, joint_trajectory = self.motion_service:planMoveLinear(seed, path, plan_parameters)
-    return ok, joint_trajectory, plan_parameters
-end
-
-function MoveGroup:moveL(end_effector_name, target, velocity_scaling, collision_check)
-    -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
-    assert(ok == 1, 'planMoveL failed')
-
-    -- start synchronous blocking execution
-    local ok, msg = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
-    assert(ok, 'executeTaskSpaceTrajectory failed. ' .. msg)
-end
-
-function MoveGroup:moveLSupervised(end_effector_name, target, velocity_scaling, collision_check, done_cb)
-    -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
-    assert(ok == 1, 'planMoveL failed')
-
-    -- start asynchronous execution
-    local controller_handle = self.motion_service:executeSupervisedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
-    return controller_handle
-end
-
-function MoveGroup:planMoveLWaypoints(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
-    max_deviation = max_deviation or 0.2
-    local plan_parameters = self:buildTaskSpacePlanParameters(end_effector_name, velocity_scaling, collision_check)
-
-    -- get current pose
-    local seed = self:getCurrentJointValues()
-    local start = self:getCurrentPose(end_effector_name)
-
-    local ok, joint_trajectory = self.motion_service:planMoveLinear(seed, waypoints, plan_parameters)
-    return ok, joint_trajectory, plan_parameters
-end
-
-function MoveGroup:moveLWaypoints(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
-    if #waypoints == 0 then
-        return
-    end
-
-    local ok, joint_trajectory, plan_parameters = self:planMoveLWaypoints(end_effector_name, waypoints, velocity_scaling, collision_check, max_deviation)
-    assert(ok == 1, 'planMoveLWaypoints failed')
-
-    -- start synchronous blocking execution
-    local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
-    assert(ok, 'executeJointTrajectory failed.')
-end
-
-function MoveGroup:moveLAsync(end_effector_name, target, velocity_scaling, collision_check, done_cb)
-    -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveL(end_effector_name, target, velocity_scaling, collision_check)
-    assert(ok == 1, 'planMoveL failed')
-
-    local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
-    return simple_action_client
-end
-
 
 function MoveGroup:buildPlanParameters(velocity_scaling, collision_check, max_deviation)
     -- check input or use member values if arguments where not provided
@@ -238,7 +175,7 @@ function MoveGroup:buildPlanParameters(velocity_scaling, collision_check, max_de
     return result
 end
 
-function MoveGroup:planMoveJ(target, velocity_scaling, collision_check)
+function MoveGroup:planMoveJoints(target, velocity_scaling, collision_check)
     local plan_parameters = self:buildPlanParameters(velocity_scaling, collision_check)
 
     -- get current pose
@@ -257,36 +194,36 @@ function MoveGroup:planMoveJ(target, velocity_scaling, collision_check)
     return ok, joint_trajectory, plan_parameters
 end
 
-function MoveGroup:moveJ(target, velocity_scaling, collision_check)
+function MoveGroup:moveJoints(target, velocity_scaling, collision_check)
     -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveJ(target, velocity_scaling, collision_check)
-    assert(ok == 1, 'planMoveJ failed')
+    local ok, joint_trajectory, plan_parameters = self:planMoveJoints(target, velocity_scaling, collision_check)
+    assert(ok == 1, 'planMoveJoints failed')
 
     -- start synchronous blocking execution
     local ok, msg = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
     assert(ok, 'executeJointTrajectory failed. ' .. msg)
 end
 
-function MoveGroup:moveJAsync(target, velocity_scaling, collision_check, done_cb)
+function MoveGroup:moveJointsAsync(target, velocity_scaling, collision_check, done_cb)
     -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveJ(target, velocity_scaling, collision_check)
-    assert(ok == 1, 'planMoveJ failed')
+    local ok, joint_trajectory, plan_parameters = self:planMoveJoints(target, velocity_scaling, collision_check)
+    assert(ok == 1, 'planMoveJoints failed')
 
     local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
     return simple_action_client
 end
 
-function MoveGroup:moveJSupervised(target, velocity_scaling, collision_check)
+function MoveGroup:moveJointsSupervised(target, velocity_scaling, collision_check)
     -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveJ(target, velocity_scaling, collision_check)
-    assert(ok == 1, 'planMoveJ failed')
+    local ok, joint_trajectory, plan_parameters = self:planMoveJoints(target, velocity_scaling, collision_check)
+    assert(ok == 1, 'planMoveJoints failed')
 
     -- start asynchronous execution
     local controller_handle = self.motion_service:executeSupervisedJointTrajectory(joint_trajectory, plan_parameters.collision_check, done_cb)
     return controller_handle
 end
 
-function MoveGroup:planMoveJWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
+function MoveGroup:planMoveJointsWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
     max_deviation = max_deviation or 0.2
     local plan_parameters = self:buildPlanParameters(velocity_scaling, collision_check, max_deviation)
 
@@ -312,8 +249,8 @@ function MoveGroup:moveJWaypoints(waypoints, velocity_scaling, collision_check, 
         return
     end
 
-    local ok, joint_trajectory, plan_parameters = self:planMoveJWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
-    assert(ok == 1, 'planMoveJWaypoints failed')
+    local ok, joint_trajectory, plan_parameters = self:planMoveJointsWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
+    assert(ok == 1, 'planMoveJointsWaypoints failed')
 
     -- start synchronous blocking execution
     local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
@@ -325,8 +262,8 @@ function MoveGroup:moveJWaypointsAsync(waypoints, velocity_scaling, collision_ch
         return nil
     end
 
-    local ok, joint_trajectory, plan_parameters = self:planMoveJWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
-    assert(ok == 1, 'planMoveJWaypoints failed')
+    local ok, joint_trajectory, plan_parameters = self:planMoveJointsWaypoints(waypoints, velocity_scaling, collision_check, max_deviation)
+    assert(ok == 1, 'planMoveJointsWaypoints failed')
 
     local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
     return simple_action_client
