@@ -83,24 +83,26 @@ end
 
 function JointStateAggregator:onInitialize()
     getControllerConfig(self)
-    self.joint_monitor = JointMonitor.new(self.joint_names, self.timeout:toSec())
-    local ready = self.joint_monitor:waitReady(20.0)
-    local once = true
-    while not ready and ros.ok() do
-        if once then
-            ros.ERROR('joint states not ready')
-            once = false
+    if #self.joint_names>0 then
+        self.joint_monitor = JointMonitor.new(self.joint_names, self.timeout:toSec())
+        local ready = self.joint_monitor:waitReady(20.0)
+        local once = true
+        while not ready and ros.ok() do
+            if once then
+                ros.ERROR('joint states not ready')
+                once = false
+            end
+            ready = self.joint_monitor:waitReady(20.0)
         end
-        ready = self.joint_monitor:waitReady(20.0)
+        if not ros.ok() then
+            self:shutdown()
+            return
+        end
+        ros.INFO('joint states ready')
+        local ok
+        ok, self.last_joint_state = self.joint_monitor:getNextPositionsTensor(0.5)
+        self.joint_names = self.joint_monitor:getJointNames()
     end
-    if not ros.ok() then
-        self:shutdown()
-        return
-    end
-    ros.INFO('joint states ready')
-    local ok
-    ok, self.last_joint_state = self.joint_monitor:getNextPositionsTensor(0.5)
-    self.joint_names = self.joint_monitor:getJointNames()
 end
 
 function JointStateAggregator:onStart()
@@ -108,14 +110,19 @@ function JointStateAggregator:onStart()
 end
 
 function JointStateAggregator:onProcess()
-    local ok, p = self.joint_monitor:getNextPositionsTensor(0.1)
+    local ok, p = true, nil
+    if #self.joint_names > 0 then
+        ok, p = self.joint_monitor:getNextPositionsTensor(0.1)
+    end
     if not ok then
         ros.ERROR_THROTTLE('JointStateAggregator:onProcess', 1, '[onProcess] exceeded timeout for next robot joint state!')
     end
     if self.last_joint_state then
         self.last_joint_state:copy(p)
     else
-        self.last_joint_state = p:clone()
+        if p then
+            self.last_joint_state = p:clone()
+        end
     end
     if self.last_joint_state then
         sendJointState(self, self.last_joint_state, self.joint_names)
