@@ -101,24 +101,6 @@ Configure the xamla_sysmon node to listen to these topics:
 /xamlaResourceLockService/heartbeat
 ```
 
-## Services
-
-- moveGroupServices
-```
-/xamlaMoveGroupServices/query_fk
-/xamlaMoveGroupServices/query_ik
-/xamlaMoveGroupServices/query_joint_position_collision_check
-/xamlaMoveGroupServices/query_move_group_current_position
-/xamlaMoveGroupServices/query_move_group_interface
-```
-- xamlaPlanningServices
-```
-/xamlaPlanningServices/query_joint_path
-/xamlaPlanningServices/query_joint_trajectory
-```
-- xamlaResourceLockServices
-  `/xamlaResourceLockService/query_resource_lock`
-
 ### Robot simulation
 
 Node: [tvpSimulationControllerNode](https://github.com/Xamla/Rosvita.Control/blob/master/lua/xamlamoveit/actionNodes/tvpSimulationControllerNode.lua)

@@ -12,6 +12,5 @@ require 'xamlamoveit.components.MoveGroupInfoNodeService'
 require 'xamlamoveit.components.LinearCartesianPathPlanningService'
 require 'xamlamoveit.components.LinearCartesianTrajectoryPlanningService'
 require 'xamlamoveit.components.JointStateAggregator'
-require 'xamlamoveit.components.MoveJSafeSteppingService'
 require 'xamlamoveit.components.MoveJSafeSteppingActionServer'
 return components
