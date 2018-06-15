@@ -50,7 +50,7 @@ heartbeat:updateStatus(heartbeat.GO, 'Working ...')
 heartbeat:publish()
 local global_state_summary = sysmon_watch:getGlobalStateSummary()
 error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
--- and mj_action_server.current_state ~= mj_action_server.all_states.FINISHED
+
 local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 while ros.ok() do
     local hasTrajectoryActive = false
@@ -67,13 +67,13 @@ while ros.ok() do
             ros.ERROR(tostring(err))
             heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
             v:reset()
-            reinitialize = true
         end
         if not hasTrajectoryActive then
             hasTrajectoryActive = v:hasTrajectoryActive()
         end
     end
     heartbeat:publish()
+    joint_monitor:waitForNextState()
     ros.spinOnce()
 
     if hasTrajectoryActive then

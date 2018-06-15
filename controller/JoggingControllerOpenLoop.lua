@@ -1,3 +1,22 @@
+--[[
+JoggingControllerOpenLoop.lua
+
+Copyright (C) 2018  Xamla info@xamla.com
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+--]]
 local ros = require 'ros'
 local moveit = require 'moveit'
 local tf = ros.tf
@@ -5,9 +24,7 @@ local planning = require 'xamlamoveit.planning'
 local core = require 'xamlamoveit.core'
 local datatypes = require 'xamlamoveit.datatypes'
 local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
---local tvpController = require 'xamlamoveit.controller.MultiAxisCppController'
 local tvpPoseController = require 'xamlamoveit.controller.MultiAxisTvpController2'
---local tvpPoseController = require 'xamlamoveit.controller.MultiAxisCppController'
 local xutils = require 'xamlamoveit.xutils'
 local error_codes = {
     OK = 1,
