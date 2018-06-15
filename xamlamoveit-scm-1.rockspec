@@ -9,8 +9,8 @@ description = {
    summary = "Moveit utilities for Rosvita control",
    detailed = [[
    ]],
-   homepage = "https://github.com/Xamla/Rosvita.Control",
-   license = ""
+   homepage = "https://github.com/Xamla/xamlamoveit",
+   license = "GPLv2"
 }
 
 dependencies = {

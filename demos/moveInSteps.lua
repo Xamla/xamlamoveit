@@ -1,7 +1,7 @@
 --[[
 moveInSteps.lua
 
-Copyright (C) 2018  Xamla info@xamla.com
+Copyright (c) 2018, Xamla and/or its affiliates. All rights reserved.
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
@@ -25,6 +25,7 @@ local error_codes = require 'xamlamoveit.core.ErrorCodes'.error_codes
 error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
 local tf = ros.tf
 local xutils = require 'xamlamoveit.xutils'
+local poseClass = require 'xamlamoveit.datatypes.Pose'
 
 --[[
     This example works with meca500
@@ -60,19 +61,19 @@ local move_group_names, move_group_details = mc:queryAvailableMoveGroups()
 local move_group = move_group_names[1]
 --Define Xamla Movegroup
 local xamla_mg = motionLibrary.MoveGroup(mc, move_group) -- motion client
-local end_effector = xamla_mg:getEndEffector()
-local end_effector_name = end_effector.name
-local end_effector_link_name = end_effector.link_name
+local xamla_ee = xamla_mg:getEndEffector()
 
-print(end_effector_name, end_effector_link_name)
 --Specify target relative to 'end_effector_link_name'
-local target = tf.StampedTransform()
-target:set_frame_id(end_effector_link_name)
-target:setOrigin(torch.Tensor {0.02, 0.0, 0.01}) -- meter
+local target = poseClass.new()
+target:setFrame(xamla_ee.link_name)
+target:setTranslation(torch.Tensor {0.02, 0.02, 0.02}) -- meter
 
 local velocity_scaling = 1
+local acceleration_scaling = 1
 local check_for_collisions = true
 local do_interaction = true
+
+-- prepare done callback
 local result_state = 1
 local result_payload = ''
 local function done_cb(state, result)
@@ -83,7 +84,7 @@ local function done_cb(state, result)
 end
 
 --Start motion
-local handle = xamla_mg:moveLSupervised(end_effector_name, target, velocity_scaling, check_for_collisions, done_cb)
+local handle = xamla_ee:movePoseLinearSupervised(target, velocity_scaling, check_for_collisions, acceleration_scaling, done_cb)
 assert(torch.isTypeOf(handle, motionLibrary.SteppedMotionClient))
 
 xutils.enableRawTerminal()
