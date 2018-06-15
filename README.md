@@ -1,4 +1,4 @@
-# XamlaMoveit
+# Xamlamoveit
 
 This package containts extentions to the ros/moveit framework, which is used in ROSVITA for the motion generation.
 

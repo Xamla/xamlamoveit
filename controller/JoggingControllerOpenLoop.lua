@@ -823,11 +823,7 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
         sendPositionCommand(self, self.controller.state.pos, self.controller.state.vel * 0, q_des:getNames(), duration)
         self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
     else
-        --for i, v in pairs(publisherPointPositionCtrl) do
-        --    v:shutdown()
-        --    v = nil
-        --end
-        --publisherPointPositionCtrl = {}
+        setStopGoals(self)
         ros.ERROR('command is not valid!!!')
     end
     self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
@@ -1171,30 +1167,10 @@ function JoggingControllerOpenLoop:update()
         end
     end
     ros.DEBUG_THROTTLE('TrackingMode', 1, string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
-    --if self.mode > jogging_node_tracking_states.IDLE then
-    --resorces are blocked ready to sent commands to robot
+
     if tryLock(self) then
         self:tracking(q_des, self.dt)
     end
-    --else
-    --    if tryLock(self) then -- lock resouce since jogging node is still active
-    --        if
-    --            self:isValid(
-    --                q_des.values,
-    --                self.lastCommandJointPositions.values,
-    --                self.lastCommandJointPositions:getNames()
-    --            )
-    --         then
-    --            assert(
-    --                self.controller.state.pos:size(1) == q_des.values:size(1),
-    --                string.format('inconsistent size: %dx%d', self.controller.state.pos:size(1), q_des.values:size(1))
-    --            )
-    --            self.controller:update(q_des.values, self.dt:toSec())
-    --            self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
-    --        end
-    --    end
-    --    self.feedback_message.joint_distance:set(q_des.values - self.controller.state.pos)
-    --end
 
     ros.DEBUG('Feedback')
     sendFeedback(self)
