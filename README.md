@@ -3,8 +3,6 @@
 
 Copyright (c) 2018, Xamla and/or its affiliates. All rights reserved.
 
-### Introduction
-
 This package containts extentions to the ros/moveit framework, which is used in the robot programming IDE ROSVITA for motion generation.
 
 License information can be found in the LICENSE file.
@@ -19,9 +17,9 @@ Xamlamoveit is brought to you by the robotics team at Xamla.
 
 #### Major features are:
 
-1. [Resource locking system](#Resource-locking-system)
-2. [Time optimal trajectory generation](#Time-optimal-trajectory-generation)
-3. [Supervised trajectory execution with user interaction](#Supervised-trajectory-execution-with-user-interaction)
+1. [Resource locking system](#resource-locking-system)
+2. [Time optimal trajectory generation](#time-optimal-trajectory-generation)
+3. [Supervised trajectory execution with user interaction](#supervised-trajectory-execution-with-user-interaction)
 
 ### Resource locking system
 
