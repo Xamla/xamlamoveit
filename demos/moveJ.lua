@@ -37,10 +37,10 @@ sp:start()
 
 --Create you dedicated motion service
 local motion_service = motionLibrary.MotionService(nh)
-local move_group_name = '/sda10d/sda10d_r1_controller'
+local move_group_name = 'controller'
 --Query necessary information about setup
 local move_group_names, move_groups_details = motion_service:queryAvailableMoveGroups()
-assert(table.indexof(move_group_names, move_group_name) > 0)
+assert(table.indexof(move_group_names, move_group_name) > 0, 'Setup has no move group with name: ' .. move_group_name)
 
 --Define Xamla move group
 local xamla_mg = motionLibrary.MoveGroup(motion_service, move_group_name) -- motion client
@@ -49,23 +49,21 @@ local MoveJTest01 =
     JointValues(
     JointSet(
         {
-            'arm_left_joint_1_s',
-            'arm_left_joint_2_l',
-            'arm_left_joint_3_e',
-            'arm_left_joint_4_u',
-            'arm_left_joint_5_r',
-            'arm_left_joint_6_b',
-            'arm_left_joint_7_t'
+            'joint1',
+            'joint2',
+            'joint3',
+            'joint4',
+            'joint5',
+            'joint6'
         }
     ),
     torch.Tensor {
-        1.0047744512557983,
-        -0.65015220642089844,
-        -0.56269752979278564,
-        -1.969570517539978,
-        -0.55776149034500122,
-        -0.10201731324195862,
-        -0.59777122735977173
+        0.8248696438037854,
+        0.525459033218468,
+        0.303317589690019,
+        0.9728705248327094,
+        -1.0943555283416977,
+        -0.5926176060964492
     }
 )
 
@@ -73,23 +71,21 @@ local MoveJTest02 =
     JointValues(
     JointSet(
         {
-            'arm_left_joint_1_s',
-            'arm_left_joint_2_l',
-            'arm_left_joint_3_e',
-            'arm_left_joint_4_u',
-            'arm_left_joint_5_r',
-            'arm_left_joint_6_b',
-            'arm_left_joint_7_t'
+            'joint1',
+            'joint2',
+            'joint3',
+            'joint4',
+            'joint5',
+            'joint6'
         }
     ),
     torch.Tensor {
-        1.3624882104493454,
-        -0.75471668552025373,
-        -0.81698250853724352,
-        -2.1300559561207195,
-        -0.46127787429665462,
-        0.15954084004409735,
-        -0.48686285534575319
+        -0.9103169285136579,
+        0.6015421475506321,
+        0.03215847631624999,
+        -1.139648725643356,
+        -1.0536745466524786,
+        0.8213946485139784
     }
 )
 

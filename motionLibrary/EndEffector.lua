@@ -54,7 +54,7 @@ function EndEffector:computePose(joint_values)
 end
 
 function EndEffector:getCurrentPose()
-     return self.move_group:getCurrentPose(self.name)
+    return self:computePose(self.move_group:getCurrentJointValues())
 end
 
 function EndEffector:planMovePoseLinear(target, velocity_scaling, collision_check, acceleration_scaling)

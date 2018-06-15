@@ -21,6 +21,7 @@ local torch = require 'torch'
 local ros = require 'ros'
 local tf = ros.tf
 local motionLibrary = require 'xamlamoveit.motionLibrary'
+local poseClass = require 'xamlamoveit.datatypes.Pose'
 
 --[[
     This example works with meca500
@@ -50,24 +51,24 @@ local xamla_ee = xamla_mg:getEndEffector(end_effector_name)
 --Specify targets relative to 'end_effector_link_name'.
 local end_effector_link_name = xamla_ee.link_name
 local A, B, C, D, E, F
-A = tf.StampedTransform()
-A:set_frame_id(end_effector_link_name)
-A:setOrigin(torch.Tensor {0.02, 0.0, 0.01})
-B = tf.StampedTransform()
-B:set_frame_id(end_effector_link_name)
-B:setOrigin(torch.Tensor {-0.02, 0.02, -0.01})
-C = tf.StampedTransform()
-C:set_frame_id(end_effector_link_name)
-C:setOrigin(torch.Tensor {0.02, 0.0, 0.01})
-D = tf.StampedTransform()
-D:set_frame_id(end_effector_link_name)
-D:setOrigin(torch.Tensor {-0.01, 0.01, -0.01})
-E = tf.StampedTransform()
-E:set_frame_id(end_effector_link_name)
-E:setOrigin(torch.Tensor {-0.01, -0.01, 0.01})
-F = tf.StampedTransform()
-F:set_frame_id(end_effector_link_name)
-F:setOrigin(torch.Tensor { 0.0, -0.02, -0.01})
+A = poseClass.new()
+A:setFrame(end_effector_link_name)
+A:setTranslation(torch.Tensor {0.02, 0.0, 0.01})
+B = poseClass.new()
+B:setFrame(end_effector_link_name)
+B:setTranslation(torch.Tensor {-0.02, 0.02, -0.01})
+C = poseClass.new()
+C:setFrame(end_effector_link_name)
+C:setTranslation(torch.Tensor {0.02, 0.0, 0.01})
+D = poseClass.new()
+D:setFrame(end_effector_link_name)
+D:setTranslation(torch.Tensor {-0.01, 0.01, -0.01})
+E = poseClass.new()
+E:setFrame(end_effector_link_name)
+E:setTranslation(torch.Tensor {-0.01, -0.01, 0.01})
+F = poseClass.new()
+F:setFrame(end_effector_link_name)
+F:setTranslation(torch.Tensor { 0.0, -0.02, -0.01})
 
 local velocity_scaling = 1
 local acceleration_scaling = 1
