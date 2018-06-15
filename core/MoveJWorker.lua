@@ -266,7 +266,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     self.joint_monitor:waitReady(10.0)
     local ok, p = self.joint_monitor:getNextPositionsTensor(0.1)
     if not ok then
-        return nil, nil, false
+        return nil, nil, self.error_codes.SIGNAL_LOST
     end
     start_state:setVariablePositions(p, self.joint_monitor:getJointNames())
     toc('getCurrentState')
@@ -284,7 +284,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     ros.INFO('start state distance to current state: %f', distance)
     if distance > self.allowed_start_tolerance then
         ros.ERROR('start state is to far away from current state. tolerance: %f', self.allowed_start_tolerance)
-        suc = false
+        suc = self.error_codes.START_STATE_VIOLATES_PATH_CONSTRAINTS
         return traj, start_state, suc
     end
 
