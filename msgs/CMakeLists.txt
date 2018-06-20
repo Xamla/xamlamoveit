@@ -57,6 +57,7 @@ add_message_files(
   MoveGroupInterfaceDescription.msg
   ControllerState.msg
   JointPathPoint.msg
+  JointValuesPoint.msg
   TrajectoryProgress.msg
 )
 
@@ -81,6 +82,16 @@ add_service_files(
    GetLinearCartesianTrajectory.srv
    GetLinearCartesianPath.srv
    SetJointPosture.srv
+   GetJointPostureWorldView.srv
+   SetJointPostureWorldView.srv
+   GetPoseWorldView.srv
+   SetPoseWorldView.srv
+   UpdateJointPostureWorldView.srv
+   UpdatePoseWorldView.srv
+   RemoveElementWorldView.srv
+   CreateFolderWorldView.srv
+   QueryPosesWorldView.srv
+   QueryJointValuesWorldView.srv
 )
 
 ## Generate actions in the 'action' folder

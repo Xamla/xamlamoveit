@@ -1,0 +1,10 @@
+geometry_msgs/PoseStamped point
+
+bool transient
+string element_path
+string display_name
+
+---
+
+bool success
+string error

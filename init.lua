@@ -10,5 +10,6 @@ xamlaMoveit.controller = require 'xamlamoveit.controller'
 xamlaMoveit.components = require 'xamlamoveit.components'
 xamlaMoveit.motionLibrary = require 'xamlamoveit.motionLibrary'
 xamlaMoveit.datatypes = require 'xamlamoveit.datatypes'
+xamlaMoveit.rosvita = require 'xamlamoveit.rosvita'
 
 return xamlaMoveit

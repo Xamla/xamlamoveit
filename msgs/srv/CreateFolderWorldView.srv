@@ -1,0 +1,6 @@
+bool transient
+string folder_path
+string folder_name
+---
+bool success
+string error

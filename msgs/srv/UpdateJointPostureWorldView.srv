@@ -1,0 +1,7 @@
+string display_name
+string element_path
+JointValuesPoint point
+bool transient
+---
+bool success
+string error

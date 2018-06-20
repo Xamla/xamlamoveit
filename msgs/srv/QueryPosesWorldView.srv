@@ -1,0 +1,8 @@
+string prefix
+string folder_path
+bool recursive
+---
+geometry_msgs/PoseStamped[] points
+
+bool success
+string error
