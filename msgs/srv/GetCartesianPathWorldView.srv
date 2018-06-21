@@ -1,0 +1,6 @@
+string element_path
+string display_name
+---
+xamlamoveit_msgs/CartesianPath path
+bool success
+string error

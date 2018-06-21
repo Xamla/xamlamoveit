@@ -1,0 +1,8 @@
+string prefix
+string folder_path
+bool recursive
+---
+xamlamoveit_msgs/CartesianPath[] paths
+
+bool success
+string error

@@ -1,0 +1,10 @@
+xamlamoveit_msgs/CartesianPath path
+
+bool transient
+string element_path
+string display_name
+
+---
+
+bool success
+string error
