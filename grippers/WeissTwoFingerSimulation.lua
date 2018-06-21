@@ -36,13 +36,13 @@ WeissTwoFingerSimulation.GRASPING_STATE_ID = {
   NO_PART_FOUND = 2,
   PART_LOST = 3,
   HOLDING = 4,
-  RELEASING = 5,
+  POSITIONING = 5,
   RELEASING = 6,
   ERROR = 7
 }
 
 WeissTwoFingerSimulation.GRASPING_STATE = {
-  "IDLE", "GRASPING", "NO_PART_FOUND", "PART_LOST", "HOLDING", "RELEASING", "RELEASING", "ERROR"
+  "IDLE", "GRASPING", "NO_PART_FOUND", "PART_LOST", "HOLDING", "POSITIONING", "RELEASING", "ERROR"
 }
 
 WeissTwoFingerSimulation.COMMAND_ID = {
@@ -312,6 +312,7 @@ end
 function WeissTwoFingerSimulation:handleGraspCommand(goal_handle)
   local goal_command = goal_handle.goal.goal.command
   self.current_state.moving_gripper = true
+  self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.POSITIONING
   self.current_state.target_grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.HOLDING
   self.current_state.target_force = self.default_values.grasping_force
   self.current_state.time_of_joint_command = ros.Time.now()
@@ -379,6 +380,12 @@ function WeissTwoFingerSimulation:handleMoveCommand(goal_handle)
   end
 
   self.current_state.moving_gripper = true
+  if self.current_state.grasping_state_id == WeissTwoFingerSimulation.GRASPING_STATE_ID.HOLDING then
+    self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.RELEASING
+  else
+    self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.POSITIONING
+  end
+
   self.current_state.target_grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
   self.current_state.target_force = target_force
   self.current_state.time_of_joint_command = ros.Time.now()
@@ -405,7 +412,7 @@ function WeissTwoFingerSimulation:getStatusResponse()
   result.grasping_force = 0
   result.acceleration = 0
   result.current_speed = 0
-  local gsi = self.current_state.target_grasping_state_id or 0
+  local gsi = self.current_state.grasping_state_id or 0
   result.grasping_state_id = gsi
   result.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[gsi + 1]
 
