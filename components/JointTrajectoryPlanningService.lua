@@ -22,6 +22,8 @@ local moveit = require 'moveit'
 local optimplan = require 'optimplan'
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetOptimJointTrajectory')
 local xutils = require 'xamlamoveit.xutils'
+local errorCodes = require 'xamlamoveit.core.ErrorCodes'.error_codes
+errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
 
 local function generateSimpleTvpTrajectory(waypoints, max_velocities, max_accelerations, dt)
     local start = waypoints[{1, {}}]
@@ -45,8 +47,6 @@ local function generateSimpleTvpTrajectory(waypoints, max_velocities, max_accele
     return time, positions, velocities, accelerations
 end
 
-
-
 local function checkPathLength(waypoints)
     assert(torch.isTypeOf(waypoints, torch.DoubleTensor), "wrong type")
     local length = 0
@@ -61,20 +61,20 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
     xutils.tic('queryJointTrajectoryServiceHandler')
     if #request.waypoints < 2 then
         ros.ERROR('Only one waypoint detected. Abort Trajectory generation.')
-        response.error_code.val = -2
+        response.error_code.val = errorCodes.INVALID_MOTION_PLAN
         return true
     end
     if request.waypoints[1].positions:nDimension() < 1 then
         ros.ERROR('Waypoints have wrong Dimensions')
-        response.error_code.val = -2
+        response.error_code.val = errorCodes.INVALID_MOTION_PLAN
         return true
     end
     local dim = request.waypoints[1].positions:size(1)
     local waypoints = torch.Tensor(#request.waypoints, dim)
     for i, v in ipairs(request.waypoints) do
         if v.positions:nDimension() < 1 then
-            response.error_code.val = -2
-            return false
+            response.error_code.val = errorCodes.INVALID_MOTION_PLAN
+            return true
         end
         waypoints[i]:copy(v.positions)
     end
@@ -135,7 +135,7 @@ local function queryJointTrajectoryServiceHandler(self, request, response, heade
         response.solution.points[i].accelerations = acc[i]
         response.solution.points[i].time_from_start = ros.Duration(time[i])
     end
-    response.error_code.val = 1
+    response.error_code.val = errorCodes.SUCCESS
     xutils.toc('queryJointTrajectoryServiceHandler')
     --print(response)
     return true

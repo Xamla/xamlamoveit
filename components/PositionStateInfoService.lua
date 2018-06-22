@@ -25,6 +25,9 @@ local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetCurrentJointState')
 local ik_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
 local fk_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetFKSolution')
 
+local errorCodes = require 'xamlamoveit.core.ErrorCodes'.error_codes
+errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
+
 local function createIKRequest(
     group_name,
     robot_state,
@@ -101,7 +104,7 @@ local function queryIKServiceHandler(self, request, response, header)
 
         if not r_state:fromRobotStateMsg(ik_res.solution) then
             response.error_codes[point_index] = ros.Message('moveit_msgs/MoveItErrorCodes')
-            response.error_codes[point_index].val = -17 -- INVALID_ROBOT_STATE
+            response.error_codes[point_index].val = errorCodes.INVALID_ROBOT_STATE
         end
         local point_msg = ros.Message('xamlamoveit_msgs/JointPathPoint')
         local state = r_state:getVariablePositions()
@@ -111,7 +114,7 @@ local function queryIKServiceHandler(self, request, response, header)
             local index = table.indexof(names, v)
             res[i] = state[index]
         end
-        if response.error_codes[point_index].val == 1 then
+        if response.error_codes[point_index].val == errorCodes.SUCCESS then
             point_msg.positions = res
             response.solutions[point_index] = point_msg
             last_good:copy(res)
@@ -149,7 +152,7 @@ local function queryFKServiceHandler(self, request, response, header)
     if ee_names == '' then
         response.error_codes[1] = ros.Message('moveit_msgs/MoveItErrorCodes')
         response.error_msgs[1] = ''
-        response.error_codes[1].val = -15
+        response.error_codes[1].val = errorCodes.INVALID_GROUP_NAME
         response.error_msgs[1] = 'MoveGroup name is empty!'
         return true
     end
@@ -170,11 +173,11 @@ local function queryFKServiceHandler(self, request, response, header)
                 response.error_codes[i].val = math.min(1, response.error_codes[i].val)
                 response.error_msgs[i] = string.format('Found solution for ee_link_name: %s', ee_link_name)
             else
-                response.error_codes[i].val = -18 --INVALID_LINK_NAME
+                response.error_codes[i].val = errorCodes.INVALID_LINK_NAME
                 response.error_msgs[i].data = string.format('INVALID_LINK_NAME: %s', ee_link_name)
             end
         else
-            response.error_codes[i].val = -17 --INVALID_JOINTS
+            response.error_codes[i].val = errorCodes.INVALID_ROBOT_STATE
             response.error_msgs[i] =
                 string.format(
                 'Number of joint names and vector size do not match: %d vs. %d',
@@ -194,7 +197,7 @@ local function queryJointPositionServiceHandler(self, request, response, header)
     response.current_joint_position.header.stamp = ros.Time.now()
     response.current_joint_position.name = joint_names
     response.current_joint_position.position = joints
-    return joints:size(1) == #joint_names
+    return joints:size(1) == #joint_names and ok
 end
 
 local components = require 'xamlamoveit.components.env'
@@ -280,8 +283,8 @@ function PositionStateInfoService:onProcess()
         return
     end
     if self.joint_monitor:isReady() then
-        local ok, joints = self.joint_monitor:getNextPositionsTensor(0.1)
-        assert(ok, 'exceeded timeout for next robot joint state.')
+        local joints, latency = self.joint_monitor:getPositionsTensor()
+        --assert(ok, 'exceeded timeout for next robot joint state.')
         self.robot_state:setVariablePositions(
             joints,
             self.joint_monitor:getJointNames()
