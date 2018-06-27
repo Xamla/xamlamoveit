@@ -1,0 +1,10 @@
+moveit_msgs/CollisionObject collision_object
+
+bool transient
+string element_path
+string display_name
+
+---
+
+bool success
+string error

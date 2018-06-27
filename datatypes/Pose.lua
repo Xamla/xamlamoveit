@@ -36,6 +36,14 @@ function Pose:setTranslation(trans)
     self.stampedTransform:setOrigin(trans)
 end
 
+function Pose:getTranslation()
+    return self.stampedTransform:getOrigin()
+end
+
+function Pose:getRotation()
+    return self.stampedTransform:getRotation():toTensor()
+end
+
 function Pose:setRotation(quaternion)
     if torch.isTypeOf(quaternion, torch.DoubleTensor) then
         local tmp = quaternion:clone()

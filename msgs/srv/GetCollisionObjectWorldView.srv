@@ -1,0 +1,6 @@
+string element_path
+string display_name
+---
+moveit_msgs/CollisionObject collision_object
+bool success
+string error

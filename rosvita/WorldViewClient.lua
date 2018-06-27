@@ -33,12 +33,27 @@ local SET_CARTESIANPATH_SERVER_ADDRESS = '/rosvita/world_view/set_cartesianpath'
 local GET_CARTESIANPATH_SERVER_ADDRESS = '/rosvita/world_view/get_cartesianpath'
 local QUERY_CARTESIANPATH_SERVER_ADDRESS = '/rosvita/world_view/query_cartesianpath'
 
+local SET_COLLISIONOBJECT_SERVER_ADDRESS = '/rosvita/world_view/set_collisionobject'
+local GET_COLLISIONOBJECT_SERVER_ADDRESS = '/rosvita/world_view/get_collisionobject'
+
 local ros = require 'ros'
 local datatypes = require 'xamlamoveit.datatypes'
+local CollisionPrimitive = datatypes.CollisionPrimitive
+local CollisionPrimitiveKind = CollisionPrimitive.CollisionPrimitiveKind
+local CollisionObject = datatypes.CollisionObject
 local rosvita = require 'xamlamoveit.rosvita.env'
 
 local joint_values_point_spec = ros.MsgSpec('xamlamoveit_msgs/JointValuesPoint')
 local cartesian_path_spec = ros.MsgSpec('xamlamoveit_msgs/CartesianPath')
+
+local solidprimitive_spec = ros.MsgSpec('shape_msgs/SolidPrimitive')
+local collisionobject_spec = ros.MsgSpec('moveit_msgs/CollisionObject')
+local objecttype_spec = ros.MsgSpec('object_recognition_msgs/ObjectType')
+
+
+local plane_spec = ros.MsgSpec('shape_msgs/Plane')
+local header_spec = ros.MsgSpec('std_msgs/Header')
+local pose_spec = ros.MsgSpec('geometry_msgs/Pose')
 
 local get_joint_posture_spec = ros.SrvSpec('xamlamoveit_msgs/GetJointPostureWorldView')
 local set_joint_posture_spec = ros.SrvSpec('xamlamoveit_msgs/SetJointPostureWorldView')
@@ -50,9 +65,61 @@ local remove_element_spec = ros.SrvSpec('xamlamoveit_msgs/RemoveElementWorldView
 local create_folder_spec = ros.SrvSpec('xamlamoveit_msgs/CreateFolderWorldView')
 local query_poses_spec = ros.SrvSpec('xamlamoveit_msgs/QueryPosesWorldView')
 local query_joint_postures_spec = ros.SrvSpec('xamlamoveit_msgs/QueryJointValuesWorldView')
-local query_cartesianpath_spec = ros.SrvSpec('xamlamoveit_msgs/QueryCartesainPathWorldView')
+local query_cartesianpath_spec = ros.SrvSpec('xamlamoveit_msgs/QueryCartesianPathWorldView')
 local set_cartesianpath_spec = ros.SrvSpec('xamlamoveit_msgs/SetCartesianPathWorldView')
 local get_cartesianpath_spec = ros.SrvSpec('xamlamoveit_msgs/GetCartesianPathWorldView')
+
+local set_collisionobject_spec = ros.SrvSpec('xamlamoveit_msgs/SetCollisionObjectWorldView')
+local get_collisionobject_spec = ros.SrvSpec('xamlamoveit_msgs/GetCollisionObjectWorldView')
+
+local function poseToPoseMsg(pose)
+    local msg = ros.Message(pose_spec)
+    local trans = pose:getTranslation()
+    local ori = pose:getRotation()
+    msg.position.x = trans[1]
+    msg.position.y = trans[2]
+    msg.position.z = trans[3]
+    msg.orientation.x = ori[1]
+    msg.orientation.y = ori[2]
+    msg.orientation.z = ori[3]
+    msg.orientation.w = ori[4]
+    return msg
+end
+
+local function poseFromPoseMsg(msg)
+    local result = datatypes.Pose()
+    local trans = torch.DoubleTensor({msg.position.x, msg.position.y, msg.position.z})
+    local rot =
+        torch.DoubleTensor {
+        msg.orientation.x,
+        msg.orientation.y,
+        msg.orientation.z,
+        msg.orientation.w
+    }
+
+    result:setTranslation(trans)
+    result:setRotation(rot)
+    return result
+end
+
+local function poseFromPoseStampedMsg(msg)
+    print(msg)
+    local result = datatypes.Pose()
+    local trans = torch.DoubleTensor({msg.pose.position.x, msg.pose.position.y, msg.pose.position.z})
+    local rot =
+        torch.DoubleTensor {
+        msg.pose.orientation.x,
+        msg.pose.orientation.y,
+        msg.pose.orientation.z,
+        msg.pose.orientation.w
+    }
+
+    local frame_id = msg.header.frame_id
+    result:setTranslation(trans)
+    result:setRotation(rot)
+    result:setFrame(frame_id)
+    return result
+end
 
 local WorldViewClient = torch.class('xamlamoveit.rosvita.WorldViewClient', rosvita)
 
@@ -70,10 +137,113 @@ function WorldViewClient:__init(node_handle)
     self.remove_element = self.node_handle:serviceClient(REMOVE_SERVER_ADDRESS, remove_element_spec)
     self.create_folder = self.node_handle:serviceClient(ADD_FOLDER_SERVER_ADDRESS, create_folder_spec)
 
-    self.update_cartesianpath = self.node_handle:serviceClient(UPDATE_CARTESIANPATH_SERVER_ADDRESS, set_cartesianpath_spec)
+    self.update_cartesianpath =
+        self.node_handle:serviceClient(UPDATE_CARTESIANPATH_SERVER_ADDRESS, set_cartesianpath_spec)
     self.set_cartesianpath = self.node_handle:serviceClient(SET_CARTESIANPATH_SERVER_ADDRESS, set_cartesianpath_spec)
     self.get_cartesianpath = self.node_handle:serviceClient(GET_CARTESIANPATH_SERVER_ADDRESS, get_cartesianpath_spec)
-    self.query_cartesianpaths = self.node_handle:serviceClient(QUERY_CARTESIANPATH_SERVER_ADDRESS, query_cartesianpath_spec)
+    self.query_cartesianpaths =
+        self.node_handle:serviceClient(QUERY_CARTESIANPATH_SERVER_ADDRESS, query_cartesianpath_spec)
+
+    self.set_collisionobject = self.node_handle:serviceClient(SET_COLLISIONOBJECT_SERVER_ADDRESS, set_collisionobject_spec)
+    self.get_collisionobject = self.node_handle:serviceClient(GET_COLLISIONOBJECT_SERVER_ADDRESS, get_collisionobject_spec)
+end
+
+local function ToCollisionPlaneMessage(primitive)
+    assert(primitive:getKind() == CollisionPrimitiveKind.Plane, 'wrong Type')
+    local plane = ros.Message(plane_spec)
+    plane.coef = primitive:getParameters()
+    return plane
+end
+
+local function ToCollisionPrimitiveMessage(primitive)
+    local kind, info = primitive:getKind()
+    local solidPrimitive = ros.Message(solidprimitive_spec)
+    assert(kind ~= CollisionPrimitiveKind.Plane)
+
+    solidPrimitive.type = kind
+
+    solidPrimitive.dimensions:set(primitive:getParameters())
+    return solidPrimitive
+end
+
+local function ToCollisionObjectMessage(collision_object)
+    local collision_object_message = ros.Message(collisionobject_spec)
+    local frame_id = collision_object:getFrame()
+    local primitive_poses = {}
+    local plane_poses = {}
+    local plane_messages = {}
+    local primitive_messages = {}
+
+    for i, obj in ipairs(collision_object:getPrimitives()) do
+        if obj:getKind() == CollisionPrimitiveKind.Plane then
+            plane_messages[#plane_messages + 1] = ToCollisionPlaneMessage(obj)
+            plane_poses[#plane_poses + 1] = obj:getPose():toStampedPoseMsg()
+        else
+            primitive_messages[#primitive_messages + 1] = ToCollisionPrimitiveMessage(obj)
+            primitive_poses[#primitive_poses + 1] = poseToPoseMsg(obj:getPose())
+        end
+    end
+
+    collision_object_message.type = ros.Message(objecttype_spec)
+    collision_object_message.primitives = primitive_messages
+    collision_object_message.primitive_poses = primitive_poses
+    collision_object_message.planes = plane_messages
+    collision_object_message.plane_poses = plane_poses
+    collision_object_message.header = ros.Message(header_spec)
+    collision_object_message.header.frame_id = frame_id
+
+    collision_object_message.meshes = {}
+    collision_object_message.mesh_poses = {}
+    return collision_object_message
+end
+
+local function ToCollisionPrimitive(primitive, pose)
+    if primitive.type == nil then
+        assert(primitive.coef ~= nil)
+        return CollisionPrimitive.CreatePlane(
+            primitive.coef[1],
+            primitive.coef[2],
+            primitive.coef[3],
+            primitive.coef[4],
+            pose
+        )
+    end
+    if primitive.type == CollisionPrimitiveKind.Box then
+        return CollisionPrimitive.CreateBox(
+            primitive.dimensions[1],
+            primitive.dimensions[2],
+            primitive.dimensions[3],
+            pose
+        )
+    end
+
+    if primitive.type == CollisionPrimitiveKind.Sphere then
+        return CollisionPrimitive.CreateSphere(primitive.dimensions[0], pose)
+    end
+
+    if primitive.type == CollisionPrimitiveKind.Cylinder then
+        return CollisionPrimitive.CreateCylinder(primitive.dimensions[0], primitive.dimensions[1], pose)
+    end
+
+    if primitive.type == CollisionPrimitiveKind.Cone then
+        return CollisionPrimitive.CreateCone(primitive.dimensions[0], primitive.dimensions[1], pose)
+    end
+
+    error('Do not know collision primitive type')
+end
+
+local function ToCollisionObject(collision_object)
+    local object_name = collision_object.id  or ""
+    local frame_id = collision_object.header.frame_id  or ""
+    local primitives = {}
+    for  i, plane in ipairs(collision_object.planes) do
+        primitives[#primitives + 1] = ToCollisionPrimitive(plane,  poseFromPoseMsg(collision_object.plane_poses[i]))
+    end
+
+    for  i, prim in ipairs(collision_object.primitives) do
+        primitives[#primitives + 1] = ToCollisionPrimitive(collision_object.primitives[i], poseFromPoseMsg(collision_object.primitive_poses[i]))
+    end
+    return CollisionObject(frame_id, primitives)
 end
 
 function WorldViewClient:getJointPosture(element_path)
@@ -126,23 +296,7 @@ function WorldViewClient:addJointValues(display_name, element_path, point, trans
     return false, 'service not valid'
 end
 
-local function poseFromPoseStampedMsg(msg)
-    local result = datatypes.Pose()
-    local trans = torch.DoubleTensor({msg.pose.position.x, msg.pose.position.y, msg.pose.position.z})
-    local rot =
-        torch.DoubleTensor {
-        msg.pose.orientation.x,
-        msg.pose.orientation.y,
-        msg.pose.orientation.z,
-        msg.pose.orientation.w
-    }
 
-    local frame_id = msg.header.frame_id
-    result:setTranslation(trans)
-    result:setRotation(rot)
-    result:setFrame(rot)
-    return result
-end
 
 function WorldViewClient:getPose(element_path)
     assert(torch.type(element_path) == 'string', 'element_path should be a string')
@@ -291,6 +445,56 @@ function WorldViewClient:getCartesianPath(element_path)
     return false, nil, 'service not valid'
 end
 
+function WorldViewClient:addCollisionObject(display_name, element_path, collision_object, transient)
+    assert(
+        torch.isTypeOf(collision_object, datatypes.CollisionObject),
+        'element_path should be a table with datatypes.CollisionObject elements'
+    )
+    assert(torch.type(display_name) == 'string', 'element_path should be a string')
+    assert(display_name ~= '', 'element_path should not be an empty string')
+
+    element_path = element_path or ''
+    transient = transient or false
+    local request = self.set_collisionobject:createRequest()
+
+    request.element_path = element_path
+    request.display_name = display_name
+    request.transient = transient
+    request.collision_object = ToCollisionObjectMessage(collision_object)
+    if self.set_collisionobject:isValid() then
+        print(request)
+        local responds = self.set_collisionobject:call(request)
+        if responds then
+            if responds.success then
+                return responds.success, responds.error
+            else
+                return responds.success, responds.error
+            end
+        end
+        print("resp is nil")
+    end
+    return false, 'service not valid'
+end
+
+function WorldViewClient:getCollisionObject(element_path)
+    assert(torch.type(element_path) == 'string', 'element_path should be a string')
+    assert(element_path ~= '', 'element_path should not be an empty string')
+    local request = self.get_collisionobject:createRequest()
+    request.element_path = element_path
+    if self.get_collisionobject:isValid() then
+        local responds = self.get_collisionobject:call(request)
+        if responds then
+            if responds.success then
+                local result = ToCollisionObject(responds.collision_object)
+                return responds.success, result, responds.error
+            else
+                return responds.success, nil, responds.error
+            end
+        end
+    end
+    return false, nil, 'service not valid'
+end
+
 function WorldViewClient:addCartesianPath(display_name, element_path, path, transient)
     assert(torch.type(path) == 'table', 'element_path should be a table with datatypes.Pose elements')
     assert(torch.type(display_name) == 'string', 'element_path should be a string')
@@ -304,7 +508,10 @@ function WorldViewClient:addCartesianPath(display_name, element_path, path, tran
     request.transient = transient
     local points = {}
     for i, point in ipairs(path) do
-        assert(torch.isTypeOf(point, datatypes.Pose), 'Should be xamlamoveit.datatypes.Pose but is:' .. torch.type(point))
+        assert(
+            torch.isTypeOf(point, datatypes.Pose),
+            'Should be xamlamoveit.datatypes.Pose but is:' .. torch.type(point)
+        )
         points[#points + 1] = point:toStampedPoseMsg()
     end
     request.path = ros.Message(cartesian_path_spec)
@@ -336,7 +543,10 @@ function WorldViewClient:updateCartesianPath(display_name, element_path, path, t
     request.transient = transient
     local points = {}
     for i, point in ipairs(path) do
-        assert(torch.isTypeOf(point, datatypes.Pose), 'Should be xamlamoveit.datatypes.Pose but is:' .. torch.type(point))
+        assert(
+            torch.isTypeOf(point, datatypes.Pose),
+            'Should be xamlamoveit.datatypes.Pose but is:' .. torch.type(point)
+        )
         points[#points + 1] = point:toStampedPoseMsg()
     end
     --request.path = ros.Message(cartesian_path_spec)
@@ -492,18 +702,23 @@ function WorldViewClient:shutdown()
     disposeRos(self, 'get_joint_posture')
     disposeRos(self, 'set_joint_posture')
     disposeRos(self, 'update_joint_posture')
+    disposeRos(self, 'query_joint_postures')
+
     disposeRos(self, 'get_pose')
     disposeRos(self, 'set_pose')
-
+    disposeRos(self, 'query_poses')
     disposeRos(self, 'update_pose')
+
     disposeRos(self, 'remove_element')
     disposeRos(self, 'create_folder')
-    disposeRos(self, 'query_poses')
-    disposeRos(self, 'query_joint_postures')
 
     disposeRos(self, 'set_cartesianpath')
     disposeRos(self, 'get_cartesianpath')
     disposeRos(self, 'query_cartesianpaths')
+    disposeRos(self, 'update_cartesianpath')
+
+    disposeRos(self, 'set_collisionobject')
+    disposeRos(self, 'get_collisionobject')
 
     assert(self.update_pose == nil)
     assert(self.query_joint_postures == nil)

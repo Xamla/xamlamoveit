@@ -92,6 +92,10 @@ add_service_files(
    CreateFolderWorldView.srv
    QueryPosesWorldView.srv
    QueryJointValuesWorldView.srv
+   QueryCartesianPathWorldView.srv
+   QueryCollisionObjectWorldView.srv
+   SetCollisionObjectWorldView.srv
+   GetCollisionObjectWorldView.srv
 )
 
 ## Generate actions in the 'action' folder

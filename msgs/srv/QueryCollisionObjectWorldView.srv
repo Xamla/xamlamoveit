@@ -1,0 +1,8 @@
+string prefix
+string folder_path
+bool recursive
+---
+moveit_msgs/CollisionObject collision_objects
+
+bool success
+string error
