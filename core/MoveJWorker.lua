@@ -282,10 +282,8 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     local traj = moveit.RobotTrajectory(self.robot_model, move_group_name)
     tic('getCurrentState')
     local start_state = moveit.RobotState.createFromModel(self.robot_model) --manipulator:getCurrentState()
-    local ok, p = self.joint_monitor:getNextPositionsTensor(0.1)
-    if not ok then
-        return nil, nil, self.error_codes.SIGNAL_LOST
-    end
+    local p, latency = self.joint_monitor:getPositionsTensor()
+
     start_state:setVariablePositions(p, self.joint_monitor:getJointNames())
     toc('getCurrentState')
     local ori_start_state = start_state:clone()
