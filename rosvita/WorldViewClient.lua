@@ -35,6 +35,8 @@ local QUERY_CARTESIANPATH_SERVER_ADDRESS = '/rosvita/world_view/query_cartesianp
 
 local SET_COLLISIONOBJECT_SERVER_ADDRESS = '/rosvita/world_view/set_collisionobject'
 local GET_COLLISIONOBJECT_SERVER_ADDRESS = '/rosvita/world_view/get_collisionobject'
+local UPDATE_COLLISIONOBJECT_SERVER_ADDRESS = '/rosvita/world_view/update_collisionobject'
+local QUERY_COLLISIONOBJECT_SERVER_ADDRESS = '/rosvita/world_view/query_collisionobject'
 
 local ros = require 'ros'
 local datatypes = require 'xamlamoveit.datatypes'
@@ -71,6 +73,7 @@ local get_cartesianpath_spec = ros.SrvSpec('xamlamoveit_msgs/GetCartesianPathWor
 
 local set_collisionobject_spec = ros.SrvSpec('xamlamoveit_msgs/SetCollisionObjectWorldView')
 local get_collisionobject_spec = ros.SrvSpec('xamlamoveit_msgs/GetCollisionObjectWorldView')
+local query_collisionobject_spec = ros.SrvSpec('xamlamoveit_msgs/QueryCollisionObjectWorldView')
 
 local function poseToPoseMsg(pose)
     local msg = ros.Message(pose_spec)
@@ -146,6 +149,8 @@ function WorldViewClient:__init(node_handle)
 
     self.set_collisionobject = self.node_handle:serviceClient(SET_COLLISIONOBJECT_SERVER_ADDRESS, set_collisionobject_spec)
     self.get_collisionobject = self.node_handle:serviceClient(GET_COLLISIONOBJECT_SERVER_ADDRESS, get_collisionobject_spec)
+    self.update_collisionobject = self.node_handle:serviceClient(UPDATE_COLLISIONOBJECT_SERVER_ADDRESS, set_collisionobject_spec)
+    self.query_collisionobject = self.node_handle:serviceClient(QUERY_COLLISIONOBJECT_SERVER_ADDRESS, query_collisionobject_spec)
 end
 
 local function ToCollisionPlaneMessage(primitive)
@@ -495,6 +500,58 @@ function WorldViewClient:getCollisionObject(element_path)
     return false, nil, 'service not valid'
 end
 
+function WorldViewClient:updateCollisionObject(display_name, element_path, collision_object, transient)
+    assert(torch.isTypeOF(collision_object, datatypes.CollisionObject) , 'element_path should be datatypes.CollisionObject')
+    assert(torch.type(display_name) == 'string', 'element_path should be a string')
+    assert(display_name ~= '', 'element_path should not be an empty string')
+
+    element_path = element_path or ''
+    transient = transient or false
+    local request = self.update_collisionobject:createRequest()
+    request.element_path = element_path
+    request.display_name = display_name
+    request.transient = transient
+    --request.path = ros.Message(cartesian_path_spec)
+    request.path.collision_object = ToCollisionObjectMessage(collision_object)
+    if self.update_collisionobject:isValid() then
+        local responds = self.update_collisionobject:call(request)
+        if responds then
+            if responds.success then
+                return responds.success, responds.error
+            else
+                return responds.success, responds.error
+            end
+        end
+    end
+    return false, 'service not valid'
+end
+
+function WorldViewClient:queryCollisionObject(prefix, folder_path, recursive)
+    assert(torch.type(prefix) == 'string', 'element_path should be a string')
+    folder_path = folder_path or ''
+    recursive = recursive or false
+    local request = self.query_collisionobject:createRequest()
+    request.prefix = prefix
+    request.folder_path = folder_path
+    request.recursive = recursive
+
+    if self.query_collisionobject:isValid() then
+        local responds = self.query_collisionobject:call(request)
+        if responds then
+            if responds.success then
+                local result = {}
+                for i, v in ipairs(responds.collision_objects) do
+                    result[#result + 1] = ToCollisionObject(v)
+                end
+                return responds.success, result, responds.error
+            else
+                return responds.success, nil, responds.error
+            end
+        end
+    end
+    return false, nil, 'service not valid'
+end
+
 function WorldViewClient:addCartesianPath(display_name, element_path, path, transient)
     assert(torch.type(path) == 'table', 'element_path should be a table with datatypes.Pose elements')
     assert(torch.type(display_name) == 'string', 'element_path should be a string')
@@ -551,7 +608,6 @@ function WorldViewClient:updateCartesianPath(display_name, element_path, path, t
     end
     --request.path = ros.Message(cartesian_path_spec)
     request.path.points = points
-    print(request.path)
     if self.update_cartesianpath:isValid() then
         local responds = self.update_cartesianpath:call(request)
         if responds then
@@ -719,6 +775,8 @@ function WorldViewClient:shutdown()
 
     disposeRos(self, 'set_collisionobject')
     disposeRos(self, 'get_collisionobject')
+    disposeRos(self, 'update_collisionobject')
+    disposeRos(self, 'query_collisionobject')
 
     assert(self.update_pose == nil)
     assert(self.query_joint_postures == nil)
