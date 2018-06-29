@@ -1,4 +1,6 @@
-![rosvita-beta-logo](https://github.com/Xamla/xamlamoveit/blob/master/rosvita-beta-logo.png)
+<img alt="Rosvita Beta Logo" src="./rosvita-beta.svg" width="400"/>
+
+This software is part of Rosvita Beta, the easiest and fastest way to get started with robot programming and ROS. You are free to use the Xamlamoveit in your own projects, but we recommend to have a look at the Rosvita IDE, where everything is already set up and you can start in no time. Checkit out, it's free for personal usage.
 
 
 ## Xamlamoveit
