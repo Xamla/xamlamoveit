@@ -1,5 +1,5 @@
+![rosvita-beta-logo](https://github.com/Xamla/xamlamoveit/blob/master/rosvita-beta-logo.png)
 
-![rosvita-beta-logo](https://github.com/xamlamoveit/rosvita-beta-logo.png)
 
 ## Xamlamoveit
 
