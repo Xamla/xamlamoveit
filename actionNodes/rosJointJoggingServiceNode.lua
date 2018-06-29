@@ -275,7 +275,7 @@ local function joggingServer(name)
     initSetup(name or 'joggingServer')
     local nh = node_handle
     local ns = nh:getNamespace()
-    local dt = ros.Rate(125 / 2)
+    local dt = ros.Rate(250)
     ros.INFO('Get robot description for robot model.')
     local robot_model_loader = moveit.RobotModelLoader('robot_description')
     local robot_model = robot_model_loader:getModel()
@@ -348,8 +348,9 @@ local function joggingServer(name)
 
     local print_idle_once = false
     local print_running_once = false
-
+    local last_loop_start
     while ros.ok() do
+        last_loop_start = ros.Time.now()
         ros.spinOnce()
         --collectgarbage()
         local sys_state = sysmon_watch:getGlobalStateSummary()
@@ -378,6 +379,12 @@ local function joggingServer(name)
             idle_dt:sleep()
         end
         dt:sleep()
+        local new_dt = ros.Time.now() - last_loop_start
+        if new_dt < dt:expectedCycleTime() * 10 then
+            cntr:setDeltaT(new_dt)
+        else
+            cntr:setDeltaT(dt)
+        end
     end
     set_limits_server:shutdown()
     get_limits_server:shutdown()

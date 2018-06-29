@@ -382,20 +382,10 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.lastCommandJointPositions = createJointValues(self.joint_set.joint_names, values)
     self.controller = tvpController.new(#self.joint_set.joint_names)
     self.taskspace_controller = tvpPoseController.new(3)
-
-    if torch.type(dt) == 'number' or torch.type(dt) == 'nil' then
-        self.dt = ros.Duration(dt)
-    elseif torch.type(dt) == 'nil' then
-        self.dt = ros.Duration(0.01)
-    elseif torch.isTypeOf(dt, ros.Rate) then
-        self.dt = ros.Duration(dt:expectedCycleTime())
-    elseif torch.type(dt, ros.Duration) then
-        self.dt = dt
-    else
-        error('dt has unsupported type')
-    end
-    self.servoing_target_time_from_start = self.dt
+    self.dt = nil
+    self:setDeltaT(dt)
     self.start_time = ros.Time.now()
+    self.last_command_send_time = ros.Time.now()
     self.start_cool_down_time = ros.Time.now()
 
     self.controller_list = ctr_list
@@ -1178,7 +1168,7 @@ function JoggingControllerOpenLoop:update()
     ros.DEBUG_THROTTLE('TrackingMode', 1, string.format('[JoggingControllerOpenLoop] Control Mode: %d', self.mode))
 
     if tryLock(self) then
-        self:tracking(q_des, self.servoing_target_time_from_start)
+        self:tracking(q_des, (ros.Time.now() - self.last_command_send_time))
     end
 
     ros.DEBUG('Feedback')
@@ -1381,19 +1371,24 @@ function JoggingControllerOpenLoop:getJointLimitsChecks()
     return not self.no_joint_limits_check
 end
 
-function JoggingControllerOpenLoop:setTimeFromStart(dt)
-    local dt = dt or self.dt
+local function validateTimeDuration(dt)
     if torch.type(dt) == 'number' then
-        self.servoing_target_time_from_start = ros.Duration(self.dt)
+        dt = ros.Duration(dt)
     elseif torch.type(dt) == 'nil' then
-        self.servoing_target_time_from_start = ros.Duration(0.01)
+        dt = ros.Duration(0.01)
     elseif torch.isTypeOf(dt, ros.Rate) then
-        self.servoing_target_time_from_start = ros.Duration(dt:expectedCycleTime())
+        dt = ros.Duration(dt:expectedCycleTime())
     elseif torch.type(dt, ros.Duration) then
-        self.servoing_target_time_from_start = dt
+        -- do nothing
     else
         error('dt has unsupported type')
     end
+    return dt
+end
+
+function JoggingControllerOpenLoop:setDeltaT(dt)
+    self.dt = validateTimeDuration(dt)
+    ros.DEBUG("frequenc change: %f", self.dt:toSec())
 end
 
 return JoggingControllerOpenLoop
