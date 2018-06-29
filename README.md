@@ -1,4 +1,6 @@
 
+![rosvita-beta-logo](https://github.com/xamlamoveit/rosvita-beta-logo.png)
+
 ## Xamlamoveit
 
 Copyright (c) 2018, Xamla and/or its affiliates. All rights reserved.
