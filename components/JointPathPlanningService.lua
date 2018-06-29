@@ -20,6 +20,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 local ros = require 'ros'
 local moveit = require 'moveit'
 local xutils = require 'xamlamoveit.xutils'
+local errorCodes = require 'xamlamoveit.core.ErrorCodes'
+errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetMoveItJointPath')
 
 local function table_concat(dst, src)
@@ -63,9 +65,11 @@ local function initializeMoveGroup(self, group_id, velocity_scaling)
 end
 
 local function getMoveitPath(self, group_name, joint_names, waypoints)
-    ros.INFO("getMoveitPath")
-    local manipulator = initializeMoveGroup(self, group_name)
     local num_steps = waypoints:size(1)
+    ros.INFO("getMoveitPath with %d via points", num_steps)
+    local manipulator = initializeMoveGroup(self, group_name)
+    manipulator:setPlanningTime(5) --sec
+    manipulator:setNumPlanningAttempts(5)
     local plannedwaypoints = {}
     local robot_state = manipulator:getCurrentState()
     for i = 1, num_steps do
@@ -79,8 +83,8 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
             end
             xutils.tic('moveit plan request')
             local s, p = manipulator:plan()
-            if s == 0 then
-                ros.ERROR('Moveit Planning failed')
+            if s ~= 1 then
+                ros.ERROR('Moveit Planning failed: [%d] %s',s, errorCodes[s])
                 return false, nil, robot_state:getVariableNames():totable()
             end
             local positions, velocities, accelerations, efforts = p:convertTrajectoyMsgToTable(p:getTrajectoryMsg())
@@ -128,7 +132,7 @@ local function queryJointPathServiceHandler(self, request, response, header)
     local joint_names_m
     moveit_plan_success, waypoints, joint_names_m = getMoveitPath(self, request.group_name, request.joint_names, waypoints)
     if moveit_plan_success then
-        ros.INFO('moveit plan succeeded')
+        ros.INFO('moveit plan succeeded generated %d waypoints', #waypoints)
         response.error_code.val = 1
         local spec = ros.MsgSpec('xamlamoveit_msgs/JointPathPoint')
         for i, v in ipairs(waypoints) do
