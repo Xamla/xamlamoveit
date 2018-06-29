@@ -276,19 +276,28 @@ local function joggingServer(name)
     local nh = node_handle
     local ns = nh:getNamespace()
     local dt = ros.Rate(250)
+    local idle_dt = ros.Rate(10)
     ros.INFO('Get robot description for robot model.')
     local robot_model_loader = moveit.RobotModelLoader('robot_description')
     local robot_model = robot_model_loader:getModel()
 
+    ros.INFO('Extract move groups and end_effectors')
     all_EE_parent_group_names, all_EE_parent_link_names = robot_model:getEndEffectorParentGroups()
-    all_group_joint_names = robot_model:getJointModelGroupNames()
+    all_group_joint_names = robot_model:getJointModelGroupNames() or {}
     local planningGroup, succ = nh:getParamString('move_group')
     if not succ or (table.indexof(all_group_joint_names, planningGroup or '') < 0) then
-        planningGroup = all_group_joint_names[1]
+        if #all_group_joint_names>0 then
+            planningGroup = all_group_joint_names[1]
+        else
+            ros.INFO("no planning groups available. [Idle] mode.")
+            while ros.ok() do
+                idle_dt:sleep()
+            end
+        end
     end
 
+
     ros.INFO('Connect controller.')
-    local idle_dt = ros.Rate(10)
     local sub = nh:subscribe('/execute_trajectory/status', 'actionlib_msgs/GoalStatusArray')
     while ros.ok and sub:getNumPublishers() == 0 do
         ros.spinOnce()
@@ -298,9 +307,7 @@ local function joggingServer(name)
     sub = nil
     local config = nh:getParamVariable(string.format('%s/controller_list', nh:getNamespace()))
     ros.INFO('get move group interface')
-    if not ros.ok() then
-        return
-    end
+    assert(ros.ok(), "ros is not running!")
     local move_group = moveit.MoveGroupInterface(planningGroup)
     local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable())
     local ready = false
