@@ -67,6 +67,7 @@ end
 local function shutdownSetup()
     sp:stop()
     ros.shutdown()
+    print("shutdown complete")
 end
 
 local FLAGS = {
@@ -378,6 +379,17 @@ local function joggingServer(name)
         end
         dt:sleep()
     end
+    set_limits_server:shutdown()
+    get_limits_server:shutdown()
+    set_movegroup_server:shutdown()
+    get_movegroup_server:shutdown()
+    set_endeffector_server:shutdown()
+    get_endeffector_server:shutdown()
+    start_stop_server:shutdown()
+    set_flag_server:shutdown()
+    get_flag_server:shutdown()
+    get_flag_names_server:shutdown()
+    cntr:shutdown()
 end
 
 local result = xutils.parseRosParametersFromCommandLine(arg) or {}
