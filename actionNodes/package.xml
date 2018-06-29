@@ -3,7 +3,7 @@
   <version>1.0.0</version>
   <description>The xamlamoveit_server package</description>
   <maintainer email="andre.lemme@xamla.com">Xamla Team</maintainer>
-  <license>BSD</license>
+  <license>GPLv2</license>
   <buildtool_depend>catkin</buildtool_depend>
   <build_depend>message_generation</build_depend>
   <build_depend>xamlamoveit_msgs</build_depend>
