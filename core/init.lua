@@ -4,6 +4,6 @@ require 'xamlamoveit.core.MonitorBuffer'
 require 'xamlamoveit.core.JointMonitor'
 require 'xamlamoveit.core.TrajectoryHandler'
 require 'xamlamoveit.core.TrajectorySampler'
-require 'xamlamoveit.core.LeasedBaseLockClient'
+require 'xamlamoveit.core.LeaseBasedLockClient'
 require 'xamlamoveit.core.JointCommandWorker'
 return core

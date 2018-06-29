@@ -1,5 +1,5 @@
 --[[
-LeasedBaseLockClient.lua
+LeaseBasedLockClient.lua
 
 Copyright (c) 2018, Xamla and/or its affiliates. All rights reserved.
 
@@ -20,9 +20,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 -- simple buffer
 local ros = require 'ros'
 local core = require 'xamlamoveit.core.env'
-local LeasedBaseLockClient = torch.class('xamlamoveit.core.LeasedBaseLockClient', core)
+local LeaseBasedLockClient = torch.class('xamlamoveit.core.LeaseBasedLockClient', core)
 
-function LeasedBaseLockClient:__init(node_handle)
+function LeaseBasedLockClient:__init(node_handle)
     self.nh = node_handle
     self.query_resource_lock_service =
         self.nh:serviceClient('/xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
@@ -52,7 +52,7 @@ local function query_lock(self, id_resources, id_lock, release_flag)
     return false
 end
 
-function LeasedBaseLockClient:lock(id_resources, id_lock)
+function LeaseBasedLockClient:lock(id_resources, id_lock)
     local suc, id_lock, creation_date, expiration_date = query_lock(self, id_resources, id_lock, false)
     local lock = {
         success = suc,
@@ -64,14 +64,14 @@ function LeasedBaseLockClient:lock(id_resources, id_lock)
     return lock
 end
 
-function LeasedBaseLockClient:release(lock)
+function LeaseBasedLockClient:release(lock)
     assert(torch.type(lock) == 'table', "type should be 'table' but is: " .. torch.type(lock))
     assert(lock.id, 'Lock should have an id but it is nil')
     return query_lock(self, lock.resources, lock.id, true)
 end
 
-function LeasedBaseLockClient:shutdown()
+function LeaseBasedLockClient:shutdown()
     self.query_resource_lock_service:shutdown()
 end
 
-return LeasedBaseLockClient
+return LeaseBasedLockClient

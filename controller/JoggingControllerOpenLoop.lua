@@ -348,7 +348,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.kinematic_model = self.robot_model_loader:getModel()
     self.end_effector_to_move_group_map, self.end_effector_to_link_map = getEndEffectorMoveGroupMap(self)
     self.planning_scene = moveit.PlanningScene(self.kinematic_model)
-    self.lock_client = core.LeasedBaseLockClient(node_handle)
+    self.lock_client = core.LeaseBasedLockClient(node_handle)
     self.current_id = ''
     self.joint_monitor = joint_monitor
 
