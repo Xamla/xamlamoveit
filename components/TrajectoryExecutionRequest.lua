@@ -115,12 +115,12 @@ function TrajectoryExecutionRequest:proceed()
             ros.DEBUG('goal position: ' .. tostring(q))
             ros.DEBUG('Latency: ' .. tostring(l))
             if now:toSec() - self.starttime_debug:toSec() > ros.Duration(5):toSec() then
-                ros.ERROR('[TrajectoryExecutionRequest] Trajectory start is not working!!')
+                ros.ERROR('[TrajectoryExecutionRequest] Trajectory start is not working.')
                 self.status = errorCodes.CONTROL_FAILED
                 return false
             end
             if delta:gt(self.position_deviation_threshold):sum() > 0 then
-                ros.ERROR('[TrajectoryExecutionRequest] joint tracking error is too big!!')
+                ros.ERROR('[TrajectoryExecutionRequest] joint tracking error is too big.')
                 self.status = errorCodes.GOAL_VIOLATES_PATH_CONSTRAINTS
                 return false
             end

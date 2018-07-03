@@ -83,7 +83,7 @@ end
 local function initializeMoveGroup(self, group_id, velocity_scaling)
     local group_id = group_id or 'manipulator'
     if checkMoveGroupName(self, group_id) then
-        local velocity_scaling = velocity_scaling or 0.5
+        local velocity_scaling = velocity_scaling or 1.0
         ros.INFO('connection with movegroup: ' .. group_id)
         local manipulator = moveit.MoveGroupInterface(group_id)
         ros.INFO('set parameters for movegroup: ' .. group_id)

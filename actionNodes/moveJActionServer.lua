@@ -46,34 +46,40 @@ local dt = ros.Rate(125)
 dt:reset()
 
 local idle_dt = ros.Rate(20)
-heartbeat:updateStatus(heartbeat.GO, 'Working ...')
+heartbeat:updateStatus(heartbeat.GO, 'Running ...')
 heartbeat:publish()
 local global_state_summary = sysmon_watch:getGlobalStateSummary()
 error_state = global_state_summary.no_go and not global_state_summary.only_secondary_error
 
 local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 while ros.ok() do
+    local ok = joint_monitor:waitForNextState(0.5)
     local hasTrajectoryActive = false
-    for i, v in ipairs(mj_action_server) do
-        local status,
-            err =
-            xpcall(
-            function()
-                v:spin()
-            end,
-            error_msg_func
-        )
-        if status == false then
-            ros.ERROR(tostring(err))
-            heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
-            v:reset()
+    if ok then
+        heartbeat:updateStatus(heartbeat.GO, 'Running ...')
+        for i, v in ipairs(mj_action_server) do
+            local status,
+                err =
+                xpcall(
+                function()
+                    v:spin()
+                end,
+                error_msg_func
+            )
+            if status == false then
+                ros.ERROR(tostring(err))
+                heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
+                v:reset()
+            end
+            if not hasTrajectoryActive then
+                hasTrajectoryActive = v:hasTrajectoryActive()
+            end
         end
-        if not hasTrajectoryActive then
-            hasTrajectoryActive = v:hasTrajectoryActive()
-        end
+    else
+        heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, 'Missing Joint States.')
     end
     heartbeat:publish()
-    joint_monitor:waitForNextState()
+
     ros.spinOnce()
 
     if hasTrajectoryActive then
