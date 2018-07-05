@@ -181,9 +181,11 @@ local function next(self, msg, header)
             self.index,
             #self.goal.goal.trajectory.points
         )
+        local traj = self.goal.goal.trajectory
+        local index = #traj.points
         self.simulated_time = self.simulated_time + self.dt --* self.scaling
-        if self.simulated_time:toSec() < 0 then
-            self.simulated_time = ros.Duration(0)
+        if self.simulated_time:toSec() > traj.points[index].time_from_start:toSec() then
+            self.simulated_time = traj.points[index].time_from_start
         end
         self.current_direction = MOTIONDIRECTIONS.forward
     end
