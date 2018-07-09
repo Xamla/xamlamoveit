@@ -909,20 +909,52 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             false,
             link_name
         )
+
+
         if suc then
             state:update()
+            local jac = state:getJacobian(self.move_groups[self.curr_move_group_name]:getName())
+            local eig, V = torch.eig(jac * jac:t())
+            local det = 1
+            for i = 1, eig:size(1) do
+                det = det * eig[i]
+            end
+
+            if det < 5e-4  then
+                return self.lastCommandJointPositions, error_codes.CLOSE_TO_SINGULARITY
+            end
+
+            local tmp_target = poseTo6DTensor(self.target_pose:clone():mul( self.current_pose:inverse()))
             posture_goal =
                 createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(joint_names)
+
+            -- Check if pose motion direction is corresponding to the joint posture motion direction (handles IK jumps)
+            local tmp_q = posture_goal:clone()
+            local tmp_q_dot = posture_goal:clone()
+            tmp_q_dot = (tmp_q_dot - self.lastCommandJointPositions) * self.dt:toSec()
+            tmp_q:add(tmp_q_dot)
+            state:setVariablePositions(tmp_q:getValues(), tmp_q:getNames())
+            state:update()
+            local cmd_curr = poseTo6DTensor(state:getGlobalLinkTransform(link_name):mul( self.current_pose:inverse()))
+
+            if tmp_target:norm() > 1e-3 then
+                if 1 - torch.dot(tmp_target/tmp_target:norm(), cmd_curr/cmd_curr:norm()) > 1e-4 then
+                    ros.ERROR('[transformPose2PostureTarget] Directions do not match')
+                    return self.lastCommandJointPositions, error_codes.IK_JUMP_DETECTED
+                end
+            end
         else
             ros.ERROR('[transformPose2PostureTarget] Could not set IK solution.')
+            return self.lastCommandJointPositions, error_codes.FRAME_TRANSFORM_FAILURE
         end
     else
         ros.WARN(
             "[transformPose2PostureTarget] Cannot uses this move group: '%s' since it has no EndEffector Link. ",
             self.curr_move_group_name or '?'
         )
+        return self.lastCommandJointPositions, error_codes.INVALID_LINK_NAME
     end
-    return posture_goal
+    return posture_goal, error_codes.OK
 end
 
 local function detectNan(vector)
@@ -1025,17 +1057,18 @@ function JoggingControllerOpenLoop:update()
         local rel_poseAB = pose_goal:clone()
         rel_poseAB = rel_poseAB:mul(self.current_pose:inverse())
         local tmp = tf.StampedTransform(rel_poseAB:mul(self.current_pose))
-        local posture_tmp_goal = transformPose2PostureTarget(self, tmp, q_dot:getNames())
+        local posture_tmp_goal, err_code = transformPose2PostureTarget(self, tmp, q_dot:getNames())
         if posture_tmp_goal and self.lastCommandJointPositions then
             q_dot = posture_tmp_goal - self.lastCommandJointPositions
             self.mode = jogging_node_tracking_states.POSE
-        else
-            ros.ERROR('transformation from pose to posture failed')
-            self.feedback_message.error_code = error_codes.FRAME_TRANSFORM_FAILURE
+            self.feedback_message.error_code = err_code
+            if err_code ~= error_codes.OK then
+                stop_received = true
+            end
         end
 
         if torch.abs(q_dot.values):gt(math.pi / 2):sum() > 1 then
-            ros.ERROR('detected jump in IK. ')
+            ros.ERROR('detected jump in IK.')
             self.feedback_message.error_code = error_codes.IK_JUMP_DETECTED
             q_dot.values:zero()
         end
@@ -1101,7 +1134,7 @@ function JoggingControllerOpenLoop:update()
         local tmp = tf.StampedTransform()
         tmp:setOrigin(rel_poseAB:getOrigin() + self.current_pose:getOrigin())
         tmp:setRotation(rel_poseAB:getRotation() * self.current_pose:getRotation())
-        local posture_tmp_goal = transformPose2PostureTarget(self, tmp, q_dot:getNames())
+        local posture_tmp_goal, err_code = transformPose2PostureTarget(self, tmp, q_dot:getNames())
 
         if posture_tmp_goal and self.lastCommandJointPositions then
             q_dot = posture_tmp_goal - self.lastCommandJointPositions
@@ -1109,8 +1142,10 @@ function JoggingControllerOpenLoop:update()
                 q_dot.values:zero()
             end
             self.mode = jogging_node_tracking_states.TWIST
-        else
-            ros.ERROR('transformation from pose to posture failed')
+            self.feedback_message.error_code = err_code
+            if err_code ~= error_codes.OK then
+                stop_received = true
+            end
         end
 
         if torch.abs(q_dot.values):gt(math.pi / 2):sum() > 1 then
