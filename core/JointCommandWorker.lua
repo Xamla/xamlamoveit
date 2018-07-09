@@ -31,6 +31,7 @@ JointCommandWorker.ERROR_TYPE = {
 local function generateSimpleTvpTrajectory(start, goal, max_velocities, max_accelerations, dt)
   local dim = goal:size(1)
   local controller = require 'xamlamoveit.controller'.MultiAxisTvpController(dim)
+  ros.INFO(string.format('[JointCommandWorkd] Generate trajectory with vel: %f, acc: %f', max_velocities[1], max_accelerations[1]))
   controller.max_vel:copy(max_velocities)
   controller.max_acc:copy(max_accelerations)
   local result = controller:generateOfflineTrajectory(start, goal, dt)
@@ -57,7 +58,7 @@ end
 
 
 ---
-function JointCommandWorker:move(joint_names, joint_values)
+function JointCommandWorker:move(joint_names, joint_values, opt)
   if (self.trajectory_callbacks == nil) then
     ros.ERROR('No callback handlers for the trajectory handler were set. You have to call setCallbacks first.')
     error(JointCommandWorker.ERROR_TYPE.NO_CALLBACKS_SET)
@@ -69,6 +70,18 @@ function JointCommandWorker:move(joint_names, joint_values)
     target_positions[k] = v
   end
   local max_min_pos, max_vel, max_acc = self.motion_service:queryJointLimits(joint_names)
+  if opt ~= nil then
+    print('[JointCommandWorker] opt: ', opt, max_vel, max_acc)
+    for k, _ in ipairs(joint_values) do
+      if opt[k] ~= nil and opt[k].max_vel ~= nil and max_vel[k] > opt[k].max_vel then
+        max_vel[k] = opt[k].max_vel
+      end
+      if opt[k] ~= nil and opt[k].max_acc ~= nil and max_acc[k] > opt[k].max_acc then
+        max_acc[k] = opt[k].max_acc
+      end
+    end
+  end
+
 
   local time, pos, vel, acc = generateSimpleTvpTrajectory(
     current_positions, target_positions, max_vel, max_acc, 0.016

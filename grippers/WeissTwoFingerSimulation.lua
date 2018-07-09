@@ -72,14 +72,14 @@ local function initializeActionServerAndServices(self)
   -- Initialize services
   self.services = {}
   self.services.set_acceleration = self.node_handle:advertiseService(
-    'set_accelartion',
+    'set_acceleration',
     set_value_spec,
-    function(request, response, header) return self:handleSetService(request, response, header) end
+    function(request, response, header) return self:handleSetService('set_acceleration', request, response, header) end
   )
   self.services.set_force = self.node_handle:advertiseService(
     'set_force',
     set_value_spec,
-    function(request, response, header) return self:handleSetService(request, response, header) end
+    function(request, response, header) return self:handleSetService('set_force', request, response, header) end
   )
   self.services.acknowledge_error = self.node_handle:advertiseService(
     'acknowledge_error',
@@ -154,7 +154,9 @@ function WeissTwoFingerSimulation:__init(node_handle, joint_command_namespace, a
   self.gripper_sim = gripper_sim
   self.current_state = {
     grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE,
-    moving_gripper = false
+    moving_gripper = false,
+    acceleration = 1,
+    speed = 0.1
   }
   self.default_values = {
     grasping_force = 10
@@ -199,7 +201,11 @@ function WeissTwoFingerSimulation:dispatchJointCommand(joint_value)
     end
   }
   self.joint_command_worker:setCallbacks(callbacks)
-  self.joint_command_worker:move({self.actuated_joint_name}, {joint_value})
+  local opt = {
+    max_acc = self.current_state.acceleration,
+    max_vel = self.current_state.speed
+  }
+  self.joint_command_worker:move({self.actuated_joint_name}, {joint_value}, {opt})
 end
 
 
@@ -317,6 +323,7 @@ function WeissTwoFingerSimulation:handleGraspCommand(goal_handle)
   self.current_state.target_force = self.default_values.grasping_force
   self.current_state.time_of_joint_command = ros.Time.now()
   self.current_state.goal_handle = goal_handle
+  self.current_state.speed = goal_command.speed
   self.current_state.proceed = true
 
   self:dispatchJointCommand(goal_command.width / 2.0)
@@ -390,6 +397,7 @@ function WeissTwoFingerSimulation:handleMoveCommand(goal_handle)
   self.current_state.target_force = target_force
   self.current_state.time_of_joint_command = ros.Time.now()
   self.current_state.goal_handle = goal_handle
+  self.current_state.speed = goal_command.speed
   self.current_state.proceed = true
 
   self:dispatchJointCommand(target_width / 2.0)
@@ -397,8 +405,12 @@ function WeissTwoFingerSimulation:handleMoveCommand(goal_handle)
 end
 
 
-function WeissTwoFingerSimulation:handleSetService(request, response, header)
+function WeissTwoFingerSimulation:handleSetService(type, request, response, header)
   response.error = 0
+  if (request ~= nil and request.val ~= nil and type == 'set_acceleration') then
+    print('[WeissTwoFingerSimulation] Set acceleration to: ', request.val)
+    self.current_state.acceleration = request.val
+  end
   return true
 end
 
@@ -410,7 +422,7 @@ function WeissTwoFingerSimulation:getStatusResponse()
   result.connection_state = 1
   result.current_force = self.current_state.target_force or 0
   result.grasping_force = 0
-  result.acceleration = 0
+  result.acceleration = self.current_state.acceleration or 0
   result.current_speed = 0
   local gsi = self.current_state.grasping_state_id or 0
   result.grasping_state_id = gsi
