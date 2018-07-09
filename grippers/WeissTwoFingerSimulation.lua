@@ -84,17 +84,17 @@ local function initializeActionServerAndServices(self)
   self.services.acknowledge_error = self.node_handle:advertiseService(
     'acknowledge_error',
     empty_service_spec,
-    function(request, response, header) return self:handleEmptyService(request, response, header) end
+    function(request, response, header) return self:handleEmptyService('acknowledge_error', request, response, header) end
   )
   self.services.soft_stop = self.node_handle:advertiseService(
     'soft_stop',
     empty_service_spec,
-    function(request, response, header) return self:handleEmptyService(request, response, header) end
+    function(request, response, header) return self:handleEmptyService('soft_stop', request, response, header) end
   )
   self.services.fast_stop = self.node_handle:advertiseService(
     'fast_stop',
     empty_service_spec,
-    function(request, response, header) return self:handleEmptyService(request, response, header) end
+    function(request, response, header) return self:handleEmptyService('fast_stop', request, response, header) end
   )
   self.services.get_gripper_status = self.node_handle:advertiseService(
     'get_gripper_status',
@@ -156,7 +156,8 @@ function WeissTwoFingerSimulation:__init(node_handle, joint_command_namespace, a
     grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE,
     moving_gripper = false,
     acceleration = 1,
-    speed = 0.1
+    speed = 0.1,
+    stop_requested = false
   }
   self.default_values = {
     grasping_force = 10
@@ -252,7 +253,15 @@ function WeissTwoFingerSimulation:handleCancleCallback(goal_handle)
 end
 
 
-function WeissTwoFingerSimulation:handleEmptyService(request, response, header)
+function WeissTwoFingerSimulation:handleEmptyService(type, request, response, header)
+  if type == 'acknowledge_error' then
+    self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
+  elseif type == 'soft_stop' then
+    self.current_state.proceed = false
+    self.current_state.stop_requested = true
+  elseif type == 'fast_stop' then
+    self.current_state.proceed = false
+  end
   return true
 end
 
@@ -275,6 +284,9 @@ function WeissTwoFingerSimulation:handleGoalCallback(goal_handle)
       goal_handle:setAccepted()
       if goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.STOP then
         self.current_state.proceed = false
+        self.current_state.stop_requested = true
+      elseif goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.ACKNOWLEDGE_ERROR then
+        self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
       end
       local result = self:createResult(goal_handle)
       goal_handle:setSucceeded(result)
@@ -355,7 +367,12 @@ function WeissTwoFingerSimulation:handleJointCommandFinished(worker_response, tr
     self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
     if result.spec.type == 'wsg_50_common/CommandResult' then
       result.status.current_force = 0
-      result.status.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
+      if self.current_state.stop_requested == true then
+        result.status.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
+        self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
+      else
+        result.status.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
+      end
       result.status.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
     end
 
@@ -367,6 +384,7 @@ function WeissTwoFingerSimulation:handleJointCommandFinished(worker_response, tr
   end
 
   self.current_state.proceed = false
+  self.current_state.stop_requested = false
   self.current_state.goal_handle = nil
   self.current_state.target_grasping_state_id = nil
   self.current_state.target_force = nil
