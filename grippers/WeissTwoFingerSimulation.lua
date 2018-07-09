@@ -315,6 +315,7 @@ function WeissTwoFingerSimulation:handleGoalCallback(goal_handle)
       self:handleMoveCommand(goal_handle)
     elseif goal_command.command_id == WeissTwoFingerSimulation.COMMAND_ID.HOMING then
       goal_handle.goal.goal.command.width = 0
+      goal_handle.goal.goal.command.speed = 0.2
       self:handleMoveCommand(goal_handle)
     else
       local out = goal_command or -1

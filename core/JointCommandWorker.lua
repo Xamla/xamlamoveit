@@ -31,7 +31,7 @@ JointCommandWorker.ERROR_TYPE = {
 local function generateSimpleTvpTrajectory(start, goal, max_velocities, max_accelerations, dt)
   local dim = goal:size(1)
   local controller = require 'xamlamoveit.controller'.MultiAxisTvpController(dim)
-  ros.INFO(string.format('[JointCommandWorkd] Generate trajectory with vel: %f, acc: %f', max_velocities[1], max_accelerations[1]))
+  ros.INFO(string.format('[JointCommandWorker] Generate trajectory with vel: %f, acc: %f', max_velocities[1], max_accelerations[1]))
   controller.max_vel:copy(max_velocities)
   controller.max_acc:copy(max_accelerations)
   local result = controller:generateOfflineTrajectory(start, goal, dt)
@@ -40,7 +40,7 @@ local function generateSimpleTvpTrajectory(start, goal, max_velocities, max_acce
   local accelerations = torch.zeros(#result, dim)
   local time = {}
   for i = 1, #result do
-    time[i] = dt * i
+    time[i] = dt * (i-1)
     positions[{i, {}}]:copy(result[i].pos)
     velocities[{i, {}}]:copy(result[i].vel)
     accelerations[{i, {}}]:copy(result[i].acc)

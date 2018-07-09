@@ -305,7 +305,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     end
 
     traj:addSuffixWayPoint(start_state, dt)
-    local last_time_from_start = dt
+    local last_time_from_start = trajectory.points[1].time_from_start:toSec()
     local p = start_state:clone()
     for i = 2, #trajectory.points do
         dt = trajectory.points[i].time_from_start:toSec() - last_time_from_start

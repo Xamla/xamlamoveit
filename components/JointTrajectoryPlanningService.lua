@@ -38,7 +38,7 @@ local function generateSimpleTvpTrajectory(waypoints, max_velocities, max_accele
     local accelerations = torch.zeros(#result, dim)
     local time = {}
     for i = 1, #result do
-        time[i] = dt * i
+        time[i] = dt * (i-1)
         positions[{i, {}}]:copy(result[i].pos)
         velocities[{i, {}}]:copy(result[i].vel)
         accelerations[{i, {}}]:copy(result[i].acc)
