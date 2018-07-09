@@ -914,11 +914,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
         if suc then
             state:update()
             local jac = state:getJacobian(self.move_groups[self.curr_move_group_name]:getName())
-            local eig, V = torch.eig(jac * jac:t())
-            local det = 1
-            for i = 1, eig:size(1) do
-                det = det * eig[i]
-            end
+            local det = torch.eig(jac * jac:t(), 'N'):select(2,1):prod()
 
             if det < 5e-4  then
                 return self.lastCommandJointPositions, error_codes.CLOSE_TO_SINGULARITY
