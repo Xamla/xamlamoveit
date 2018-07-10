@@ -53,7 +53,7 @@ error_state = global_state_summary.no_go and not global_state_summary.only_secon
 
 local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 while ros.ok() do
-    local ok = joint_monitor:waitForNextState(0.5)
+    local ok = joint_monitor:waitForNextState(2.5)
     local hasTrajectoryActive = false
     if ok then
         heartbeat:updateStatus(heartbeat.GO, 'Running ...')

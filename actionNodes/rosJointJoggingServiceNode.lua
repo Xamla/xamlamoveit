@@ -299,7 +299,7 @@ local function joggingServer(name)
 
     ros.INFO('Connect controller.')
     local sub = nh:subscribe('/execute_trajectory/status', 'actionlib_msgs/GoalStatusArray')
-    while ros.ok and sub:getNumPublishers() == 0 do
+    while ros.ok() and sub:getNumPublishers() == 0 do
         ros.spinOnce()
         idle_dt:sleep()
     end
