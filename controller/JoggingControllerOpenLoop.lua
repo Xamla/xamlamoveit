@@ -26,6 +26,7 @@ local datatypes = require 'xamlamoveit.datatypes'
 local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
 local tvpPoseController = require 'xamlamoveit.controller.MultiAxisTvpController2'
 local xutils = require 'xamlamoveit.xutils'
+
 local error_codes = {
     OK = 1,
     INVALID_IK = -1,
@@ -336,6 +337,8 @@ local function getEndEffectorMoveGroupMap(self)
 end
 
 local controller = require 'xamlamoveit.controller.env'
+local determinant = controller.determinant
+local detectNan = controller.detectNan
 local JoggingControllerOpenLoop = torch.class('xamlamoveit.controller.JoggingControllerOpenLoop', controller)
 
 function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group, ctr_list, dt, debug)
@@ -450,18 +453,6 @@ local function clamp(t, min, max)
         return math.max(math.min(t, max), min)
     end
     return torch.cmin(t, max):cmax(min)
-end
-
---- calculates the weighted pseudoInverse of M
--- @param M: Matrix which needs to be inversed
--- @param W: weight Matrix. (Optional)
-local function pseudoInverse(M, W)
-    local weights = W or torch.eye(M:size(1))
-    assert(M:size(1) == weights:size()[1], 'Data matrix M and weight matrix W need to have the same number of cols')
-    local inv = M:t() * weights * M
-    -- make it definite
-    inv:add(1e-15, torch.eye(inv:size(1)))
-    return torch.inverse(inv) * M:t() * weights
 end
 
 local function msg2StampedTransform(msg)
@@ -593,7 +584,7 @@ local function satisfiesBounds(self, positions, joint_names)
 
     local in_joint_limits = true
     if not self.no_joint_limits_check then
-       in_joint_limits = self.joint_limits:satisfiesBounds(tmp_joint_values)
+        in_joint_limits = self.joint_limits:satisfiesBounds(tmp_joint_values)
     end
 
     if in_joint_limits then
@@ -612,7 +603,8 @@ local function satisfiesBounds(self, positions, joint_names)
         state:update()
         --positions:copy(state:copyJointGroupPositions(self.move_group:getName()):clone())
         self_collisions = not self.no_self_collision_check and self.planning_scene:checkSelfCollision(state)
-        is_state_colliding = not self.no_scene_collision_check and self.planning_scene:isStateColliding(nil, state, true)
+        is_state_colliding =
+            not self.no_scene_collision_check and self.planning_scene:isStateColliding(nil, state, true)
         self.feedback_message.error_code = error_codes.JOINT_LIMITS_VIOLATED
         if not (self_collisions or is_state_colliding) then
             ros.WARN('Target position is out of bounds')
@@ -900,7 +892,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
 
         local state = self.state:clone()
         local attempts, timeout = 1, self.dt:toSec() * 2
-        local suc =
+        local suc = (not detectNan(self.target_pose:getOrigin())) and
             state:setFromIK(
             self.move_groups[self.curr_move_group_name]:getName(),
             self.target_pose:toTransform(),
@@ -910,17 +902,16 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             link_name
         )
 
-
         if suc then
             state:update()
             local jac = state:getJacobian(self.move_groups[self.curr_move_group_name]:getName())
-            local det = torch.eig(jac * jac:t(), 'N'):select(2,1):prod()
+            local det = determinant(jac * jac:t())
 
-            if det < 5e-4  then
+            if det < 1e-8 then
                 return self.lastCommandJointPositions, error_codes.CLOSE_TO_SINGULARITY
             end
 
-            local tmp_target = poseTo6DTensor(self.target_pose:clone():mul( self.current_pose:inverse()))
+            local tmp_target = poseTo6DTensor(self.target_pose:clone():mul(self.current_pose:inverse()))
             posture_goal =
                 createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(joint_names)
 
@@ -931,10 +922,10 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             tmp_q:add(tmp_q_dot)
             state:setVariablePositions(tmp_q:getValues(), tmp_q:getNames())
             state:update()
-            local cmd_curr = poseTo6DTensor(state:getGlobalLinkTransform(link_name):mul( self.current_pose:inverse()))
+            local cmd_curr = poseTo6DTensor(state:getGlobalLinkTransform(link_name):mul(self.current_pose:inverse()))
 
             if tmp_target:norm() > 1e-3 then
-                if 1 - torch.dot(tmp_target/tmp_target:norm(), cmd_curr/cmd_curr:norm()) > 1e-4 then
+                if 1 - torch.dot(tmp_target / tmp_target:norm(), cmd_curr / cmd_curr:norm()) > 1e-4 then
                     ros.ERROR('[transformPose2PostureTarget] Directions do not match')
                     return self.lastCommandJointPositions, error_codes.IK_JUMP_DETECTED
                 end
@@ -951,15 +942,6 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
         return self.lastCommandJointPositions, error_codes.INVALID_LINK_NAME
     end
     return posture_goal, error_codes.OK
-end
-
-local function detectNan(vector)
-    for i = 1, vector:size(1) do
-        if vector[i] ~= vector[i] then
-            return true
-        end
-    end
-    return false
 end
 
 function JoggingControllerOpenLoop:update()
@@ -979,7 +961,10 @@ function JoggingControllerOpenLoop:update()
     local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
 
     --update state
-    if self.controller.converged == true and self.cool_down_timeout:toSec() < (curr_time - self.start_cool_down_time):toSec() then
+    if
+        self.controller.converged == true and
+            self.cool_down_timeout:toSec() < (curr_time - self.start_cool_down_time):toSec()
+     then
         --sync with real world
 
         self.mode = jogging_node_tracking_states.IDLE
@@ -1240,10 +1225,12 @@ function JoggingControllerOpenLoop:reset()
     self:getFullRobotState()
     self.target_pose = self.current_pose:clone()
 
-    local max_min_pos, max_vel, max_acc = queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
+    local max_min_pos, max_vel, max_acc =
+        queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
     max_vel = max_vel * self.max_speed_scaling
 
-    self.joint_limits = datatypes.JointLimits(self.joint_set, max_min_pos[{{},1}], max_min_pos[{{},2}], max_vel, max_acc)
+    self.joint_limits =
+        datatypes.JointLimits(self.joint_set, max_min_pos[{{}, 1}], max_min_pos[{{}, 2}], max_vel, max_acc)
 
     local key =
         table.findFirst(
@@ -1419,7 +1406,7 @@ end
 
 function JoggingControllerOpenLoop:setDeltaT(dt)
     self.dt = validateTimeDuration(dt)
-    ros.DEBUG("frequenc change: %f", self.dt:toSec())
+    ros.DEBUG('frequenc change: %f', self.dt:toSec())
 end
 
 return JoggingControllerOpenLoop
