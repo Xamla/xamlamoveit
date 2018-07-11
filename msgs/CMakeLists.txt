@@ -96,6 +96,8 @@ add_service_files(
    QueryCollisionObjectWorldView.srv
    SetCollisionObjectWorldView.srv
    GetCollisionObjectWorldView.srv
+   SetCartesianPathWorldView.srv
+   GetCartesianPathWorldView.srv
 )
 
 ## Generate actions in the 'action' folder
