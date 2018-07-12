@@ -59,6 +59,7 @@ add_message_files(
   JointPathPoint.msg
   JointValuesPoint.msg
   TrajectoryProgress.msg
+  CartesianPath.msg
 )
 
 ## Generate services in the 'srv' folder
