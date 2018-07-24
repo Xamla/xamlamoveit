@@ -735,8 +735,8 @@ function MotionService:getDefaultPlanParameters(
     local max_min_pos
     if not max_velocity and not max_acceleration then
         max_min_pos, max_velocity, max_acceleration = self:queryJointLimits(joint_names)
-        max_positions = max_min_pos[{1, {}}]:clone()
-        min_positions = max_min_pos[{2, {}}]:clone()
+        max_positions = max_min_pos[{{}, 1}]:clone()
+        min_positions = max_min_pos[{{}, 2}]:clone()
     end
     return PlanParameters.new(
         move_group_name,
