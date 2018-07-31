@@ -148,15 +148,20 @@ end
 
 local function queryFKServiceHandler(self, request, response, header)
     local r_state = self.robot_state:clone()
-    local ee_names = self.robot_model:getGroupEndEffectorName(request.group_name)
-    if ee_names == '' then
+    local group_name = request.group_name
+    local ee_link_name = request.end_effector_link
+
+    if ee_link_name == nil or ee_link_name == '' then
+      local ee_names = self.robot_model:getGroupEndEffectorName(group_name)
+      if ee_names == '' then
         response.error_codes[1] = ros.Message('moveit_msgs/MoveItErrorCodes')
         response.error_msgs[1] = ''
         response.error_codes[1].val = errorCodes.INVALID_GROUP_NAME
         response.error_msgs[1] = 'MoveGroup name is empty!'
         return true
+      end
+      ee_link_name = self.robot_model:getEndEffectorLinkName(ee_names)
     end
-    local ee_link_name = self.robot_model:getEndEffectorLinkName(ee_names)
 
     for i = 1, #request.points do
         response.error_codes[i] = ros.Message('moveit_msgs/MoveItErrorCodes')
