@@ -65,7 +65,7 @@ for i, v in pairs(services) do
     v:start()
 end
 
-heartbeat:updateStatus(heartbeat.GO, 'Working ...')
+heartbeat:updateStatus(heartbeat.STARTING, 'Init ...')
 heartbeat:publish()
 
 local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
@@ -74,14 +74,19 @@ local dt = ros.Rate(20)
 while ros.ok() and not emerg_stop_flag do
     local ok = joint_monitor:waitForNextState(1/20)
     if ok then
+        local status = true
         for i, v in pairs(services) do
-            local status, err = xpcall( function() v:spin() end, error_msg_func )
+            local single_status, err = xpcall( function() v:spin() end, error_msg_func )
             if v.current_state == 5 then
                 emerg_stop_flag = true
             end
-            if status == false then
+            if single_status == false then
+                status = false
                 heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
             end
+        end
+        if status == true then
+            heartbeat:updateStatus(heartbeat.GO, 'Working ...')
         end
     end
     heartbeat:publish()
