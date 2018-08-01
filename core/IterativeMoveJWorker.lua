@@ -65,6 +65,30 @@ local function checkParameterForAvailability(self, topic, wait_duration, max_cou
     return value
 end
 
+local function checkStartState(self, trajectory)
+    local start_state = moveit.RobotState.createFromModel(self.robot_model) --manipulator:getCurrentState()
+    local p, latency = self.joint_monitor:getPositionsTensor()
+
+    start_state:setVariablePositions(p, self.joint_monitor:getJointNames())
+    local ori_start_state = start_state:clone()
+    start_state:setVariablePositions(trajectory.points[1].positions, trajectory.joint_names)
+    start_state:setVariableVelocities(trajectory.points[1].velocities, trajectory.joint_names)
+    if trajectory.points[1].accelerations:size() == trajectory.points[1].positions:size() then
+        ros.INFO('Set Accelerations')
+        start_state:setVariableAccelerations(trajectory.points[1].accelerations, trajectory.joint_names)
+    end
+    start_state:update()
+
+    local distance = ori_start_state:distance(start_state)
+    ros.INFO('start state distance to current state: %f', distance)
+    if distance > self.allowed_start_tolerance then
+        local msg = string.format('start state is too far away from current state. tolerance: %f', self.allowed_start_tolerance)
+        ros.ERROR(msg)
+        return self.error_codes.START_STATE_VIOLATES_PATH_CONSTRAINTS, msg
+    end
+    return self.error_codes.SUCCESS, ''
+end
+
 function IterativeMoveJWorker:__init(nh, joint_monitor)
     self.trajectoryQueue = {} -- list of pending trajectories
     self.syncCallbacks = {}
@@ -81,7 +105,7 @@ function IterativeMoveJWorker:__init(nh, joint_monitor)
         self.joint_monitor = joint_monitor
     else
         ros.INFO('[IterativeMoveJWorker] created own joint monitor')
-        self.joint_monitor = core.JointMonitor(self.robot_model:getActiveJointNames():totable(),nil,nil,nh)
+        self.joint_monitor = core.JointMonitor(self.robot_model:getActiveJointNames():totable(), nil, nil, nh)
     end
     local once = true
     local ready = false
@@ -157,6 +181,10 @@ local function handleMoveJTrajectory(self, traj)
         traj.joint_monitor = self.joint_monitor
         traj.move_group_name = group_name
     end
+
+    if status == 0 then
+        status, msg = checkStartState(self, traj.goal.goal.trajectory)
+    end
     return traj, status, msg
 end
 
@@ -165,16 +193,16 @@ local function dispatchTrajectory(self)
     if self.current_plan == nil then
         if #self.trajectoryQueue > 0 then -- check if new trajectory is available
             while #self.trajectoryQueue > 0 do
-                --print('#self.trajectoryQueue ' .. #self.trajectoryQueue)
                 local traj = table.remove(self.trajectoryQueue, 1)
                 traj.joint_monitor = self.joint_monitor
                 local msg
                 traj, status, msg = handleMoveJTrajectory(self, traj)
+
                 if traj.accept == nil or traj:accept() then -- call optional accept callback
+                    traj.status = math.min(traj.status, status)
                     self.current_plan = {
                         startTime = sys.clock(), -- debug information
                         traj = traj,
-                        status = status,
                         error_msg = msg
                     }
                     break
