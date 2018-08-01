@@ -326,7 +326,7 @@ local function simulation(delay, dt)
             ros.DEBUG('latency: %f', ros.Time.now():toSec() - last_command_time:toSec())
         else
             if initialized then
-                ros.ERROR('error state')
+                ros.INFO('Error state occured. Need to reinitialize tracking target.')
                 initialized = false
             end
             if heartbeat:getStatus() == heartbeat.GO then
