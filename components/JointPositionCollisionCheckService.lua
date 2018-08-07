@@ -82,29 +82,30 @@ local function queryCollisionCheckServiceHandler(self, request, response, header
             return true
         end
 
-        ros.INFO('set state')
+        ros.DEBUG('set state')
         robot_state:setVariablePositions(request.points[i].positions, request.joint_names)
-        ros.INFO('update state')
+        ros.DEBUG('update state')
         robot_state:update()
-        ros.INFO('sync scene')
+        ros.DEBUG('sync scene')
         self.plan_scene:syncPlanningScene()
-        ros.INFO('checks selfcollision')
-        local is_state_colliding = self.plan_scene:isStateColliding(request.move_group_name, robot_state, true)
-        ros.INFO('checks scene collision')
+        ros.DEBUG('checks selfcollision')
+        local is_state_colliding = self.plan_scene:isStateColliding(nil, robot_state, true)
+        ros.DEBUG('checks scene collision')
         local has_self_collision = self.plan_scene:checkSelfCollision(robot_state)
-        ros.INFO('set collision')
+        ros.DEBUG('set collision')
         response.in_collision[i] = is_state_colliding or has_self_collision
-        if is_state_colliding then
+        if has_self_collision then
+            response.messages[i] = 'joint state has self collisions'
+            response.error_codes[i] = codes.STATE_SELF_COLLISION
+        elseif is_state_colliding then
             response.messages[i] = 'joint state is colliding'
             response.error_codes[i] = codes.STATE_SCENE_COLLISION
-        elseif has_self_collision then
-            response.messages[i] = 'joint state has self collisions'
-            ros.INFO('set self collision: ' .. response.messages[i])
-            response.error_codes[i] = codes.STATE_SELF_COLLISION
         else
             response.messages[i] = 'State is valid.'
-            ros.INFO('No collision: ' .. response.messages[i])
             response.error_codes[i] = codes.STATE_VALID
+        end
+        if response.error_codes[i] ~= codes.STATE_VALID then
+            ros.INFO('index [%d] %s', i, response.messages[i])
         end
         response.success = true
     end

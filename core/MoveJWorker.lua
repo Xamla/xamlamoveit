@@ -328,7 +328,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
         tic('checkCollision')
         if self.plan_scene:syncPlanningScene() then --TODO parameter einstellen. performance check
             if not self.plan_scene:isPathValid(start_state, traj, move_group_name, true) then
-                ros.ERROR('[generateRobotTrajectory] Path not valid')
+                ros.ERROR('[generateRobotTrajectory] Path not valid. Collision detected.')
                 suc = self.error_codes.INVALID_MOTION_PLAN
             end
         else
