@@ -1077,6 +1077,7 @@ function JoggingControllerOpenLoop:update()
             self.goals.posture_goal = nil
             q_dot.values:zero()
             self.mode = jogging_node_tracking_states.IDLE
+            stop_received = true
         else
             self.controller.converged = false
         end
