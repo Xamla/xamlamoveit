@@ -864,6 +864,7 @@ local function tryLock(self)
 end
 
 local function transformPose2PostureTarget(self, pose_goal, joint_names)
+    local status = error_codes.OK
     local world_link_name = 'world'
     local link_name
     if self.curr_end_effector_name then
@@ -908,7 +909,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             local det = determinant(jac * jac:t())
 
             if det < 1e-8 then
-                return self.lastCommandJointPositions, error_codes.CLOSE_TO_SINGULARITY
+                status = error_codes.CLOSE_TO_SINGULARITY
             end
 
             local tmp_target = poseTo6DTensor(self.target_pose:clone():mul(self.current_pose:inverse()))
@@ -941,7 +942,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
         )
         return self.lastCommandJointPositions, error_codes.INVALID_LINK_NAME
     end
-    return posture_goal, error_codes.OK
+    return posture_goal, status
 end
 
 function JoggingControllerOpenLoop:update()
@@ -1043,8 +1044,9 @@ function JoggingControllerOpenLoop:update()
             q_dot = posture_tmp_goal - self.lastCommandJointPositions
             self.mode = jogging_node_tracking_states.POSE
             self.feedback_message.error_code = err_code
-            if err_code ~= error_codes.OK then
-                stop_received = true
+            stop_received = true
+            if err_code == error_codes.OK or err_code == error_codes.CLOSE_TO_SINGULARITY then
+                stop_received = false
             end
         end
 
@@ -1125,8 +1127,9 @@ function JoggingControllerOpenLoop:update()
             end
             self.mode = jogging_node_tracking_states.TWIST
             self.feedback_message.error_code = err_code
-            if err_code ~= error_codes.OK then
-                stop_received = true
+            stop_received = true
+            if err_code == error_codes.OK or err_code == error_codes.CLOSE_TO_SINGULARITY then
+                stop_received = false
             end
         end
 
