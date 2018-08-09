@@ -110,7 +110,6 @@ local function initializeActionServerAndServices(self)
   self.action_server:registerCancelCallback(
     function(goal_handle) self:handleCancleCallback(goal_handle) end
   )
-  self.action_server:start()
 
   -- Initialize ros gripper command action server
   self.standard_action_server = actionlib.ActionServer(self.node_handle, 'gripper_command', 'control_msgs/GripperCommand')
@@ -120,7 +119,6 @@ local function initializeActionServerAndServices(self)
   self.standard_action_server:registerCancelCallback(
     function(goal_handle) self:handleStandardCancleCallback(goal_handle) end
   )
-  self.standard_action_server:start()
 
   self.joint_monitor = core.JointMonitor({self.actuated_joint_name})
   self.last_status_update = ros.Time.now()
@@ -144,6 +142,10 @@ local function initializeActionServerAndServices(self)
 
   self.joint_command_node_handle = ros.NodeHandle(self.joint_command_namespace)
   self.joint_command_worker = core.JointCommandWorker.new(self.joint_command_node_handle, self.joint_monitor)
+
+  -- Start action servers
+  self.standard_action_server:start()
+  self.action_server:start()
 end
 
 
@@ -201,12 +203,16 @@ function WeissTwoFingerSimulation:dispatchJointCommand(joint_value)
       self:handleJointCommandFinished(WeissTwoFingerSimulation.WORKER_RESPONSE.COMPLETED, traj)
     end
   }
-  self.joint_command_worker:setCallbacks(callbacks)
-  local opt = {
-    max_acc = self.current_state.acceleration,
-    max_vel = self.current_state.speed
-  }
-  self.joint_command_worker:move({self.actuated_joint_name}, {joint_value}, {opt})
+  if self.joint_command_worker ~= nil then
+    self.joint_command_worker:setCallbacks(callbacks)
+    local opt = {
+      max_acc = self.current_state.acceleration,
+      max_vel = self.current_state.speed
+    }
+    self.joint_command_worker:move({self.actuated_joint_name}, {joint_value}, {opt})
+  else
+    callbacks.abort()
+  end
 end
 
 
@@ -477,11 +483,13 @@ end
 
 
 function WeissTwoFingerSimulation:spin()
-  self.joint_command_worker:spin()
-  if ros.Time.now():toSec() - self.last_status_update:toSec() > 1 then
-    self.last_status_update = ros.Time.now()
-    local m = self:getStatusResponse()
-    self.state_publisher:publish(m)
+  if self.joint_command_worker ~= nil then
+    self.joint_command_worker:spin()
+    if ros.Time.now():toSec() - self.last_status_update:toSec() > 1 then
+      self.last_status_update = ros.Time.now()
+      local m = self:getStatusResponse()
+      self.state_publisher:publish(m)
+    end
   end
 end
 
