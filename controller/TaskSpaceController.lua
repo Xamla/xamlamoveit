@@ -32,10 +32,8 @@ local function tensor6DToPose(vector6D)
     assert(vector6D:size(1) == 6, 'Vector should be of size 6D (offset, anglevelocities)')
     local end_pose = tf.Transform()
     end_pose:setOrigin(vector6D[{{1, 3}}])
-    if vector6D[{{4, 6}}]:norm() > 1e-12 then
-        local end_pose_rotation = end_pose:getRotation()
-        end_pose:setRotation(end_pose_rotation:setRotation(vector6D[{{4, 6}}], vector6D[{{4, 6}}]:norm()))
-    end
+    local end_pose_rotation = end_pose:getRotation()
+    end_pose:setRotation(end_pose_rotation:setRPY(vector6D[{{4, 6}}]))
     return end_pose
 end
 
@@ -53,7 +51,7 @@ function TaskSpaceController:__init()
     self.norm_max_acc[{{4, 6}}]:fill(math.pi / 2)
 end
 
-local function transformInput(input)
+local function transformInput(input, ref)
     local new_input
     if torch.isTypeOf(input, tf.StampedTransform) then
         input = input:toTransform()
@@ -62,7 +60,13 @@ local function transformInput(input)
     if torch.isTypeOf(input, tf.Transform) then
         new_input = torch.zeros(6)
         new_input[{{1, 3}}] = input:getOrigin()
-        new_input[{{4, 6}}] = input:getRotation():getAxis() * input:getRotation():getAngle()
+        local A = input:getRotation():getRPY(1)
+        local B = input:getRotation():getRPY(2)
+        if (A-ref):norm() < (B-ref):norm() then
+            new_input[{{4, 6}}]:copy(A)
+        else
+            new_input[{{4, 6}}]:copy(B)
+        end
     end
     if torch.isTypeOf(input, torch.DoubleTensor) then
         new_input = input
@@ -84,14 +88,14 @@ function TaskSpaceController:getCurrentPose()
 end
 
 function TaskSpaceController:setCurrentPose(pose)
-    self.state.pos = transformInput(pose)
+    self.state.pos = transformInput(pose, self.state.pos[{{4,6}}])
 end
 
 function TaskSpaceController:generateOfflineTrajectory(start, goal, dt, start_vel)
-    goal = transformInput(goal)
-    start = transformInput(start)
+    start = transformInput(start, torch.zeros(3))
+    goal = transformInput(goal, start[{{4,6}}] )
     if start_vel then
-        start_vel = transformInput(start_vel)
+        start_vel = transformInput(start_vel, torch.zeros(3))
     end
     return TvpController.generateOfflineTrajectory(self, start, goal, dt, start_vel)
 end

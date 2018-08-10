@@ -311,8 +311,9 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
         dt = trajectory.points[i].time_from_start:toSec() - last_time_from_start
         if not (dt > 0) then
             ros.INFO('i %d, total %d, dt %f', i, #trajectory.points, dt)
+            ros.ERROR ('trajectory time must be strictly increasing')
+            return traj, start_state, self.error_codes.INVALID_MOTION_PLAN
         end
-        assert(dt > 0, 'trajectory time must be strictly increasing')
         last_time_from_start = trajectory.points[i].time_from_start:toSec()
 
         p:setVariablePositions(trajectory.points[i].positions, trajectory.joint_names)
@@ -329,7 +330,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
         if self.plan_scene:syncPlanningScene() then --TODO parameter einstellen. performance check
             if not self.plan_scene:isPathValid(start_state, traj, move_group_name, true) then
                 ros.ERROR('[generateRobotTrajectory] Path not valid. Collision detected.')
-                suc = self.error_codes.INVALID_MOTION_PLAN
+                suc = self.error_codes.GOAL_IN_COLLISION
             end
         else
             ros.ERROR('[generateRobotTrajectory] Planning Scene could not be updated')

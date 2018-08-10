@@ -135,7 +135,7 @@ local function poseStampedMsg2StampedTransform(self, msg)
     return success, result
 end
 
-local function poseTo6DTensor(input)
+local function poseTo6DTensor(input, ref)
     local new_input
     if torch.isTypeOf(input, tf.StampedTransform) then
         input = input:toTransform()
@@ -144,8 +144,17 @@ local function poseTo6DTensor(input)
     if torch.isTypeOf(input, tf.Transform) then
         new_input = torch.zeros(6)
         new_input[{{1, 3}}] = input:getOrigin()
-        new_input[{{4, 6}}] = input:getRotation():getAxis() * input:getRotation():getAngle()
+
+        --RPY version
+        local A = input:getRotation():getRPY(1)
+        local B = input:getRotation():getRPY(2)
+        if (A-ref):norm() < (B-ref):norm() then
+            new_input[{{4, 6}}]:copy(A)
+        else
+            new_input[{{4, 6}}]:copy(B)
+        end
     end
+
     if torch.isTypeOf(input, torch.DoubleTensor) then
         new_input = input
     end
@@ -162,7 +171,7 @@ local function tensor6DToPose(vector6D)
     end_pose:setOrigin(vector6D[{{1, 3}}])
     if vector6D[{{4, 6}}]:norm() > 1e-12 then
         local end_pose_rotation = end_pose:getRotation()
-        end_pose:setRotation(end_pose_rotation:setRotation(vector6D[{{4, 6}}], vector6D[{{4, 6}}]:norm()))
+        end_pose:setRotation(end_pose_rotation:setRPY(vector6D[{{4, 6}}]))
     end
     return end_pose
 end
@@ -186,7 +195,8 @@ local function pose2jointTrajectory(
     poses6D,
     end_effector_name,
     collision_check,
-    ik_jump_threshold)
+    ik_jump_threshold,
+    dt)
     local code = error_codes.SUCCESS
     if collision_check == false then
         ros.WARN('[pose2jointTrajectory]Collision checks are disabled')
@@ -225,8 +235,8 @@ local function pose2jointTrajectory(
                 local tmp = createJointValues(traj_joint_names, new_state)
                 result[i] = {}
                 result[i].pos = tmp:select(traj_joint_names):getValues()
-                result[i].vel = pseudoInverse(jac) * poseTo6DTensor(pose.vel)
-                if torch.abs(result[i].vel):gt(velocity_limits):sum() > 0 then
+                result[i].vel = pseudoInverse(jac) * pose.vel
+                if torch.abs(result[i].vel * dt):gt(velocity_limits):sum() > 0 then
                     ros.ERROR(
                         '[pose2jointTrajectory] Exceeded joint limits in move_group %s. Transformed %f%% of trajectory',
                         move_group,
@@ -245,7 +255,7 @@ local function pose2jointTrajectory(
             end
         else
             ros.ERROR(
-                '[pose2jointTrajectory] Could not set IK solution for move_group %s. Transformed %f%% of trajectory',
+                '[pose2jointTrajectory] Could not set IK solution for move_group %s. Transformed %f%% of trajectory.',
                 move_group,
                 100 * i / #poses6D
             )
@@ -302,16 +312,14 @@ local function getLinearPath(
     return result, error_codes.SUCCESS
 end
 
-local function transformInput(input)
+local function transformInput(input, ref)
     local new_input
     if torch.isTypeOf(input, tf.StampedTransform) then
         input = input:toTransform()
     end
 
     if torch.isTypeOf(input, tf.Transform) then
-        new_input = torch.zeros(6)
-        new_input[{{1, 3}}] = input:getOrigin()
-        new_input[{{4, 6}}] = input:getRotation():getAxis() * input:getRotation():getAngle()
+        new_input = poseTo6DTensor(input, ref)
     end
     if torch.isTypeOf(input, torch.DoubleTensor) then
         new_input = input
@@ -351,12 +359,14 @@ local function getOptimLinearPath(
     end
     tic('getLinearPath')
     local tmp_waypoints = {}
+    local ref = torch.zeros(3)
     for i,v in ipairs(waypoints) do
         local suc, transformed = poseStampedMsg2StampedTransform(self, v)
         if suc == false then
             return {}, error_codes.FRAME_TRANSFORM_FAILURE
         end
-        tmp_waypoints[#tmp_waypoints + 1] = transformInput(transformed)
+        tmp_waypoints[#tmp_waypoints + 1] = transformInput(transformed, ref)
+        ref = tmp_waypoints[#tmp_waypoints][{{4, 6}}]
     end
     tmp_waypoints = torch.cat(tmp_waypoints,2):t()
 
@@ -462,7 +472,8 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         g_path,
         request.end_effector_name,
         request.collision_check,
-        request.ik_jump_threshold
+        request.ik_jump_threshold,
+        request.dt
     )
     if code < 0 then
         response.error_code.val = code
@@ -473,18 +484,26 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
     toc('generateTrajectory')
 
     ros.INFO('Generated Trajectory is valid!')
-
-    response.solution.joint_names = request.joint_names
+    local move_group = self.end_effector_map[request.end_effector_name]
+    local traj = moveit.RobotTrajectory(self.robot_model, move_group)
+    local tmp_msg = traj:getRobotTrajectoryMsg()
+    tmp_msg.joint_trajectory = ros.Message('trajectory_msgs/JointTrajectory')
+    tmp_msg.joint_trajectory.joint_names = request.joint_names
     for i = 1, time:size(1) do
-        response.solution.points[i] = ros.Message('trajectory_msgs/JointTrajectoryPoint')
-        response.solution.points[i].positions = pos[i]
-        response.solution.points[i].velocities = vel[i]
+        tmp_msg.joint_trajectory.points[i] = ros.Message('trajectory_msgs/JointTrajectoryPoint')
+        tmp_msg.joint_trajectory.points[i].positions = pos[i]
+        tmp_msg.joint_trajectory.points[i].velocities = vel[i]
         if acc then
-            response.solution.points[i].accelerations = acc[i]
+            tmp_msg.joint_trajectory.points[i].accelerations = acc[i]
         end
-        response.solution.points[i].time_from_start = ros.Duration(time[i])
+        tmp_msg.joint_trajectory.points[i].time_from_start = ros.Duration(time[i])
     end
-
+    ros.INFO("Check for limits")
+    traj:setRobotTrajectoryMsg(self.robot_state, tmp_msg)
+    traj:unwind()
+    tmp_msg = traj:getRobotTrajectoryMsg()
+    response.solution.joint_names = request.joint_names
+    response.solution.points = tmp_msg.joint_trajectory.points
     response.error_code.val = 1
     return true
 end
