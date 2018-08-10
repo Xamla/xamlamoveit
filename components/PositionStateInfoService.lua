@@ -174,7 +174,7 @@ local function queryFKServiceHandler(self, request, response, header)
             if pose then
                 local position = pose:getOrigin()
                 local quaternion = pose:getRotation():toTensor()
-                response.solutions[i] = createPoseMsg('', position, quaternion)
+                response.solutions[i] = createPoseMsg('world', position, quaternion)
                 response.error_codes[i].val = math.min(1, response.error_codes[i].val)
                 response.error_msgs[i] = string.format('Found solution for ee_link_name: %s', ee_link_name)
             else
