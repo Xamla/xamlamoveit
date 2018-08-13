@@ -36,7 +36,8 @@ local error_codes = {
     IK_JUMP_DETECTED = -5,
     CLOSE_TO_SINGULARITY = -6,
     JOINT_LIMITS_VIOLATED = -7,
-    INVALID_LINK_NAME = -8
+    INVALID_LINK_NAME = -8,
+    TASK_SPACE_JUMP_DETECTED = -9
 }
 
 local jogging_node_tracking_states = {
@@ -267,7 +268,7 @@ local function sendPositionCommand(self, q_des, q_dot, names, dt)
     end
 end
 
-local function sendFeedback(self)
+local function sendFeedback(self, changing)
     ros.DEBUG('sendFeedback to: ' .. self.publisher_feedback:getTopic())
 
     local rel_pose = self.target_pose:mul(self.current_pose:inverse())
@@ -282,6 +283,22 @@ local function sendFeedback(self)
             end
         end
     ) -- replace nan values by 0
+
+    -- if last error was not ok
+    if self.feedback_message.error_code == error_codes.OK and self.last_error_code ~= error_codes.OK then
+        -- override ok status with last error if no new valid command was set
+        if self.controller.converged or changing < 1e-10 then
+            self.feedback_message.error_code = self.last_error_code
+        else
+            -- store error code if last valid command request produced an error
+            self.last_error_code = self.feedback_message.error_code
+        end
+    else
+        -- store error code if last valid command request produced an error
+        self.last_error_code = self.feedback_message.error_code
+    end
+
+
     self.feedback_message.cartesian_distance:set(tmp)
     self.feedback_message.converged = self.controller.converged
     self.feedback_message.self_collision_check_enabled = not self.no_self_collision_check
@@ -423,6 +440,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
 
     transformListener = tf.TransformListener()
     self.feedback_message = nil
+    self.last_error_code = error_codes.OK
 end
 
 function JoggingControllerOpenLoop:setTimeout(value)
@@ -875,6 +893,9 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
     local posture_goal
     if link_name and #link_name > 0 then
         local dt = self.dt:toSec()
+        if detectNan(pose_goal:getOrigin()) then
+            return self.lastCommandJointPositions, error_codes.OK
+        end
         pose_goal:setOrigin(
             getPostureForFullStop(self.taskspace_controller, pose_goal:getOrigin(), dt, 'position control')
         )
@@ -928,7 +949,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             if tmp_target:norm() > 1e-3 then
                 if 1 - torch.dot(tmp_target / tmp_target:norm(), cmd_curr / cmd_curr:norm()) > 1e-4 then
                     ros.ERROR('[transformPose2PostureTarget] Directions do not match')
-                    return self.lastCommandJointPositions, error_codes.IK_JUMP_DETECTED
+                    return self.lastCommandJointPositions, error_codes.TASK_SPACE_JUMP_DETECTED
                 end
             end
         else
@@ -1192,7 +1213,7 @@ function JoggingControllerOpenLoop:update()
     end
 
     ros.DEBUG('Feedback')
-    sendFeedback(self)
+    sendFeedback(self, q_dot.values:norm())
     return true, status_msg
 end
 
