@@ -287,3 +287,43 @@ function MoveGroup:moveJWaypointsAsync(waypoints, velocity_scaling, collision_ch
     local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
     return simple_action_client
 end
+
+function MoveGroup:planMoveJointsCollisionFree(target, velocity_scaling)
+    local plan_parameters = self:buildPlanParameters(velocity_scaling)
+
+    -- get current pose
+    local joint_names = target:getNames()
+    local start = self:getCurrentJointValues()
+    local start_joints = start.values
+    local end_joints = target.values
+
+    -- generate joint path
+    local waypoints = {start_joints, end_joints}
+
+    -- plan trajectory
+    local ok, joint_path = self.motion_service:planJointPath(waypoints, plan_parameters)
+    assert(ok)
+    local ok2, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
+    return ok2, joint_trajectory, plan_parameters
+end
+
+function MoveGroup:moveJointsCollisionFree(target, velocity_scaling)
+    -- plan trajectory
+    local ok, joint_trajectory, plan_parameters = self:planMoveJointsCollisionFree(target, velocity_scaling)
+    assert(ok == 1, 'planMoveJointsCollisionFree failed')
+
+    -- start synchronous blocking execution
+    -- Collision check is not necessary since moveIt will handle the planning
+    local ok, msg = self.motion_service:executeJointTrajectory(joint_trajectory, false)
+    assert(ok, 'executeJointTrajectory failed. ' .. msg)
+end
+
+function MoveGroup:moveJointsCollisionFreeAsync(target, velocity_scaling, done_cb)
+    -- plan trajectory
+    local ok, joint_trajectory, plan_parameters = self:planMoveJointsCollisionFree(target, velocity_scaling)
+    assert(ok == 1, 'planMoveJointsCollisionFree failed')
+
+    -- Collision check is not necessary since moveIt will handle the planning
+    local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, false, done_cb)
+    return simple_action_client
+end

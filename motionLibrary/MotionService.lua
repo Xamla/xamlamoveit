@@ -625,7 +625,7 @@ local function planMoveP_1(self, start, goal, parameters)
     else
         return false
     end
-    return self:planMoveJoint(torch.cat(start[1].positions, goal[1].positions, 2):t(), parameters)
+    return self:planMoveJoints(torch.cat(start[1].positions, goal[1].positions, 2):t(), parameters)
 end
 
 local function planMoveP_2(self, waypoints, parameters)
@@ -655,7 +655,7 @@ local function planMoveP_2(self, waypoints, parameters)
         table.insert(result, start[1].positions)
         seed = start[1].positions
     end
-    return self:planMoveJoint(torch.cat(result, 2):t(), parameters)
+    return self:planMoveJoints(torch.cat(result, 2):t(), parameters)
 end
 
 function MotionService:planMoveP(_1, _2, _3)
@@ -696,8 +696,8 @@ function MotionService:planCartesianPath(waypoints, parameters)
     return error_code, path
 end
 
-function MotionService:planMoveJoint(path, parameters)
-    ros.DEBUG('planMoveJoint')
+function MotionService:planMoveJoints(path, parameters)
+    ros.DEBUG('planMoveJoints')
     assert(torch.isTypeOf(path, torch.DoubleTensor))
     assert(torch.isTypeOf(parameters, datatypes.PlanParameters))
     assert(

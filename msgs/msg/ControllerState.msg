@@ -14,6 +14,7 @@ int64 IK_JUMP_DETECTED = -5
 int64 CLOSE_TO_SINGULARITY = -6
 int64 JOINT_LIMITS_VIOLATED = -7
 int64 INVALID_LINK_NAME = -8
+int64 TASK_SPACE_JUMP_DETECTED = -9
 int64 error_code
 
 # Flag indicating whether the last set-point was reached (controller converged)

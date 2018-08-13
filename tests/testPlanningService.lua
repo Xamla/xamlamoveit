@@ -29,7 +29,7 @@ function TestPlanningService:testMoveit()
     print(joint_path[{joint_path:size(1), 1}])
     local norm = (joint_path[{joint_path:size(1), {}}] - joint_values_B.values):norm()
     luaunit.assertAlmostEquals(norm, 0, 1e-12)
-    local success, joint_trajectory = mc:planMoveJoint(joint_path, plan_parameters)
+    local success, joint_trajectory = mc:planMoveJoints(joint_path, plan_parameters)
     luaunit.assertEquals(success, 1)
     local num_points = #joint_trajectory.points
     local result_joint_set = datatypes.JointSet(joint_trajectory.joint_names)
@@ -45,7 +45,7 @@ function TestPlanningService:testTvp()
     local joint_values_A = datatypes.JointValues(joint_set_A, current_joint_values)
     local joint_values_B = joint_values_A * 2.9
     local success,
-        joint_trajectory = mc:planMoveJoint(torch.cat(joint_values_A.values, joint_values_B.values, 2):t(), plan_parameters)
+        joint_trajectory = mc:planMoveJoints(torch.cat(joint_values_A.values, joint_values_B.values, 2):t(), plan_parameters)
     luaunit.assertEquals(success, 1)
     local num_points = #joint_trajectory.points
     local result_joint_set = datatypes.JointSet(joint_trajectory.joint_names)
@@ -63,7 +63,7 @@ function TestPlanningService:testMoveInSingleAxisWithTvp()
     local joint_values_B = joint_values_A:clone()
     joint_values_B.values[6] = joint_values_B.values[6] + 0.4
     local success,
-        joint_trajectory = mc:planMoveJoint(torch.cat(joint_values_A.values, joint_values_B.values, 2):t(), plan_parameters)
+        joint_trajectory = mc:planMoveJoints(torch.cat(joint_values_A.values, joint_values_B.values, 2):t(), plan_parameters)
     luaunit.assertEquals(success, 1)
     local num_points = #joint_trajectory.points
     local result_joint_set = datatypes.JointSet(joint_trajectory.joint_names)

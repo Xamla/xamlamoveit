@@ -57,6 +57,24 @@ function EndEffector:getCurrentPose()
     return self:computePose(self.move_group:getCurrentJointValues())
 end
 
+function EndEffector:planMovePoseCollisionFree(target, velocity_scaling)
+    local plan_parameters = self.move_group:buildPlanParameters(velocity_scaling)
+
+    -- get current pose
+    local seed = self.move_group:getCurrentJointValues()
+
+
+    local ik_ok, solution = self.motion_service:queryIK(target, plan_parameters, seed, self.link_name)
+    assert(ik_ok[1].val == 1, 'Failed inverse kinematic call')
+    local goal = datatypes.JointValues(seed.joint_set:clone(), solution[1].positions)
+
+
+    -- plan trajectory
+    local ok, joint_trajectory, ex_plan_parameters = self.move_group:planMoveJointsCollisionFree(goal, velocity_scaling)
+    print("joint_trajectory", joint_trajectory)
+    return ok, joint_trajectory, ex_plan_parameters
+end
+
 function EndEffector:planMovePoseLinear(target, velocity_scaling, collision_check, acceleration_scaling)
     local plan_parameters = self.move_group:buildTaskSpacePlanParameters(self.name, velocity_scaling, acceleration_scaling, collision_check)
 
@@ -130,4 +148,26 @@ function EndEffector:movePoseLinearWaypoints(waypoints, velocity_scaling, collis
     -- start synchronous blocking execution
     local ok = self.motion_service:executeJointTrajectory(joint_trajectory, plan_parameters.collision_check)
     assert(ok, 'executeJointTrajectory failed.')
+end
+
+function EndEffector:movePoseCollisionFree(target, velocity_scaling)
+    assert(torch.isTypeOf(target, datatypes.Pose), 'Invalid argument `target`: Pose object expected.')
+
+    local ok, joint_trajectory, plan_parameters = self:planMovePoseCollisionFree(target, velocity_scaling)
+    assert(ok == 1, 'planMovePoseLinearWaypoints failed')
+
+    -- start synchronous blocking execution
+    local ok = self.motion_service:executeJointTrajectory(joint_trajectory, false)
+    assert(ok, 'executeJointTrajectory failed.')
+end
+
+function EndEffector:movePoseCollisionFreeAsync(target, velocity_scaling, done_cb)
+    assert(torch.isTypeOf(target, datatypes.Pose), 'Invalid argument `target`: Pose object expected.')
+
+    local ok, joint_trajectory, plan_parameters = self:planMovePoseCollisionFree(target, velocity_scaling)
+    assert(ok == 1, 'planMovePoseCollisionFree failed')
+
+    -- start asynchronous execution
+    local simple_action_client= self.motion_service:executeJointTrajectoryAsync(joint_trajectory, false, done_cb)
+    return simple_action_client
 end
