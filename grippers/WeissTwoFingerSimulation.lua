@@ -228,15 +228,17 @@ function WeissTwoFingerSimulation:handleStandardGoalCallback(goal_handle)
     local goal_command = goal_handle.goal.goal.command
 
     if self.current_state.moving_gripper == true then
-      if (goal_command.setRejected ~= nil) then
-        goal_command:setRejected('Gripper is already executing a command.')
+      ros.ERROR('Gripper is already executing a command.')
+      if (goal_handle.setRejected ~= nil) then
+        goal_handle:setRejected('Gripper is already executing a command.')
       end
       return
     end
 
     if self.current_state.grasping_state_id == WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR then
-      if (goal_command.setRejected ~= nil) then
-        goal_command:setRejected('Gripper is in error state. You need to call the acknowlede_error service.')
+      ros.ERROR('Gripper is in error state. You need to call the acknowlede_error service.')
+      if (goal_handle.setRejected ~= nil) then
+        goal_handle:setRejected('Gripper is in error state. You need to call the acknowlede_error service.')
       end
       return
     end
@@ -244,7 +246,8 @@ function WeissTwoFingerSimulation:handleStandardGoalCallback(goal_handle)
     if goal_command.position ~= nil and goal_command.max_effort ~= nil then
       self:handleMoveCommand(goal_handle)
     else
-      goal_command:setRejected('Invalid arguments for GripperCommand goal.')
+      ros.ERROR('Invalid arguments for GripperCommand goal.')
+      goal_handle:setRejected('Invalid arguments for GripperCommand goal.')
     end
   else
     ros.WARN('Received invalid goal.')
@@ -300,15 +303,17 @@ function WeissTwoFingerSimulation:handleGoalCallback(goal_handle)
     end
 
     if self.current_state.moving_gripper == true then
-      if (goal_command.setRejected ~= nil) then
-        goal_command:setRejected('Gripper is already executing a command.')
+      ros.ERROR('Gripper is already executing a command.')
+      if (goal_handle.setRejected ~= nil) then
+        goal_handle:setRejected(nil, 'Gripper is already executing a command.')
       end
       return
     end
 
     if self.current_state.grasping_state_id == WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR then
-      if (goal_command.setRejected ~= nil) then
-        goal_command:setRejected('Gripper is in error state. You need to call the acknowlede_error service.')
+      ros.ERROR('Gripper is in error state. You need to call the acknowlede_error service.')
+      if (goal_handle.setRejected ~= nil) then
+        goal_handle:setRejected(nil, 'Gripper is in error state. You need to call the acknowlede_error service.')
       end
       return
     end
@@ -354,39 +359,38 @@ function WeissTwoFingerSimulation:handleJointCommandFinished(worker_response, tr
   self.current_state.moving_gripper = false
 
   if self.current_state.goal_handle == nil then
-    ros.ERROR('Joint worker finished, but goal handle is nil. Cannot complete goal. Try again.')
-    return
-  end
-
-  local result = self:createResult(self.current_state.goal_handle)
-  print ('[handleJointCommandFinished] result: ', result)
-
-  if worker_response == WeissTwoFingerSimulation.WORKER_RESPONSE.COMPLETED then
-    self.current_state.grasping_state_id = self.current_state.target_grasping_state_id
-    if result.spec.type == 'wsg_50_common/CommandResult' then
-      result.status.current_force = self.current_state.target_force
-      result.status.grasping_state_id = self.current_state.target_grasping_state_id
-      result.status.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
-    end
-
-    self.current_state.goal_handle:setSucceeded(result)
+    ros.WARN('Joint worker finished, but goal handle is nil.')
   else
-    self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
-    if result.spec.type == 'wsg_50_common/CommandResult' then
-      result.status.current_force = 0
-      if self.current_state.stop_requested == true then
-        result.status.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
-        self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
-      else
-        result.status.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
-      end
-      result.status.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
-    end
+    local result = self:createResult(self.current_state.goal_handle)
+    print ('[handleJointCommandFinished] result: ', result)
 
-    if worker_response == WeissTwoFingerSimulation.WORKER_RESPONSE.CANCELED then
-      self.current_state.goal_handle:setCanceled(result)
+    if worker_response == WeissTwoFingerSimulation.WORKER_RESPONSE.COMPLETED then
+      self.current_state.grasping_state_id = self.current_state.target_grasping_state_id
+      if result.spec.type == 'wsg_50_common/CommandResult' then
+        result.status.current_force = self.current_state.target_force
+        result.status.grasping_state_id = self.current_state.target_grasping_state_id
+        result.status.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
+      end
+
+      self.current_state.goal_handle:setSucceeded(result)
     else
-      self.current_state.goal_handle:setAborted(result)
+      self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
+      if result.spec.type == 'wsg_50_common/CommandResult' then
+        result.status.current_force = 0
+        if self.current_state.stop_requested == true then
+          result.status.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
+          self.current_state.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.IDLE
+        else
+          result.status.grasping_state_id = WeissTwoFingerSimulation.GRASPING_STATE_ID.ERROR
+        end
+        result.status.grasping_state = WeissTwoFingerSimulation.GRASPING_STATE[self.current_state.target_grasping_state_id + 1]
+      end
+
+      if worker_response == WeissTwoFingerSimulation.WORKER_RESPONSE.CANCELED then
+        self.current_state.goal_handle:setCanceled(result)
+      else
+        self.current_state.goal_handle:setAborted(result)
+      end
     end
   end
 

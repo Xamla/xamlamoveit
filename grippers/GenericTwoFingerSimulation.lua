@@ -121,7 +121,9 @@ function GenericTwoFingerSimActionServer:handleGoalCallback(goal_handle)
   if goal_handle ~= nil and goal_handle.goal ~= nil then
     if self.current_state.moving_gripper == true then
       ros.WARN('Gripper is already executing a command.')
-      goal_command:setRejected('Gripper is already executing a command.')
+      if (goal_handle.setRejected ~= nil) then
+        goal_handle:setRejected('Gripper is already executing a command.')
+      end
       return
     end
 
