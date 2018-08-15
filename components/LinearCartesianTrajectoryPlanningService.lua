@@ -197,7 +197,6 @@ local function pose2jointTrajectory(
     collision_check,
     ik_jump_threshold,
     dt)
-    local code = error_codes.SUCCESS
     if collision_check == false then
         ros.WARN('[pose2jointTrajectory]Collision checks are disabled')
     end
@@ -262,7 +261,7 @@ local function pose2jointTrajectory(
             return result, error_codes.NO_IK_SOLUTION
         end
     end
-    return result, 1
+    return result, error_codes.SUCCESS
 end
 
 local function getLinearPath(
