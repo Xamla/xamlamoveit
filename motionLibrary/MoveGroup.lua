@@ -209,7 +209,7 @@ function MoveGroup:planMoveJoints(target, velocity_scaling, collision_check)
     joint_path[{2,{}}] = end_joints
 
     -- plan trajectory
-    local ok, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
+    local ok, joint_trajectory = self.motion_service:planMoveJoints(joint_path, plan_parameters)
     return ok, joint_trajectory, plan_parameters
 end
 
@@ -259,7 +259,7 @@ function MoveGroup:planMoveJointsWaypoints(waypoints, velocity_scaling, collisio
     end
 
     -- plan trajectory
-    local ok, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
+    local ok, joint_trajectory = self.motion_service:planMoveJoints(joint_path, plan_parameters)
     return ok, joint_trajectory, plan_parameters
 end
 
@@ -303,7 +303,7 @@ function MoveGroup:planMoveJointsCollisionFree(target, velocity_scaling)
     -- plan trajectory
     local ok, joint_path = self.motion_service:planJointPath(waypoints, plan_parameters)
     assert(ok)
-    local ok2, joint_trajectory = self.motion_service:planMoveJoint(joint_path, plan_parameters)
+    local ok2, joint_trajectory = self.motion_service:planMoveJoints(joint_path, plan_parameters)
     return ok2, joint_trajectory, plan_parameters
 end
 
