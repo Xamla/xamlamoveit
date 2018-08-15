@@ -232,7 +232,7 @@ function MoveGroup:moveJointsAsync(target, velocity_scaling, collision_check, do
     return simple_action_client
 end
 
-function MoveGroup:moveJointsSupervised(target, velocity_scaling, collision_check)
+function MoveGroup:moveJointsSupervised(target, velocity_scaling, collision_check, done_cb)
     -- plan trajectory
     local ok, joint_trajectory, plan_parameters = self:planMoveJoints(target, velocity_scaling, collision_check)
     assert(ok == 1, 'planMoveJoints failed')
