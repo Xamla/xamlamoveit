@@ -33,49 +33,7 @@ sp:start()
 local ok, value, values, error
 local client = rosvita.WorldViewClient.new(nh)
 
-local valueFolderPath = 'MyValues'
---[[
-ok, error = client:addFolder('myFolder', '/some/path/where/it/should/go') --Subfolders are also created if they are not there
-assert(ok, error)
-ok, error = client:addFolder(valueFolderPath)
-assert(ok, error)
-
-local pose = datatypes.Pose()
-local names = {'first', 'second', 'third'}
-for i, name in ipairs(names) do
-    ok, error = client:addPose(name, valueFolderPath, pose)
-    assert(ok, error)
-end
-
-for i, name in ipairs(names) do
-    ok, error = client:updatePose(name, valueFolderPath, pose)
-    assert(ok, error)
-end
-
-ok, values, error = client:removePose(names[2], valueFolderPath)
-assert(ok, error)
-
-local recursive = false
-local prefix = 't'
-ok, values, error = client:queryPoses(prefix, valueFolderPath, recursive)
-assert(ok, error)
-for i, v in pairs(values) do
-    print(v.element_path, v.value)
-end
---]]
-
-local primitive = datatypes.CollisionPrimitive.UnitBox:clone()
-local obj = datatypes.CollisionObject('world', {primitive})
-ok,  error = client:addCollisionObject("Box_4", "/", obj)
-assert(not ok, error)
-ok, result, error = client:getCollisionObject("Box_4")
-assert(ok, error)
-ok, result, error = client:queryCollisionObject("Box", "", true)
-assert(ok, error)
-for i, v in ipairs(result) do
-    print(v.name, v.element_path, torch.type(v.value), v.value:getFrame())
-end
-os.exit()
+local valueFolderPath = ''
 
 local end_effector_link_name = "world"
 local A, B, C, D, E, F
@@ -99,19 +57,9 @@ F:setFrame(end_effector_link_name)
 F:setTranslation(torch.Tensor { 1.0, -0.02, -0.01})
 
 local cartesianpath = {A, B, C, D, E, F}
-ok, error =client:addCartesianPath(end_effector_link_name, '', cartesianpath)
+ok, error = client:addPose("A", valueFolderPath, A)
 assert(ok, error)
 
-ok, error =client:updateCartesianPath(end_effector_link_name, '', cartesianpath)
-assert(ok, error)
-
-local result
-ok, result, error = client:getCartesianPath(end_effector_link_name)
-
-assert(ok, error)
-for i, v in ipairs(result) do
-    print(v)
-end
 -- shutdown ROS
 sp:stop()
 

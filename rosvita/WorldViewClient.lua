@@ -52,7 +52,6 @@ local solidprimitive_spec = ros.MsgSpec('shape_msgs/SolidPrimitive')
 local collisionobject_spec = ros.MsgSpec('moveit_msgs/CollisionObject')
 local objecttype_spec = ros.MsgSpec('object_recognition_msgs/ObjectType')
 
-
 local plane_spec = ros.MsgSpec('shape_msgs/Plane')
 local header_spec = ros.MsgSpec('std_msgs/Header')
 local pose_spec = ros.MsgSpec('geometry_msgs/Pose')
@@ -147,10 +146,14 @@ function WorldViewClient:__init(node_handle)
     self.query_cartesianpaths =
         self.node_handle:serviceClient(QUERY_CARTESIANPATH_SERVER_ADDRESS, query_cartesianpath_spec)
 
-    self.set_collisionobject = self.node_handle:serviceClient(SET_COLLISIONOBJECT_SERVER_ADDRESS, set_collisionobject_spec)
-    self.get_collisionobject = self.node_handle:serviceClient(GET_COLLISIONOBJECT_SERVER_ADDRESS, get_collisionobject_spec)
-    self.update_collisionobject = self.node_handle:serviceClient(UPDATE_COLLISIONOBJECT_SERVER_ADDRESS, set_collisionobject_spec)
-    self.query_collisionobject = self.node_handle:serviceClient(QUERY_COLLISIONOBJECT_SERVER_ADDRESS, query_collisionobject_spec)
+    self.set_collisionobject =
+        self.node_handle:serviceClient(SET_COLLISIONOBJECT_SERVER_ADDRESS, set_collisionobject_spec)
+    self.get_collisionobject =
+        self.node_handle:serviceClient(GET_COLLISIONOBJECT_SERVER_ADDRESS, get_collisionobject_spec)
+    self.update_collisionobject =
+        self.node_handle:serviceClient(UPDATE_COLLISIONOBJECT_SERVER_ADDRESS, set_collisionobject_spec)
+    self.query_collisionobject =
+        self.node_handle:serviceClient(QUERY_COLLISIONOBJECT_SERVER_ADDRESS, query_collisionobject_spec)
 end
 
 local function ToCollisionPlaneMessage(primitive)
@@ -238,15 +241,16 @@ local function ToCollisionPrimitive(primitive, pose)
 end
 
 local function ToCollisionObject(collision_object)
-    local object_name = collision_object.id  or ""
-    local frame_id = collision_object.header.frame_id  or ""
+    local object_name = collision_object.id or ''
+    local frame_id = collision_object.header.frame_id or ''
     local primitives = {}
-    for  i, plane in ipairs(collision_object.planes) do
-        primitives[#primitives + 1] = ToCollisionPrimitive(plane,  poseFromPoseMsg(collision_object.plane_poses[i]))
+    for i, plane in ipairs(collision_object.planes) do
+        primitives[#primitives + 1] = ToCollisionPrimitive(plane, poseFromPoseMsg(collision_object.plane_poses[i]))
     end
 
-    for  i, prim in ipairs(collision_object.primitives) do
-        primitives[#primitives + 1] = ToCollisionPrimitive(collision_object.primitives[i], poseFromPoseMsg(collision_object.primitive_poses[i]))
+    for i, prim in ipairs(collision_object.primitives) do
+        primitives[#primitives + 1] =
+            ToCollisionPrimitive(collision_object.primitives[i], poseFromPoseMsg(collision_object.primitive_poses[i]))
     end
     return CollisionObject(frame_id, primitives)
 end
@@ -300,8 +304,6 @@ function WorldViewClient:addJointValues(display_name, element_path, point, trans
     end
     return false, 'service not valid'
 end
-
-
 
 function WorldViewClient:getPose(element_path)
     assert(torch.type(element_path) == 'string', 'element_path should be a string')
@@ -387,7 +389,11 @@ function WorldViewClient:queryPoses(prefix, folder_path, recursive)
             if responds.success then
                 local result = {}
                 for i, v in ipairs(responds.points) do
-                    result[#result + 1] = poseFromPoseStampedMsg(v)
+                    result[#result + 1] = {
+                        name = responds.names[i],
+                        element_path = responds.element_paths[i],
+                        value = poseFromPoseStampedMsg(v)
+                    }
                 end
                 return responds.success, result, responds.error
             else
@@ -417,7 +423,11 @@ function WorldViewClient:queryCartesianPath(prefix, folder_path, recursive)
                     for ii, vv in ipairs(v.points) do
                         path[#path + 1] = poseFromPoseStampedMsg(vv)
                     end
-                    result[#result + 1] = path
+                    result[#result + 1] = {
+                        name = responds.names[i],
+                        element_path = responds.element_paths[i],
+                        value = path
+                    }
                 end
                 return responds.success, result, responds.error
             else
@@ -476,7 +486,7 @@ function WorldViewClient:addCollisionObject(display_name, element_path, collisio
                 return responds.success, responds.error
             end
         end
-        print("resp is nil")
+        print('resp is nil')
     end
     return false, 'service not valid'
 end
@@ -501,7 +511,10 @@ function WorldViewClient:getCollisionObject(element_path)
 end
 
 function WorldViewClient:updateCollisionObject(display_name, element_path, collision_object, transient)
-    assert(torch.isTypeOF(collision_object, datatypes.CollisionObject) , 'element_path should be datatypes.CollisionObject')
+    assert(
+        torch.isTypeOF(collision_object, datatypes.CollisionObject),
+        'element_path should be datatypes.CollisionObject'
+    )
     assert(torch.type(display_name) == 'string', 'element_path should be a string')
     assert(display_name ~= '', 'element_path should not be an empty string')
 
@@ -541,7 +554,11 @@ function WorldViewClient:queryCollisionObject(prefix, folder_path, recursive)
             if responds.success then
                 local result = {}
                 for i, v in ipairs(responds.collision_objects) do
-                    result[#result + 1] = ToCollisionObject(v)
+                    result[#result + 1] = {
+                        name = responds.names[i],
+                        element_path = responds.element_paths[i],
+                        value = ToCollisionObject(v)
+                    }
                 end
                 return responds.success, result, responds.error
             else
@@ -637,7 +654,11 @@ function WorldViewClient:queryJointValues(prefix, folder_path, recursive)
                 local result = {}
                 for i, v in ipairs(responds.points) do
                     local joint_set = datatypes.JointSet(v.joint_names)
-                    result[#result + 1] = datatypes.JointValues(joint_set, v.positions)
+                    result[#result + 1] = {
+                        name = responds.names[i],
+                        element_path = responds.element_paths[i],
+                        value = datatypes.JointValues(joint_set, v.positions)
+                    }
                 end
                 return responds.success, result, responds.error
             else

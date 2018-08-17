@@ -3,6 +3,7 @@ string folder_path
 bool recursive
 ---
 moveit_msgs/CollisionObject[] collision_objects
-
+string[] names
+string[] element_paths
 bool success
 string error

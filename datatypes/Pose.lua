@@ -63,6 +63,10 @@ function Pose:setFrame(name)
     self.stampedTransform:set_frame_id(name)
 end
 
+function Pose:getFrame()
+    self.stampedTransform:get_frame_id()
+end
+
 function Pose:copy(other)
     self.stampedTransform = other.stampedTransform:clone()
 end

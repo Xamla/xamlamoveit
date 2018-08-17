@@ -3,6 +3,7 @@ string folder_path
 bool recursive
 ---
 xamlamoveit_msgs/CartesianPath[] paths
-
+string[] names
+string[] element_paths
 bool success
 string error

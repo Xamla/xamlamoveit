@@ -129,7 +129,7 @@ end
 
 function EndEffector:planMovePoseLinearWaypoints(waypoints, velocity_scaling, collision_check, max_deviation, accelerationScaling)
     max_deviation = max_deviation or 0.2
-    local plan_parameters = self:buildTaskSpacePlanParameters(self.name, velocity_scaling, collision_check, accelerationScaling)
+    local plan_parameters = self.move_group:buildTaskSpacePlanParameters(self.name, velocity_scaling, collision_check, accelerationScaling)
 
     -- get current pose
     local seed = self.move_group:getCurrentJointValues()

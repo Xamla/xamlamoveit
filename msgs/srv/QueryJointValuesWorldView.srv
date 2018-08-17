@@ -3,6 +3,7 @@ string folder_path
 bool recursive
 ---
 JointValuesPoint[] points
-
+string[] names
+string[] element_paths
 bool success
 string error
