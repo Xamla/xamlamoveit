@@ -133,7 +133,7 @@ function Prompt:chooseFromList(list, title)
     return nil
   end
 
-  return list[index]
+  return list[index], index
 end
 
 

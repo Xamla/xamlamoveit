@@ -50,7 +50,9 @@ function EndEffector:computePose(joint_values)
     local T = createTransformFromPoseMsg(solution.pose)
     local stamp = solution.header.stamp
     local frame_id = solution.header.frame_id
-    return tf.StampedTransform(T, stamp, frame_id)
+    local result = datatypes.Pose()
+    result.stampedTransform = tf.StampedTransform(T, stamp, frame_id)
+    return result
 end
 
 function EndEffector:getCurrentPose()
