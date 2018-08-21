@@ -50,12 +50,12 @@ function Pose:setRotation(quaternion)
         quaternion = tf.Quaternion(tmp)
     end
     assert(
-      torch.isTypeOf(quaternion, tf.Quaternion),
-      string.format(
-          'Wrong type of argument "trans". Should be [tf.Quaternion] or [torch.DoubleTensor] but has type [%s]',
-          torch.type(quaternion)
-      )
-  )
+        torch.isTypeOf(quaternion, tf.Quaternion),
+        string.format(
+            'Wrong type of argument "trans". Should be [tf.Quaternion] or [torch.DoubleTensor] but has type [%s]',
+            torch.type(quaternion)
+        )
+    )
     self.stampedTransform:setRotation(quaternion)
 end
 
@@ -79,6 +79,45 @@ end
 
 function Pose:toStampedPoseMsg()
     return self.stampedTransform:toStampedPoseMsg()
+end
+
+function Pose:toStampedTransform()
+    return self.stampedTransform:clone()
+end
+
+function Pose:toTransform()
+    return self.stampedTransform:toTransform()
+end
+
+function Pose:toTensor()
+    return self.stampedTransform:toTensor()
+end
+
+function Pose:fromTransform(other)
+    assert(
+        torch.isTypeOf(other, tf.Transform),
+        'invalid argument: %s \n expected arguments: *tf.Transform*',
+        torch.type(other)
+    )
+    return self.stampedTransform:setData(other)
+end
+
+function Pose:fromStampedTransform(other)
+    assert(
+        torch.isTypeOf(other, tf.StampedTransform),
+        'invalid argument: %s \n expected arguments: *tf.StampedTransform*',
+        torch.type(other)
+    )
+    return self:copy(other)
+end
+
+function Pose:fromTensor(other)
+    assert(
+        torch.isTypeOf(other, torch.DoubleTensor),
+        'invalid argument: %s \n expected arguments: *torch.DoubleTensor*',
+        torch.type(other)
+    )
+    return self.stampedTransform:fromTensor(other)
 end
 
 function Pose.__mul(a, b)
