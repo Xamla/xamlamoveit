@@ -105,7 +105,6 @@ local function poseFromPoseMsg(msg)
 end
 
 local function poseFromPoseStampedMsg(msg)
-    print(msg)
     local result = datatypes.Pose()
     local trans = torch.DoubleTensor({msg.pose.position.x, msg.pose.position.y, msg.pose.position.z})
     local rot =
@@ -477,7 +476,6 @@ function WorldViewClient:addCollisionObject(display_name, element_path, collisio
     request.transient = transient
     request.collision_object = ToCollisionObjectMessage(collision_object)
     if self.set_collisionobject:isValid() then
-        print(request)
         local responds = self.set_collisionobject:call(request)
         if responds then
             if responds.success then

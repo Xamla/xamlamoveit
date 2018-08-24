@@ -361,8 +361,8 @@ function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
     for j = 1, #jointvalues_array do
         assert(torch.isTypeOf(jointvalues_array[j], datatypes.JointValues))
         local joint_names = jointvalues_array[j]:getNames()
-        request.points[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
-        request.points[i].positions = jointvalues_array[i].values
+        request.points[j] = ros.Message('xamlamoveit_msgs/JointPathPoint')
+        request.points[j].positions = jointvalues_array[j].values
         for i, v in ipairs(joint_names) do
             request.joint_names[i] = v
         end

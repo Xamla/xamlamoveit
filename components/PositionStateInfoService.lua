@@ -179,7 +179,7 @@ local function queryFKServiceHandler(self, request, response, header)
                 response.error_msgs[i] = string.format('Found solution for ee_link_name: %s', ee_link_name)
             else
                 response.error_codes[i].val = errorCodes.INVALID_LINK_NAME
-                response.error_msgs[i].data = string.format('INVALID_LINK_NAME: %s', ee_link_name)
+                response.error_msgs[i] = string.format('INVALID_LINK_NAME: %s', ee_link_name)
             end
         else
             response.error_codes[i].val = errorCodes.INVALID_ROBOT_STATE

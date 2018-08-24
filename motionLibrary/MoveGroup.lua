@@ -77,6 +77,10 @@ function MoveGroup:setVelocityScaling(value)
     self.velocity_scaling = value
 end
 
+function MoveGroup:getName()
+    return self.name
+end
+
 function MoveGroup:getJointNames()
     return self.joint_set.joint_names
 end
