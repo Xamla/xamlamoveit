@@ -102,8 +102,16 @@ function Pose:toTable()
 end
 
 function Pose.fromTable(t)
-    assert(torch.type(t.frame_id) == 'string', 'frame_id should not be string')
-    assert(torch.isTypeOf(t.value, torch.DoubleTensor), 'value should be DoubleTensor')
+    assert(
+        torch.type(t.frame_id) == 'string',
+        'invalid argument for t.frame_id: %s \n expected arguments: *string*',
+        torch.type(t.frame_id)
+    )
+    assert(
+        torch.isTypeOf(t.value, torch.DoubleTensor),
+        'invalid argument for t.value: %s \n expected arguments: *torch.DoubleTensor*',
+        torch.type(t.value)
+    )
     local res = datatypes.Pose()
     res.stampedTransform:fromTensor(t.value)
     res:setFrame(t.frame_id)
