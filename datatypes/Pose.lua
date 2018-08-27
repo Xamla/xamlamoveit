@@ -64,7 +64,7 @@ function Pose:setFrame(name)
 end
 
 function Pose:getFrame()
-    self.stampedTransform:get_frame_id()
+    return self.stampedTransform:get_frame_id()
 end
 
 function Pose:copy(other)
