@@ -151,6 +151,21 @@ function JointValues:clone()
     return JointValues.new(self.joint_set:clone(), self.values:clone())
 end
 
+function JointValues:toTable()
+    local res = {}
+    res.names = self.joint_set:getNames()
+    res.values = self.values
+
+    return res
+end
+
+function JointValues.fromTable(t)
+    local joint_set = datatypes.JointSet.new(t.names)
+    local res = datatypes.JointValues(joint_set, t.values)
+
+    return res
+end
+
 function JointValues:__tostring()
     local res = 'JointValues:'
     for i, v in ipairs(self.joint_set:getNames()) do

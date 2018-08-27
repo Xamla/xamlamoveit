@@ -93,6 +93,24 @@ function Pose:toTensor()
     return self.stampedTransform:toTensor()
 end
 
+function Pose:toTable()
+    local res = {}
+    res.frame_id = self.stampedTransform:get_frame_id()
+    res.value = self.stampedTransform:toTensor()
+
+    return res
+end
+
+function Pose.fromTable(t)
+    assert(torch.type(t.frame_id) == 'string', 'frame_id should not be string')
+    assert(torch.isTypeOf(t.value, torch.DoubleTensor), 'value should be DoubleTensor')
+    local res = datatypes.Pose()
+    res.stampedTransform:fromTensor(t.value)
+    res:setFrame(t.frame_id)
+
+    return res
+end
+
 function Pose:fromTransform(other)
     assert(
         torch.isTypeOf(other, tf.Transform),
