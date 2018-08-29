@@ -102,8 +102,15 @@ function MoveJActionServer:onStop()
 end
 
 function MoveJActionServer:onShutdown()
-    self.worker:shutdown()
-    self.action_server:shutdown()
+    if self.worker then
+        self.worker:shutdown()
+        self.worker = nil
+    end
+    if self.action_server then
+        self.action_server:shutdown()
+        self.action_server = nil
+    end
+
 end
 
 function MoveJActionServer:hasTrajectoryActive()

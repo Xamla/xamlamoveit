@@ -254,7 +254,7 @@ local function ToCollisionObject(collision_object)
     return CollisionObject(frame_id, primitives)
 end
 
-function WorldViewClient:getJointPosture(element_path)
+function WorldViewClient:getJointValues(element_path)
     assert(torch.type(element_path) == 'string', 'element_path should be a string')
     assert(element_path ~= '', 'element_path should not be an empty string')
     local request = self.get_joint_posture:createRequest()
@@ -272,6 +272,10 @@ function WorldViewClient:getJointPosture(element_path)
         end
     end
     return false, nil, 'service not valid'
+end
+
+function WorldViewClient:getJointPosture(element_path)
+    return self:getJointValues(element_path)
 end
 
 function WorldViewClient:addJointValues(display_name, element_path, point, transient)

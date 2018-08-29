@@ -52,7 +52,7 @@ local function checkParameterForAvailability(self, topic, wait_duration, max_cou
     max_counter = max_counter or 10
     local counter = 0
     local value
-    while value == nil and counter < max_counter do
+    while value == nil and counter < max_counter and ros.ok() do
         ros.WARN('/move_group/trajectory_execution not available trying again in 1 sec')
         wait_duration:sleep()
         value = self.nodehandle:getParamVariable(topic)
