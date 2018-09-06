@@ -73,7 +73,6 @@ function EndEffector:planMovePoseCollisionFree(target, velocity_scaling)
 
     -- plan trajectory
     local ok, joint_trajectory, ex_plan_parameters = self.move_group:planMoveJointsCollisionFree(goal, velocity_scaling)
-    print("joint_trajectory", joint_trajectory)
     return ok, joint_trajectory, ex_plan_parameters
 end
 

@@ -134,7 +134,7 @@ function Pose:fromStampedTransform(other)
         'invalid argument: %s \n expected arguments: *tf.StampedTransform*',
         torch.type(other)
     )
-    return self:copy(other)
+    self.stampedTransform = other
 end
 
 function Pose:fromTensor(other)
