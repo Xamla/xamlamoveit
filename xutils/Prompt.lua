@@ -161,6 +161,8 @@ end
 
 function Prompt:showMenu(title, menu_options, custom_spin_fn, custom_info_fn)
   while true do
+    while xutils.waitKey(function() return false end, 0) do end  -- clear keyboard input buffer
+
     self:printTitle(title)
     if custom_info_fn ~= nil then
       custom_info_fn()

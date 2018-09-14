@@ -85,11 +85,12 @@ function xutils.waitKey(spinFunc, poll_timeout)
       end
       return d
     end
-    if spinFunc then
-      local ok, msg = spinFunc()
-      if not ok then
-        return nil, msg
-      end
+    if not spinFunc then
+      return nil
+    end
+    local ok, msg = spinFunc()
+    if not ok then
+      return nil, msg
     end
   end
 end
