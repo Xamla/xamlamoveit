@@ -23,6 +23,7 @@ local core = require 'xamlamoveit.core'
 
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetCurrentJointState')
 local ik_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
+local ik_srv2_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution2')
 local fk_srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetFKSolution')
 
 local errorCodes = require 'xamlamoveit.core.ErrorCodes'.error_codes
@@ -117,13 +118,64 @@ local function queryIKServiceHandler(self, request, response, header)
         if response.error_codes[point_index].val == errorCodes.SUCCESS then
             point_msg.positions = res
             response.solutions[point_index] = point_msg
-            last_good:copy(res)
         end
         if request.const_seed == true then
             r_state:setVariablePositions(request.seed.positions, request.joint_names)
-            last_good = request.seed.positions:clone()
-        else
-            r_state:setVariablePositions(last_good, request.joint_names)
+        end
+    end
+    return true
+end
+
+
+local function queryIKService2Handler(self, request, response, header)
+    local r_state = self.robot_state:clone()
+    ros.DEBUG(tostring(request))
+    if request.seed.positions:nElement() > 0 then
+        r_state:setVariablePositions(request.seed.positions, request.seed.joint_names)
+        r_state:update()
+    end
+
+    local known_joint_names = self.robot_model:getGroupJointNames(request.group_name)
+    ros.DEBUG('query Group EndEffector Names for: ' .. request.group_name)
+
+    local attempts = request.attempts or 1
+    local timeout = request.timeout or ros.Duration(0.1)
+    if timeout == ros.Duration(0) then
+        timeout = ros.Duration(0.1)
+    end
+    for point_index = 1, #request.points do
+        local ik_req =
+            createIKRequest(
+            request.group_name,
+            r_state,
+            request.collision_check,
+            {request.points[point_index].poses[1]},
+            {request.points[point_index].link_names[1]},
+            attempts,
+            timeout
+        )
+        local ik_res = self.ik_service_client:call(ik_req)
+        response.error_codes[point_index] = ik_res.error_code
+
+        if not r_state:fromRobotStateMsg(ik_res.solution) then
+            response.error_codes[point_index] = ros.Message('moveit_msgs/MoveItErrorCodes')
+            response.error_codes[point_index].val = errorCodes.INVALID_ROBOT_STATE
+        end
+        local point_msg = ros.Message('xamlamoveit_msgs/JointValuesPoint')
+        local state = r_state:getVariablePositions()
+        local names = r_state:getVariableNames():totable()
+        local res = torch.DoubleTensor(#request.joint_names)
+        for i, v in ipairs(request.joint_names) do
+            local index = table.indexof(names, v)
+            res[i] = state[index]
+        end
+        if response.error_codes[point_index].val == errorCodes.SUCCESS then
+            point_msg.positions = res
+            point_msg.joint_names = request.joint_names
+            response.solutions[point_index] = point_msg
+        end
+        if request.const_seed == true then
+            r_state:setVariablePositions(request.seed.positions, request.seed.joint_names)
         end
     end
     return true
@@ -223,6 +275,7 @@ function PositionStateInfoService:__init(node_handle, joint_monitor)
     self.info_server = nil
     self.fk_info_server = nil
     self.ik_info_server = nil
+    self.ik_info_server2 = nil
     self.ik_service_client = nil
     self.joint_monitor = joint_monitor
     parent.__init(self, node_handle)
@@ -266,6 +319,15 @@ function PositionStateInfoService:onStart()
         ik_srv_spec,
         function(request, response, header)
             return queryIKServiceHandler(self, request, response, header)
+        end,
+        self.ik_callback_queue
+    )
+    self.ik_info_server2 =
+        self.node_handle:advertiseService(
+        'query_ik2',
+        ik_srv2_spec,
+        function(request, response, header)
+            return queryIKService2Handler(self, request, response, header)
         end,
         self.ik_callback_queue
     )
@@ -316,6 +378,7 @@ function PositionStateInfoService:onStop()
     self.info_server:shutdown()
     self.fk_info_server:shutdown()
     self.ik_info_server:shutdown()
+    self.ik_info_server2:shutdown()
     self.ik_service_client:shutdown()
 end
 

@@ -47,8 +47,8 @@ function MotionService:__init(node_handle)
     self.node_handle = node_handle
     self.global_veloctiy_scaling = 1.0
     self.global_acceleration_scaling = 1.0
-    local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetIKSolution')
-    self.compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', srv_spec)
+    self.compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', 'xamlamoveit_msgs/GetIKSolution')
+    self.compute_ik2_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik2', 'xamlamoveit_msgs/GetIKSolution2')
     self.execution_action_client = nil
     self.execution_step_action_client = nil
 end
@@ -61,6 +61,7 @@ function MotionService:shutdown()
         self.execution_step_action_client:shutdown()
     end
     self.compute_ik_interface:shutdown()
+    self.compute_ik2_interface:shutdown()
     self.node_handle:shutdown()
 end
 
@@ -192,35 +193,47 @@ function MotionService:queryCartesianPath(waypoints, sample_resolution)
 end
 
 function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector_link, attempts, timeout)
-    local seed_joint_values_tensor
+    local seed_joint_values_tensor, seed_joint_values_names
     assert(torch.isTypeOf(parameters, datatypes.PlanParameters),
     string.format("parameters need to be of type [PlanParameters] but is of type [%s]", torch.type(parameters)))
     if torch.isTypeOf(seed_joint_values, datatypes.JointValues) then
-        seed_joint_values_tensor = seed_joint_values.values
+        seed_joint_values_tensor = seed_joint_values:getValues()
+        seed_joint_values_names = seed_joint_values:getNames()
     elseif torch.isTypeOf(seed_joint_values, torch.DoubleTensor) then
         seed_joint_values_tensor = seed_joint_values
+        seed_joint_values_names = parameters.joint_names
     else
         error("seed_joint_values are of unsupported type")
     end
-
-    local request = self.compute_ik_interface:createRequest()
+    local poses_msgs = poses2MsgArray(pose)
+    local request = self.compute_ik2_interface:createRequest()
     request.group_name = parameters.move_group_name
     request.joint_names = parameters.joint_names
-    request.end_effector_link = end_effector_link or ''
     request.attempts = attempts or 1
     request.timeout = timeout or ros.Duration(0.1)
-    request.points = poses2MsgArray(pose)
+    request.points = {}
+    for i, msg in ipairs(poses_msgs) do
+        local tmp = ros.Message('xamlamoveit_msgs/EndEffectorPoses')
+        tmp.poses = {msg}
+        tmp.link_names = {end_effector_link or ''}
+        request.points[#request.points+1] = tmp
+    end
     request.const_seed = false
     if seed_joint_values_tensor then
         request.seed.positions = seed_joint_values_tensor
+        request.seed.joint_names = seed_joint_values_names
     end
     request.collision_check = true -- this is recomended to be true in all cases
-    local response = self.compute_ik_interface:call(request)
+    local response = self.compute_ik2_interface:call(request)
     if response then
+        local solutions = {}
+        for i , solution in ipairs(response.solutions)  do
+            solutions = datatypes.JointValues(datatypes.JointSet(solution.joint_names), solution.positions)
+        end
         return response.error_codes, response.solutions
     else
-        ros.ERROR(getServiceConnectionLostErrorMsg(self.compute_ik_interface))
-        return {val = error_codes.SIGNAL_LOST}, nil, getServiceConnectionLostErrorMsg(self.compute_ik_interface)
+        ros.ERROR(getServiceConnectionLostErrorMsg(self.compute_ik2_interface))
+        return {val = error_codes.SIGNAL_LOST}, nil, getServiceConnectionLostErrorMsg(self.compute_ik2_interface)
     end
 end
 
@@ -625,7 +638,7 @@ local function planMoveP_1(self, start, goal, parameters)
     else
         return false
     end
-    return self:planMoveJoints(torch.cat(start[1].positions, goal[1].positions, 2):t(), parameters)
+    return self:planMoveJoints(torch.cat(start[1]:getValues(), goal[1]:getValues(), 2):t(), parameters)
 end
 
 local function planMoveP_2(self, waypoints, parameters)
@@ -652,8 +665,8 @@ local function planMoveP_2(self, waypoints, parameters)
         else
             return false
         end
-        table.insert(result, start[1].positions)
-        seed = start[1].positions
+        table.insert(result, start[1]:getValues())
+        seed = start[1]
     end
     return self:planMoveJoints(torch.cat(result, 2):t(), parameters)
 end

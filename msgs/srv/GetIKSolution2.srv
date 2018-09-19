@@ -1,0 +1,23 @@
+# Mandatory name of group to compute the path for
+string group_name
+string[] joint_names
+
+# seed for the start point
+JointValuesPoint seed
+bool const_seed
+# A sequence of waypoints to be followed by the specified link,
+# while moving the specified group, such that the group moves only
+# in a straight line between waypoints
+EndEffectorPoses[] points
+
+bool collision_check
+int32 attemts
+duration timeout
+
+---
+
+# The computed solution trajectory, for the desired group and joints, in configuration space
+JointValuesPoint[] solutions
+
+# The error code of the computation
+moveit_msgs/MoveItErrorCodes[] error_codes
