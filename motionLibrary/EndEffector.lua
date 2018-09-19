@@ -44,7 +44,7 @@ function EndEffector:computePose(joint_values)
     assert(torch.isTypeOf(joint_values, datatypes.JointValues), 'Invalid argument `joint_values`: JointValues object expected.')
     local error_code, solution, error_msgs = self.motion_service:queryPose(self.move_group.name, joint_values, self.link_name)
     if error_code.val ~= 1 then
-        error(error_msg)
+        error(error_msgs)
     end
 
     local T = createTransformFromPoseMsg(solution.pose)
@@ -59,17 +59,32 @@ function EndEffector:getCurrentPose()
     return self:computePose(self.move_group:getCurrentJointValues())
 end
 
+function EndEffector:getIKSolution(pose, seed_joint_values)
+    assert(seed_joint_values ~= nil, 'Argument `joint_values` must not be nil.')
+    assert(torch.isTypeOf(seed_joint_values, datatypes.JointValues), 'Invalid argument `seed_joint_values`: JointValues object expected.')
+    local result = self:getIKSolutions({pose}, seed_joint_values)
+    return result[1]
+end
+
+function EndEffector:getIKSolutions(poses, seed_joint_values)
+    local seed_joint_values = seed_joint_values or self.move_group:getCurrentJointValues()
+    local plan_parameters = self.move_group:getDefaultPlanParameters()
+    local oks, solutions = self.motion_service:queryIK(poses, plan_parameters, seed_joint_values, self.link_name)
+    local result = {}
+    for i = 1, #poses do
+        assert(oks[i].val == 1, string.format('Failed inverse kinematic call, index: %d', i))
+        result[#result +1 ] = datatypes.JointValues(seed_joint_values.joint_set:clone(), solutions[i].positions)
+    end
+    -- find minimum distance to existing solutions
+    return result
+end
+
 function EndEffector:planMovePoseCollisionFree(target, velocity_scaling)
     local plan_parameters = self.move_group:buildPlanParameters(velocity_scaling)
 
     -- get current pose
     local seed = self.move_group:getCurrentJointValues()
-
-
-    local ik_ok, solution = self.motion_service:queryIK(target, plan_parameters, seed, self.link_name)
-    assert(ik_ok[1].val == 1, 'Failed inverse kinematic call')
-    local goal = datatypes.JointValues(seed.joint_set:clone(), solution[1].positions)
-
+    local goal = self:getIKSolution(target, plan_parameters, seed, self.link_name)
 
     -- plan trajectory
     local ok, joint_trajectory, ex_plan_parameters = self.move_group:planMoveJointsCollisionFree(goal, velocity_scaling)

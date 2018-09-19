@@ -59,6 +59,14 @@ function Pose:setRotation(quaternion)
     self.stampedTransform:setRotation(quaternion)
 end
 
+function Pose:setName(name)
+    self.stampedTransform:set_child_frame_id(name)
+end
+
+function Pose:getName()
+    self.stampedTransform:get_child_frame_id()
+end
+
 function Pose:setFrame(name)
     self.stampedTransform:set_frame_id(name)
 end

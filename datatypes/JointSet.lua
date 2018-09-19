@@ -130,5 +130,10 @@ function JointSet.__add(a, b)
   return result
 end
 
+function JointSet.__len(a)
+  assert(torch.isTypeOf(a, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(a)))
+  return a:count()
+end
+
 
 return JointSet

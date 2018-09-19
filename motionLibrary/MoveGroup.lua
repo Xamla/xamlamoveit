@@ -85,6 +85,27 @@ function MoveGroup:getJointNames()
     return self.joint_set.joint_names
 end
 
+function MoveGroup:getJointLimits()
+    return self.motion_service:queryJointLimits(self.joint_set.joint_names)
+end
+
+function MoveGroup:getRandomJointValues()
+    local joint_set = self.joint_set
+    local limits = self:getJointLimits()
+
+    local r = torch.rand(#joint_set.joint_names)
+    local min = limits[{{}, 2}]
+    local max = limits[{{}, 1}]
+    local ranges = max - min
+    local joint_positions = torch.cmul(r, ranges) + min
+    return datatypes.JointValues(joint_set, joint_positions)
+  end
+
+function MoveGroup:createJointValues()
+  local joint_values = torch.zeros(self.joint_set:count())
+  return datatypes.JointValues(self.joint_set, joint_values)
+end
+
 function MoveGroup:getCurrentJointValues()
     local joint_names = self:getJointNames()
     local error_code, joint_values = self.motion_service:queryJointState(joint_names)
