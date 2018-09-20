@@ -73,7 +73,7 @@ function EndEffector:getIKSolutions(poses, seed_joint_values)
     local result = {}
     for i = 1, #poses do
         assert(oks[i].val == 1, string.format('Failed inverse kinematic call, index: %d', i))
-        result[#result +1 ] = datatypes.JointValues(seed_joint_values.joint_set:clone(), solutions[i].positions)
+        result[#result +1 ] = datatypes.JointValues(datatypes.JointSet(solutions[i]:getNames()), solutions[i]:getValues())
     end
     -- find minimum distance to existing solutions
     return result
@@ -84,7 +84,7 @@ function EndEffector:planMovePoseCollisionFree(target, velocity_scaling)
 
     -- get current pose
     local seed = self.move_group:getCurrentJointValues()
-    local goal = self:getIKSolution(target, plan_parameters, seed, self.link_name)
+    local goal = self:getIKSolution(target, seed)
 
     -- plan trajectory
     local ok, joint_trajectory, ex_plan_parameters = self.move_group:planMoveJointsCollisionFree(goal, velocity_scaling)

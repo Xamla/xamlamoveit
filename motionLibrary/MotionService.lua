@@ -228,9 +228,9 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     if response then
         local solutions = {}
         for i , solution in ipairs(response.solutions)  do
-            solutions = datatypes.JointValues(datatypes.JointSet(solution.joint_names), solution.positions)
+            solutions[#solutions + 1] = datatypes.JointValues(datatypes.JointSet(solution.joint_names), solution.positions)
         end
-        return response.error_codes, response.solutions
+        return response.error_codes,solutions
     else
         ros.ERROR(getServiceConnectionLostErrorMsg(self.compute_ik2_interface))
         return {val = error_codes.SIGNAL_LOST}, nil, getServiceConnectionLostErrorMsg(self.compute_ik2_interface)
