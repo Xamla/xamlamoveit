@@ -300,7 +300,7 @@ local function joggingServer(name)
     ros.INFO('Connect controller.')
     local sub = nh:subscribe('/execute_trajectory/status', 'actionlib_msgs/GoalStatusArray')
     while ros.ok() and sub:getNumPublishers() == 0 do
-        ros.spinOnce()
+        ros.spinOnce(0.1)
         idle_dt:sleep()
     end
     sub:shutdown()
@@ -317,7 +317,7 @@ local function joggingServer(name)
         if once and not ready then
             ros.ERROR('joint states not ready')
             once = false
-            ros.spinOnce()
+            ros.spinOnce(0.1)
         end
     end
     ros.INFO('joint states ready')
@@ -325,7 +325,7 @@ local function joggingServer(name)
 
     while not cntr:connect('jogging_command', 'jogging_setpoint', 'jogging_twist') do
         dt:sleep()
-        ros.spinOnce()
+        ros.spinOnce(0.1)
     end
 
     value, suc = nh:getParamDouble('timeout')
@@ -358,7 +358,7 @@ local function joggingServer(name)
     local last_loop_start
     while ros.ok() do
         last_loop_start = ros.Time.now()
-        ros.spinOnce()
+
         --collectgarbage()
         local sys_state = sysmon_watch:getGlobalStateSummary()
         if sys_state.no_go == true and run == true then
@@ -376,6 +376,7 @@ local function joggingServer(name)
             if not success then
                 ros.WARN(tostring(last_status_message_tracking))
             end
+            ros.spinOnce(dt:expectedCycleTime())
         else
             if not print_idle_once then
                 ros.INFO('IDLE')
@@ -383,6 +384,7 @@ local function joggingServer(name)
                 print_running_once = false
             end
             cntr:releaseResources()
+            ros.spinOnce(idle_dt:expectedCycleTime())
             idle_dt:sleep()
         end
         dt:sleep()

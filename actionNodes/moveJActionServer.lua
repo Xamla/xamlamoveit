@@ -80,7 +80,7 @@ while ros.ok() do
     end
     heartbeat:publish()
 
-    ros.spinOnce()
+    ros.spinOnce(0.01)
 
     if hasTrajectoryActive then
         dt:sleep()

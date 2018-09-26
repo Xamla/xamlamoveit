@@ -80,7 +80,6 @@ local function spin()
   monitor:spin()
 end
 
-local dt = ros.Rate(frequency)
 heartbeat:updateStatus(heartbeat.GO, 'Running ...')
 local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 while ros.ok() do
@@ -90,8 +89,7 @@ while ros.ok() do
   end
 
   heartbeat:publish()
-  ros.spinOnce()
-  dt:sleep()
+  ros.spinOnce(1/frequency)
 end
 monitor:shutdown()
 sp:stop()

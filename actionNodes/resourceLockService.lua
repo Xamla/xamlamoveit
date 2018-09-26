@@ -80,7 +80,7 @@ while ros.ok() and not emerg_stop_flag do
     end
 
     heartbeat:publish()
-    ros.spinOnce()
+    ros.spinOnce(0.01)
     dt:sleep()
 end
 

@@ -70,7 +70,6 @@ heartbeat:publish()
 
 local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 local emerg_stop_flag = false
-local dt = ros.Rate(20)
 while ros.ok() and not emerg_stop_flag do
     local ok = joint_monitor:waitForNextState(1/20)
     if ok then
@@ -90,9 +89,8 @@ while ros.ok() and not emerg_stop_flag do
         end
     end
     heartbeat:publish()
-    ros.spinOnce()
+    ros.spinOnce(0.5)
     collectgarbage()
-    dt:sleep()
 end
 
 for i, v in pairs(services) do

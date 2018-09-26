@@ -52,7 +52,7 @@ local action_server = grippers.GenericTwoFingerSimActionServer.new(
 print('Spinning')
 local rate = ros.Rate(10)
 while ros.ok() do
-  ros.spinOnce()
+  ros.spinOnce(0.1)
   action_server:spin()
   rate:sleep()
 end
