@@ -33,7 +33,7 @@ end
 
 local function checkMoveGroupName(self, name)
     local all_group_joint_names = self.robot_model:getJointModelGroupNames()
-    ros.INFO('available move_groups:\n%s', tostring(all_group_joint_names))
+    ros.DEBUG('available move_groups:\n%s', tostring(all_group_joint_names))
     for k, v in pairs(all_group_joint_names) do
         if name == v then
             return true
@@ -67,7 +67,7 @@ end
 local function getMoveitPath(self, group_name, joint_names, waypoints)
     local num_steps = waypoints:size(1)
     ros.INFO("getMoveitPath with %d via points", num_steps)
-    local manipulator = initializeMoveGroup(self, group_name)
+    local manipulator = self.manipulators[group_name]
     manipulator:setPlanningTime(5) --sec
     manipulator:setNumPlanningAttempts(5)
     local plannedwaypoints = {}
@@ -161,6 +161,8 @@ function JointPathPlanningService:__init(node_handle, joint_monitor)
     self.robot_state = nil
     self.info_server = nil
     self.joint_monitor = joint_monitor
+    self.manipulators = {}
+
     parent.__init(self, node_handle)
 end
 
@@ -178,6 +180,10 @@ function JointPathPlanningService:onInitialize()
             self.joint_monitor:getJointNames()
         )
         self.robot_state:update()
+    end
+    local move_group_names = self.robot_model:getJointModelGroupNames()
+    for i, v in ipairs(move_group_names) do
+        self.manipulators[v] = initializeMoveGroup(self, v)
     end
 end
 
