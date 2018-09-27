@@ -119,7 +119,11 @@ end
 
 function MoveGroup:getDefaultTaskSpacePlanParameters(end_effector_name)
     assert(torch.type(end_effector_name) == 'string', 'Please specify your end effector which should be moved.')
-    return self.motion_service:getDefaultTaskSpacePlanParameters(end_effector_name)
+    if end_effector_name == self.default_end_effector_name then
+        return self.default_task_space_plan_parameters
+    end
+    local maxXYZVel, maxXYZAcc, maxAngularVel, maxAngularAcc = self.motion_service:queryEndEffectorLimits(end_effector_name)
+    return self.motion_service:getDefaultTaskSpacePlanParameters(end_effector_name, 0.0, maxXYZVel, maxXYZAcc, maxAngularVel, maxAngularAcc)
 end
 
 local function apply(dst, src)
