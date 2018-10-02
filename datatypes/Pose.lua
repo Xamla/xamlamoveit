@@ -18,7 +18,9 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 --]]
 local datatypes = require 'xamlamoveit.datatypes.env'
-local tf = require 'ros'.tf
+local ros = require 'ros'
+local tf = ros.tf
+local sf = string.format
 local Pose = torch.class('xamlamoveit.datatypes.Pose', datatypes)
 
 function Pose:__init()
@@ -64,7 +66,7 @@ function Pose:setName(name)
 end
 
 function Pose:getName()
-    self.stampedTransform:get_child_frame_id()
+    return self.stampedTransform:get_child_frame_id() or ''
 end
 
 function Pose:setFrame(name)
@@ -72,7 +74,7 @@ function Pose:setFrame(name)
 end
 
 function Pose:getFrame()
-    return self.stampedTransform:get_frame_id()
+    return self.stampedTransform:get_frame_id() or ''
 end
 
 function Pose:copy(other)
@@ -81,7 +83,7 @@ end
 
 function Pose:clone()
     local result = Pose.new()
-    result:copy(self)
+    result.stampedTransform = self.stampedTransform:clone()
     return result
 end
 
@@ -154,11 +156,41 @@ function Pose:fromTensor(other)
     return self.stampedTransform:fromTensor(other)
 end
 
-function Pose.__mul(a, b)
-    local result = a:clone()
-    result.stampedTransform:setData(a.stampedTransform:toTransform():mul(b.stampedTransform:toTransform()))
+function Pose.inverse(pose)
+    local result = pose:clone()
+    result:fromTensor(torch.inverse(result:toTensor()))
+    local name = result:getName()
+    local frame = result:getFrame()
+    result:setName(frame)
+    result:setFrame(name)
     return result
 end
+
+function Pose.__mul(a, b)
+    assert(torch.isTypeOf(a, datatypes.Pose), sf('invalid arguments: %s \n expected arguments: *Pose* [Pose]', torch.type(a)))
+    assert(torch.isTypeOf(b, datatypes.Pose), sf('invalid arguments: %s \n expected arguments: *Pose* [Pose]', torch.type(b)))
+    local result = a:clone()
+    result:fromTensor(a:toTensor() * b:toTensor())
+    if a:getName() == b:getFrame() then
+        result:setName(b:getName())
+        result:setFrame(a:getFrame())
+    else
+        result:setName(a:getName() .. b:getName())
+        result:setFrame(a:getFrame())
+    end
+    return result
+end
+
+function Pose.computeRelative(R01, R02)
+    assert(torch.isTypeOf(R01, datatypes.Pose), 'Invalid argument `R01`: datatypes.Pose object expected.')
+    assert(torch.isTypeOf(R02, datatypes.Pose), 'Invalid argument `R02`: datatypes.Pose object expected.')
+    local R12 = Pose.inverse(R01) * R02
+    R12:setName(R02:getName())
+    R12:setFrame(R01:getName())
+    -- R02 = R01 * R12
+    -- inverse(R01) * R02 = R12
+    return R12
+  end
 
 function Pose:__tostring()
     local res = 'Pose:'
@@ -166,4 +198,4 @@ function Pose:__tostring()
     return res
 end
 
-return Pose
+return datatypes.Pose

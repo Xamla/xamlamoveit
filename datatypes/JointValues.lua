@@ -234,6 +234,6 @@ end
 function JointValues.__len(a)
     assert(torch.isTypeOf(a, datatypes.JointValues), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointValues] but has [%s]', torch.type(a)))
     return #a.joint_set
-  end
+end
 
-return JointValues
+return datatypes.JointValues

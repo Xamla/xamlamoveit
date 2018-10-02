@@ -135,5 +135,9 @@ function JointSet.__len(a)
   return a:count()
 end
 
+function JointSet.__next(t, k)
+   return next(t.joint_names, k)
+end
 
-return JointSet
+
+return datatypes.JointSet

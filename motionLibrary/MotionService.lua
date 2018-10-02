@@ -1,3 +1,6 @@
+--- Motion client engine for xamlamoveit
+-- In this class the conversion from ros.Messages to xamlamoveit.datatypes are exectued
+-- @classmod xamlamoveit.motionLibrary.MotionService
 --[[
 MotionService.lua
 
@@ -49,6 +52,7 @@ function MotionService:__init(node_handle)
     self.global_acceleration_scaling = 1.0
     self.compute_ik_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik', 'xamlamoveit_msgs/GetIKSolution')
     self.compute_ik2_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_ik2', 'xamlamoveit_msgs/GetIKSolution2')
+    self.move_group_interface = self.node_handle:serviceClient('xamlaMoveGroupServices/query_move_group_interface', 'xamlamoveit_msgs/QueryMoveGroupInterfaces')
     self.execution_action_client = nil
     self.execution_step_action_client = nil
 end
@@ -62,6 +66,7 @@ function MotionService:shutdown()
     end
     self.compute_ik_interface:shutdown()
     self.compute_ik2_interface:shutdown()
+    self.move_group_interface:shutdown()
     self.node_handle:shutdown()
 end
 
@@ -192,6 +197,17 @@ function MotionService:queryCartesianPath(waypoints, sample_resolution)
     end
 end
 
+
+--- Query inverse kinematic solutions one pose
+-- @tparam datatypes.Pose Pose to transform to joint space
+-- @tparam datatypes.PlanParameters Plan parameters which defines the limits, settings and move group name
+-- @tparam datatypes.JointValues Numerical seed to control joint configuration
+-- @tparam string necessary if poses are defined for end effector link
+-- @tparam number Attempts to find a solution or each pose
+-- @tparam ros.Duration timeout
+-- @treturn number error_code
+-- @treturn datatypes.JointValues inverse kinematic solutions of pose
+-- @treturn string error message
 function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector_link, attempts, timeout)
     local seed_joint_values_tensor, seed_joint_values_names
     assert(torch.isTypeOf(parameters, datatypes.PlanParameters),
@@ -237,14 +253,14 @@ function MotionService:queryIK(pose, parameters, seed_joint_values, end_effector
     end
 end
 
--- get available move groups
+--- Query all currently available move groups
+-- To query the move groups the ros service with the string
+-- defined in query_move_group_service is called
+-- @treturn table with MoveGroup Ids (string).
+-- @treturn table with instances of MoveGroupDescription. For further details please take a look into the documentation of MoveGroupDescription
 function MotionService:queryAvailableMoveGroups()
-    local move_group_interface =
-        self.node_handle:serviceClient(
-        'xamlaMoveGroupServices/query_move_group_interface',
-        'xamlamoveit_msgs/QueryMoveGroupInterfaces'
-    )
-    local response = move_group_interface:call()
+
+    local response = self.move_group_interface:call()
     if response then
         local details = {}
         local names = {}
@@ -259,11 +275,17 @@ function MotionService:queryAvailableMoveGroups()
         end
         return names, details
     else
+        ros.ERROR(getServiceConnectionLostErrorMsg(self.move_group_interface))
         return {}, {}
     end
 end
 
--- get available end effectors
+--- Query all currently available end effectors
+-- To query the available end effectors the ros service with the string
+-- defined in _query_move_group_service is called an only the relevant
+-- information about the endeffector is filtered out
+-- @treturn table with end effectors Ids (string).
+-- @treturn table with instances of EndEffectorDescription. For further details please take a look into the documentation of EndEffectorDescription
 function MotionService:queryAvailableEndEffectors()
     local group_names, group_details = self:queryAvailableMoveGroups()
     if #group_names ~= 0  then
@@ -281,10 +303,19 @@ function MotionService:queryAvailableEndEffectors()
         end
         return names, details
     else
+        ros.ERROR('could not find any end effectors')
         return {}, {}
     end
 end
 
+
+--- Query end effector limits from ros param
+-- To query the end effector limits the ros param definied in
+-- end_effector_limits_param is read out
+-- @treturn torch.Tensor velocity limits in xyz
+-- @treturn torch.Tensor acceleration limits in xyz
+-- @treturn torch.Tensor angular velocity limits
+-- @treturn torch.Tensor angular acceleration limits
 function MotionService:queryEndEffectorLimits(name)
     local maxXYZVel = 0
     local maxXYZAcc = 0
@@ -303,6 +334,14 @@ function MotionService:queryEndEffectorLimits(name)
     return maxXYZVel, maxXYZAcc, maxAngularVel, maxAngularAcc
 end
 
+
+--- Query joint limits from ros param
+-- To query the joint limits the ros param definied in
+-- joint_limits_param + joint name + limit name is read out
+-- @tparam table of strings specifying joint names
+-- @treturn torch.Tensor max, min position limits
+-- @treturn torch.Tensor max velocity limits
+-- @treturn torch.Tensor max acceleration limits
 function MotionService:queryJointLimits(joint_names)
     local max_vel = torch.zeros(#joint_names)
     local max_acc = torch.zeros(#joint_names)
@@ -339,7 +378,14 @@ function MotionService:queryJointLimits(joint_names)
     return max_min_pos, max_vel, max_acc
 end
 
--- get current Position of movegroup
+
+--- Computes the pose by applying forward kinematics
+-- @tparam string name of the move group from which the pose is queried
+-- @tparam datatypes.JointValues joint values from which the pose is calculated
+-- @tparam[opt] string end effector link is necessary if end effector is not part of the move group but pose should be computed for the end effector
+-- @treturn table holds error code {val = code}
+-- @treturn ros.Message from type geometry_msgs/PoseStamped
+-- @treturn string error message
 function MotionService:queryPose(move_group_name, jointvalues, link_name)
     assert(move_group_name)
     assert(torch.isTypeOf(jointvalues, datatypes.JointValues))
@@ -363,7 +409,14 @@ function MotionService:queryPose(move_group_name, jointvalues, link_name)
     end
 end
 
--- get current Position of movegroup
+
+--- Query the poses from joint path points by applying forward kinematics
+-- @tparam string name of the move group from which the pose is queried
+-- @tparam table with datatypes.JointValues. Joint path from which the poses are calculated
+-- @tparam[opt] string end effector link is necessary if end effector is not part of the move group but pose should be computed for the end effector
+-- @treturn table holds error code {val = code}
+-- @treturn table with ros.Messages from type geometry_msgs/PoseStamped
+-- @treturn table with strings holding error messages
 function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
     assert(move_group_name)
     local move_group_pose_interface =
@@ -389,7 +442,14 @@ function MotionService:queryPoses(move_group_name, jointvalues_array, link_name)
     end
 end
 
--- get current Position of movegroup
+
+--- Query joint states by calling the providing ros service
+-- To query the joint states the ros service with the name
+-- defined in query_joint_states_service is called
+-- @tparam table of strings specifying joint names
+-- @treturn table field 'val' specifies the error code
+-- @treturn torch.Tensor max velocity limits
+-- @treturn torch.Tensor max acceleration limits
 function MotionService:queryJointState(joint_names)
     local move_group_position_interface =
         self.node_handle:serviceClient(
@@ -409,6 +469,7 @@ function MotionService:queryJointState(joint_names)
         return {val = error_codes.SIGNAL_LOST}, torch.Tensor()
     end
 end
+
 
 function MotionService:queryStateCollision(move_group_name, joint_names, points)
     local collision_check_interface =
@@ -440,6 +501,7 @@ function MotionService:queryStateCollision(move_group_name, joint_names, points)
         return false, true, {val = error_codes.SIGNAL_LOST}, {error_msg}
     end
 end
+
 
 -- get Path from service
 local function queryJointPath(self, move_group_name, joint_names, waypoints)
@@ -476,6 +538,7 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints)
         return error_codes.SIGNAL_LOST
     end
 end
+
 
 -- get Trajectory from service
 local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_acc, max_deviation, dt)
@@ -516,6 +579,12 @@ local function queryJointTrajectory(self, joint_names, waypoints, max_vel, max_a
     end
 end
 
+
+--- Trajectory which should be executed supervised
+-- @tparam ros.Message
+-- @tparam boolean If True check for collision while executing
+-- @tparam[opt] function callback.
+-- @treturn motionLibrary.SteppedMotionClient handle
 function MotionService:executeSupervisedJointTrajectory(traj, check_collision, done_cb)
     if self.execution_step_action_client == nil then
         self.execution_step_action_client =
@@ -544,6 +613,12 @@ function MotionService:executeSupervisedJointTrajectory(traj, check_collision, d
     return controller_handle
 end
 
+--- Executes a joint trajectory asynchronous
+-- calles action
+-- @tparam ros.Message
+-- @tparam boolean If True check for collision while executing
+-- @tparam[opt] function callback.
+-- @treturn ros.ActionLib.SimpleActionClient handle
 function MotionService:executeJointTrajectoryAsync(traj, check_collision, done_cb)
     if self.execution_action_client == nil then
         ros.WARN('Action Client does not exist yet')
@@ -573,6 +648,13 @@ function MotionService:executeJointTrajectoryAsync(traj, check_collision, done_c
     return action_client
 end
 
+
+--- Executes a joint trajectory
+-- calles action client
+-- @tparam ros.Message
+-- @tparam boolean If True check for collision while executing
+-- @treturn boolean True if successfully executed trajectory
+-- @treturn string error message
 function MotionService:executeJointTrajectory(traj, check_collision)
     if self.execution_action_client == nil then
         self.execution_action_client =
@@ -709,6 +791,11 @@ function MotionService:planCartesianPath(waypoints, parameters)
     return error_code, path
 end
 
+--- Plans trajectory from a joint path
+-- @tparam table of joint values the trajectory must reach
+-- @tparam datatypes.PlanParameters plan parameters which defines the limits, settings and move group name
+-- @treturn number error_code (SUCCEEDED = 1)
+-- @tretrun ros.Message trajectory_msgs/JointTrajectory. Planned joint trajectory which reach the poses defined in path under the constraints of parameters
 function MotionService:planMoveJoints(path, parameters)
     ros.DEBUG('planMoveJoints')
     assert(torch.isTypeOf(path, torch.DoubleTensor))
@@ -735,6 +822,17 @@ function MotionService:planMoveJoints(path, parameters)
     return error_code, trajectory
 end
 
+
+--- Create PlanParameters from user defined and/or queried inputs
+-- @tparam string name of move group
+-- @tparam table of strings holding joint names
+-- @tparam[opt] torch.tensor max position joint limits
+-- @tparam[opt] torch.tensor min position joint limits
+-- @tparam[opt] torch.tensor max veloctiy joint limits
+-- @tparam[opt] torch.tensor max acceleration joint limits
+-- @tparam[opt] number maximal deviation from waypoints
+-- @tparam[opt] boolean check for collision if True
+-- @treturn datatypes.PlanParameters Instance of plan parameters with automatically queried and/or user defined values
 function MotionService:getDefaultPlanParameters(
     move_group_name,
     joint_names,
@@ -764,6 +862,12 @@ function MotionService:getDefaultPlanParameters(
     )
 end
 
+
+--- Plans trajectory with linear movements from a cartesian path
+-- @tparam table of datatypes.Pose
+-- @tparam datatypes.TaskSpacePlanParameters plan parameters which defines the limits, settings and move group name
+-- @treturn number error_code (SUCCEEDED = 1)
+-- @tretrun ros.Message trajectory_msgs/JointTrajectory. Planned joint trajectory which reach the poses defined in path under the constraints of parameters
 function MotionService:planMoveLinear(joint_value_seed, path, parameters)
     ros.DEBUG('planMoveLinear')
     assert(torch.isTypeOf(joint_value_seed, datatypes.JointValues))
@@ -834,4 +938,4 @@ function MotionService:emergencyStop(enable)
     end
 end
 
-return MotionService
+return motionLibrary.MotionService
