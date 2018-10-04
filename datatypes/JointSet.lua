@@ -33,10 +33,21 @@ function JointSet:__init(names)
   elseif torch.type(names) == 'string' then
     table.insert(self.joint_names,names)
   end
-  if #self.joint_names <1 then
-    error("At least one Joint name needs to be specified.")
+
+  self.index_joint_names = {}
+  if #self.joint_names > 0 then
+    self.index_joint_names = table.swapKeyValue(self.joint_names)
   end
-  self.index_joint_names = table.swapKeyValue(self.joint_names)
+end
+
+function JointSet:add(name)
+  assert(torch.type(name) == 'string')
+  if self:contains(name) then
+    return
+  end
+  local index = #self.joint_names + 1
+  self.joint_names[index] = name
+  self.index_joint_names[name] = index
 end
 
 function JointSet:addPrefix(prefix)
@@ -92,10 +103,16 @@ function JointSet:clone()
   return JointSet.new(self.joint_names)
 end
 
+function JointSet:union(other)
+  for i,v in ipairs(other:getNames()) do
+    self:add(v)
+  end
+end
+
 function JointSet:__tostring()
   local res = 'JointSet: '
     for i, v in ipairs(self.joint_names) do
-      res = string.format("%s %s", res, v)
+      res = string.format("%s\n %s", res, v)
     end
   return res
 end
@@ -124,9 +141,7 @@ function JointSet.__add(a, b)
   assert(torch.isTypeOf(a, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(a)))
   assert(torch.isTypeOf(b, datatypes.JointSet), string.format('Wrong type! Expected: [xamlamoveit.datatypes.JointSet] but has [%s]', torch.type(b)))
   local result = a:clone()
-  for k,v in pairs(b:getNames()) do
-    table.insert(result.joint_names, v)
-  end
+  result:union(b)
   return result
 end
 
@@ -136,7 +151,7 @@ function JointSet.__len(a)
 end
 
 function JointSet.__next(t, k)
-   return next(t.joint_names, k)
+  return next(t.joint_names, k)
 end
 
 
