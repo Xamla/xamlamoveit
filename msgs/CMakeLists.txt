@@ -78,6 +78,7 @@ add_service_files(
    QueryLock.srv
    QueryJointStateCollisions.srv
    GetIKSolution.srv
+   GetIKSolution2.srv
    GetFKSolution.srv
    GetCartesianPath.srv
    GetLinearCartesianTrajectory.srv
