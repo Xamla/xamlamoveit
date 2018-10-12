@@ -822,6 +822,12 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
         duration = ros.Duration(duration)
     end
 
+    if not self.no_joint_limits_check then
+        if not self.joint_limits:satisfiesBounds(q_des) then
+            q_des = self.joint_limits:clamp_positions(q_des)
+        end
+    end
+
     if self:isValid(q_des.values, self.lastCommandJointPositions.values, self.lastCommandJointPositions:getNames()) then
         assert(
             self.controller.state.pos:size(1) == q_des.values:size(1),
@@ -829,7 +835,15 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
         )
         local eta = self.controller:update(q_des.values, self.dt:toSec())
         ros.DEBUG_THROTTLE('Controller_eta', 0.1, 'eta: %f', eta)
-        sendPositionCommand(self, self.controller.state.pos, self.controller.state.vel * 0, q_des:getNames(), duration)
+        local state_joint_values = self.lastCommandJointPositions:clone()
+        state_joint_values:setValues(self.lastCommandJointPositions:getNames(), self.controller.state.pos)
+        if not self.no_joint_limits_check then
+            if self.joint_limits:satisfiesBounds(state_joint_values) then
+                sendPositionCommand(self, state_joint_values:getValues(), self.controller.state.vel * 0, state_joint_values:getNames(), duration)
+            end
+        else
+            sendPositionCommand(self, state_joint_values:getValues(), self.controller.state.vel * 0, state_joint_values:getNames(), duration)
+        end
         self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
     else
         setStopGoals(self)
