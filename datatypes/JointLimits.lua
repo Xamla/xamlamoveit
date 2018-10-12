@@ -89,7 +89,7 @@ function JointLimits:satisfiesBounds(joint_values)
     return true
 end
 
-function JointLimits:clamp(joint_values)
+function JointLimits:clamp_positions(joint_values)
     assert(
         torch.isTypeOf(joint_values, datatypes.JointValues),
         'Should be xamlamoveit.datatypes.JointValues but is:' .. torch.type(joint_values)

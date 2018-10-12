@@ -119,7 +119,7 @@ end
 
 function EndEffector:movePoseLinearAsync(target, velocity_scaling, collision_check, acceleration_scaling, done_cb)
     -- plan trajectory
-    local ok, joint_trajectory, plan_parameters = self:planMoveLinear(target, velocity_scaling, collision_check, acceleration_scaling)
+    local ok, joint_trajectory, plan_parameters = self:planMovePoseLinear(target, velocity_scaling, collision_check, acceleration_scaling)
     assert(ok == 1, 'movePoseLinear failed')
 
     local simple_action_client = self.motion_service:executeJointTrajectoryAsync(joint_trajectory, plan_parameters.collision_check, done_cb)
