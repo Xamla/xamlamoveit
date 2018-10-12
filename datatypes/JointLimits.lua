@@ -89,6 +89,19 @@ function JointLimits:satisfiesBounds(joint_values)
     return true
 end
 
+function JointLimits:clamp(joint_values)
+    assert(
+        torch.isTypeOf(joint_values, datatypes.JointValues),
+        'Should be xamlamoveit.datatypes.JointValues but is:' .. torch.type(joint_values)
+    )
+    local tmp_limits = self:select(joint_values:getNames())
+    for i = 1, joint_values.joint_set:count() do
+        joint_values.values[i] = math.min(joint_values.values[i], tmp_limits.max_pos[i])
+        joint_values.values[i] = math.max(joint_values.values[i], tmp_limits.min_pos[i])
+    end
+    return joint_values
+end
+
 function JointLimits:select(names)
     local tmp_jointset = js.new(names)
     local max_pos = torch.zeros(#names)
