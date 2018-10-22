@@ -156,24 +156,26 @@ local function queryIKService2Handler(self, request, response, header)
         )
         local ik_res = self.ik_service_client:call(ik_req)
         response.error_codes[point_index] = ik_res.error_code
-
-        if not r_state:fromRobotStateMsg(ik_res.solution) then
+        local point_msg = ros.Message('xamlamoveit_msgs/JointValuesPoint')
+        if ik_res.error_code.val == errorCodes.SUCCESS and not r_state:fromRobotStateMsg(ik_res.solution) then
             response.error_codes[point_index] = ros.Message('moveit_msgs/MoveItErrorCodes')
             response.error_codes[point_index].val = errorCodes.INVALID_ROBOT_STATE
         end
-        local point_msg = ros.Message('xamlamoveit_msgs/JointValuesPoint')
+
         local state = r_state:getVariablePositions()
         local names = r_state:getVariableNames():totable()
-        local res = torch.DoubleTensor(#request.joint_names)
+        local res = torch.zeros(#request.joint_names)
         for i, v in ipairs(request.joint_names) do
             local index = table.indexof(names, v)
             res[i] = state[index]
         end
+        point_msg.joint_names = request.joint_names
         if response.error_codes[point_index].val == errorCodes.SUCCESS then
             point_msg.positions = res
-            point_msg.joint_names = request.joint_names
-            response.solutions[point_index] = point_msg
+        else
+            point_msg.positions = res/0
         end
+        response.solutions[point_index] = point_msg
         if request.const_seed == true then
             r_state:setVariablePositions(request.seed.positions, request.seed.joint_names)
         end
