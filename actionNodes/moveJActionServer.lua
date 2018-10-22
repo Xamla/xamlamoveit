@@ -1,4 +1,8 @@
 #!/usr/bin/env th
+--[[
+moveJActionServer.lua
+Copyright (c) 2018, Xamla and/or its affiliates. All rights reserved.
+--]]
 local ros = require 'ros'
 local moveit = require 'moveit'
 local components = require 'xamlamoveit.components'
