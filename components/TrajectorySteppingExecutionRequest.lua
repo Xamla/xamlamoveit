@@ -169,51 +169,33 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.time_of_last_command_request = ros.Time.now()
     self.current_direction = MOTIONDIRECTIONS.stopped
     self.last_send_joint_target = nil
+    self.max_since_last_call = ros.Duaration(0.02)
 end
 
 local function next(self, msg, header)
-    if (ros.Time.now() - self.time_of_last_command_request) > self.dt then
-        if
-            self.goal_handle:getGoalID().id == msg.id and
-                (self.allow_index_switch or self.current_direction ~= MOTIONDIRECTIONS.forward)
-         then
-            ros.INFO_NAMED(
-                'TrajectorySteppingExecutionRequest',
-                'NEXT: %d/%d, Scaling: %f',
-                self.index,
-                #self.goal.goal.trajectory.points,
-                self.scaling
-            )
-            local traj = self.goal.goal.trajectory
-            local index = #traj.points
-            self.simulated_time = self.simulated_time + self.dt --* self.scaling -- -1,1
-            if self.simulated_time:toSec() > traj.points[index].time_from_start:toSec() then
-                self.simulated_time = traj.points[index].time_from_start
-            end
-            self.current_direction = MOTIONDIRECTIONS.forward
-        end
+    if self.goal_handle:getGoalID().id == msg.id then
+        ros.DEBUG_NAMED(
+            'TrajectorySteppingExecutionRequest',
+            'NEXT: %d/%d, Scaling: %f',
+            self.index,
+            #self.goal.goal.trajectory.points,
+            self.scaling
+        )
+
+        self.current_direction = MOTIONDIRECTIONS.forward
         self.time_of_last_command_request = ros.Time.now()
     end
 end
 
 local function prev(self, msg, header)
-    if (ros.Time.now() - self.time_of_last_command_request) > self.dt then
-        if
-            self.goal_handle:getGoalID().id == msg.id and
-                (self.allow_index_switch or self.current_direction ~= MOTIONDIRECTIONS.backward)
-         then
-            ros.INFO_NAMED(
-                'TrajectorySteppingExecutionRequest',
-                'PREV: %d/%d',
-                self.index,
-                #self.goal.goal.trajectory.points
-            )
-            self.simulated_time = self.simulated_time - self.dt --* self.scaling
-            if self.simulated_time:toSec() < 0 then
-                self.simulated_time = ros.Duration(0)
-            end
-            self.current_direction = MOTIONDIRECTIONS.backward
-        end
+    if self.goal_handle:getGoalID().id == msg.id then
+        ros.DEBUG_NAMED(
+            'TrajectorySteppingExecutionRequest',
+            'PREV: %d/%d',
+            self.index,
+            #self.goal.goal.trajectory.points
+        )
+        self.current_direction = MOTIONDIRECTIONS.backward
         self.time_of_last_command_request = ros.Time.now()
     end
 end
@@ -358,7 +340,7 @@ function TrajectorySteppingExecutionRequest:accept()
     end
 end
 
-local function determinNextTarget(self, traj)
+local function determineNextTarget(self, traj)
     local index = 1
     local time = self.simulated_time:toSec()
     local point_count = #traj.points
@@ -391,27 +373,22 @@ function TrajectorySteppingExecutionRequest:proceed()
             local time_stamp_now = ros.Time.now()
             local traj = self.goal.goal.trajectory
             local p = self.joint_monitor:getPositionsOrderedTensor(traj.joint_names)
-            -- linear search for last point < t, increment index when t is greater than next (index+1) point's time_from_start
-            local q, qd, index = determinNextTarget(self, traj)
 
-            local q_dot = q - p
-            local dist = torch.abs(q_dot)
-            ros.DEBUG_THROTTLE(
-                'direction',
-                0.1,
-                string.format('comparison: %04f', q_dot / q_dot:norm() * qd / qd:norm())
-            )
-            if dist:gt(self.position_deviation_threshold):sum() < 1 then
-                self.allow_index_switch = true
-            else
-                self.allow_index_switch = false
-            end
-            self.index = index
             local mPoint = ros.Message(joint_point_spec)
             local m = ros.Message(joint_pos_spec)
             m.joint_names = traj.joint_names
 
-            if (time_stamp_now - self.time_of_last_command_request) > ros.Duration(0.1) then
+            local dt_since_last_call
+            if self.last_proceed then
+                dt_since_last_call = time_stamp_now - self.last_proceed
+                if dt_since_last_call > self.max_since_last_call then
+                    dt_since_last_call = self.max_since_last_call
+                end
+            else
+                dt_since_last_call = ros.Duration(0)
+            end
+
+            if (time_stamp_now - self.time_of_last_command_request) > ros.Duration(0.3) then
                 mPoint.velocities:set(qd:zero())
                 self.current_direction = MOTIONDIRECTIONS.stopped
                 ros.DEBUG_NAMED(
@@ -420,10 +397,33 @@ function TrajectorySteppingExecutionRequest:proceed()
                     (time_stamp_now - self.time_of_last_command_request):toSec()
                 )
             else
+                if self.current_direction == MOTIONDIRECTIONS.forward then
+                    self.simulated_time = self.simulated_time + dt_since_last_call * self.velocity_scaling
+                    local last_index = #traj.points
+                    if self.simulated_time > traj.points[last_index].time_from_start then
+                        self.simulated_time = traj.points[last_index].time_from_start
+                    end
+                elseif self.current_direction == MOTIONDIRECTIONS.backward then
+                    self.simulated_time = self.simulated_time - dt_since_last_call * self.velocity_scaling
+                    if self.simulated_time:toSec() < 0 then
+                        self.simulated_time = ros.Duration(0)
+                    end
+                end
+
+                local q, qd, index = determineNextTarget(self, traj)
+                self.index = index
+                local q_dot = q - p
+                local dist = torch.abs(q_dot)
+                ros.DEBUG_THROTTLE(
+                    'direction',
+                    0.1,
+                    string.format('comparison: %04f', q_dot / q_dot:norm() * qd / qd:norm())
+                )
+
+                self.last_send_joint_target = q
+
                 mPoint.positions:set(q)
             end
-
-            self.last_send_joint_target = q
 
             mPoint.time_from_start = ros.Duration(0.0)
             m.points = {mPoint}
@@ -439,7 +439,9 @@ function TrajectorySteppingExecutionRequest:proceed()
             fb.error_msg = 'ACTIVE'
             fb.error_code = self.status
             self.feedback:publish(fb)
+            self.last_proceed = time_stamp_now
         end
+
         ros.DEBUG('moving')
         return true
     else

@@ -90,7 +90,6 @@ function JointMonitor:waitForNextState(timeout)
     if not updated(self, start_seq) then
         timeout = toDuration(timeout)
 
-        local wait_duration = ros.Duration(0.0001)
         local start = ros.Time.now()
         while not updated(self, start_seq) and ros.ok() do
             if timeout ~= nil then
@@ -99,8 +98,7 @@ function JointMonitor:waitForNextState(timeout)
                     return false
                 end
             end
-            ros.spinOnce()
-            wait_duration:sleep()
+            ros.spinOnce(0.0001)
         end
     end
 
@@ -115,7 +113,6 @@ function JointMonitor:waitReady(timeout)
         timeout = toDuration(timeout)
     end
 
-    local wait_duration = ros.Duration(0.01)
     local start = ros.Time.now()
     while not self:isReady() do
         local elapsed = ros.Time.now() - start
@@ -123,8 +120,7 @@ function JointMonitor:waitReady(timeout)
             ros.DEBUG_NAMED('JointMonitor', string.format('Joint states not available during: %s sec', tostring(elapsed)))
             return false
         end
-        ros.spinOnce()
-        wait_duration:sleep()
+        ros.spinOnce(0.01)
     end
     return true
 end
