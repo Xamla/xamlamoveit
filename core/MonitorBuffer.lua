@@ -17,7 +17,7 @@ end
 
 
 function MonitorBuffer:count()
-  if self.WINDOW_SIZE<self.write_pos then
+  if self.WINDOW_SIZE < self.write_pos then
     return self.WINDOW_SIZE
   else
     return self.write_pos
@@ -39,7 +39,7 @@ end
 
 
 function MonitorBuffer:add(l)
-  local next_pos = self.write_pos % self.WINDOW_SIZE +1
+  local next_pos = self.write_pos % self.WINDOW_SIZE + 1
   self.buffer[{next_pos,{}}]:copy(l)
   self.write_pos = next_pos
 end

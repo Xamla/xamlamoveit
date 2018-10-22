@@ -15,6 +15,7 @@ local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
 local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
 local set_flag_spec = ros.SrvSpec('xamlamoveit_msgs/SetFlag')
 
+
 local TrajectorySteppingExecutionRequest =
     torch.class('xamlamoveit.components.TrajectorySteppingExecutionRequest', components)
 
@@ -129,12 +130,13 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.goal = goal_handle:getGoal()
     self.error_codes = errorCodes
     self.check_collision = self.goal.goal.check_collision
-    self.velocity_scaling = 0.5
-     --self.goal.goal.veloctiy_scaling -- Trajectory is already planed with slow limits
+    self.jogging_velocity_scaling = 1.0     -- value send to jogging service
+    self.global_velocity_scaling = 0.5      -- global trajectory velocity scaling (avoid trajectory run-away due to jogging limits)
     self.position_deviation_threshold = math.rad(5)
     self.publisher = nil
     self.subscriber_next = nil
     self.subscriber_prev = nil
+    self.subscriber_step = nil
     self.subscriber_cancel = nil
     self.jogging_activation_service = nil
     self.jogging_velocity_scaling_service = nil
@@ -145,7 +147,9 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.abort_action = false
     self.status = 0
     self.index = 1
-    self.scaling = 1
+    self.scaling_target = 0.5          -- dynamic scaling factor (e.g. modified by step messages)
+    self.scaling_current = 0
+    self.ramp_up_time = 2.5            -- ramp-up time for acceleartion to 1.0 velocity scaling
     self.progress_topic = 'feedback'
     self.allow_index_switch = false
     self.is_canceled = false
@@ -158,30 +162,29 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.last_proceed = nil
 end
 
-local function next(self, msg, header)
-    if self.goal_handle:getGoalID().id == msg.id then
+local function step(self, goal_id, velocity_scaling)
+    if self.goal_handle:getGoalID().id == goal_id then
+        velocity_scaling = math.max(-1, math.min(1, velocity_scaling))      -- clamp value to [-1, 1] range
         ros.DEBUG_NAMED(
             'TrajectorySteppingExecutionRequest',
-            'NEXT: %d/%d, Scaling: %f',
+            'STEP: %d/%d, t: %f, scaling: %f',
             self.index,
             #self.goal.goal.trajectory.points,
-            self.scaling
+            self.simulated_time:toSec(),
+            velocity_scaling
         )
-
-        self.current_direction = MOTIONDIRECTIONS.forward
-        self.time_of_last_command_request = ros.Time.now()
-    end
-end
-
-local function prev(self, msg, header)
-    if self.goal_handle:getGoalID().id == msg.id then
-        ros.DEBUG_NAMED(
-            'TrajectorySteppingExecutionRequest',
-            'PREV: %d/%d',
-            self.index,
-            #self.goal.goal.trajectory.points
-        )
-        self.current_direction = MOTIONDIRECTIONS.backward
+        local direction
+        if velocity_scaling >= 0 then
+            direction = MOTIONDIRECTIONS.forward
+        else
+            direction = MOTIONDIRECTIONS.backward
+        end
+        if self.current_direction ~= direction then
+            self.current_direction = direction
+            self.scaling_current = 0
+        end
+        self.scaling_target = math.abs(velocity_scaling)
+        self.scaling_current = math.min(self.scaling_current, self.scaling_target)
         self.time_of_last_command_request = ros.Time.now()
     end
 end
@@ -220,16 +223,22 @@ function TrajectorySteppingExecutionRequest:connect(
     self.publisher = self.node_handle:advertise(jogging_topic, joint_pos_spec, 1, false)
     self.feedback = self.node_handle:advertise(self.progress_topic, progress_spec)
 
+    self.subscriber_step = self.node_handle:subscribe('step', 'xamlamoveit_msgs/Step', 2)
+    self.subscriber_step:registerCallback(
+        function(msg, header)
+            step(self, msg.id, msg.velocity_scaling)
+        end
+    )
     self.subscriber_next = self.node_handle:subscribe('next', 'actionlib_msgs/GoalID', 2)
     self.subscriber_next:registerCallback(
         function(msg, header)
-            next(self, msg, header)
+            step(self, msg.id, 0.5)
         end
     )
     self.subscriber_prev = self.node_handle:subscribe('prev', 'actionlib_msgs/GoalID', 2)
     self.subscriber_prev:registerCallback(
         function(msg, header)
-            prev(self, msg, header)
+            step(self, msg.id, -0.5)
         end
     )
     self.subscriber_cancel = self.node_handle:subscribe('cancel', 'actionlib_msgs/GoalID', 2)
@@ -247,13 +256,13 @@ function TrajectorySteppingExecutionRequest:accept()
         self.status = 0
         local ok =
             self:connect(
-            '/xamlaJointJogging/jogging_command',
-            '/xamlaJointJogging/start_stop_tracking',
-            '/xamlaJointJogging/status',
-            '/xamlaJointJogging/set_velocity_scaling',
-            '/xamlaJointJogging/set_flag',
-            '/xamlaJointJogging/set_movegroup_name'
-        )
+                '/xamlaJointJogging/jogging_command',
+                '/xamlaJointJogging/start_stop_tracking',
+                '/xamlaJointJogging/status',
+                '/xamlaJointJogging/set_velocity_scaling',
+                '/xamlaJointJogging/set_flag',
+                '/xamlaJointJogging/set_movegroup_name'
+            )
 
         if not ok then
             local code = errorCodes.PREEMPTED
@@ -276,7 +285,7 @@ function TrajectorySteppingExecutionRequest:accept()
             return false
         end
 
-        ok = setJoggingServiceVelocityScaling(self, self.velocity_scaling)
+        ok = setJoggingServiceVelocityScaling(self, self.jogging_velocity_scaling)
         if not ok then
             local code = errorCodes.PREEMPTED
             self.status = code
@@ -315,6 +324,8 @@ function TrajectorySteppingExecutionRequest:accept()
         self.goal_handle:setAccepted('Starting trajectory execution')
         self.simulated_time = ros.Duration(0)
         self.last_proceed = nil
+        self.scaling_target = 0.5
+        self.scaling_current = 0
         self.index = 1
         return true
     else
@@ -375,9 +386,11 @@ function TrajectorySteppingExecutionRequest:proceed()
                 dt_since_last_call = ros.Duration(0)
             end
 
-            if (time_stamp_now - self.time_of_last_command_request) > ros.Duration(0.1) then
+            -- send stop signal on timeout or when step message with velocity_scaling == 0 was received
+            if (time_stamp_now - self.time_of_last_command_request) > ros.Duration(0.1) or self.scaling_target == 0 then
                 local q, qd, index = determineNextTarget(self, traj)
                 mPoint.velocities:set(qd:zero())
+                self.scaling_current = 0
                 self.current_direction = MOTIONDIRECTIONS.stopped
                 ros.DEBUG_NAMED(
                     'TrajectorySteppingExecutionRequest',
@@ -385,14 +398,18 @@ function TrajectorySteppingExecutionRequest:proceed()
                     (time_stamp_now - self.time_of_last_command_request):toSec()
                 )
             else
+                if self.scaling_current < self.scaling_target then
+                    -- ramp up to target scaling
+                    self.scaling_current = math.min(self.scaling_target, self.scaling_current + dt_since_last_call:toSec() / self.ramp_up_time)
+                end
                 if self.current_direction == MOTIONDIRECTIONS.forward then
-                    self.simulated_time = self.simulated_time + dt_since_last_call * self.velocity_scaling
+                    self.simulated_time = self.simulated_time + dt_since_last_call * self.scaling_current * self.global_velocity_scaling
                     local last_index = #traj.points
                     if self.simulated_time > traj.points[last_index].time_from_start then
                         self.simulated_time = traj.points[last_index].time_from_start
                     end
                 elseif self.current_direction == MOTIONDIRECTIONS.backward then
-                    self.simulated_time = self.simulated_time - dt_since_last_call * self.velocity_scaling
+                    self.simulated_time = self.simulated_time - dt_since_last_call * self.scaling_current * self.global_velocity_scaling
                     if self.simulated_time:toSec() < 0 then
                         self.simulated_time = ros.Duration(0)
                     end
@@ -493,6 +510,7 @@ end
 function TrajectorySteppingExecutionRequest:shutdown()
     disposeRos(self, 'feedback')
     disposeRos(self, 'publisher')
+    disposeRos(self, 'subscriber_step')
     disposeRos(self, 'subscriber_next')
     disposeRos(self, 'subscriber_prev')
     disposeRos(self, 'subscriber_cancel')
