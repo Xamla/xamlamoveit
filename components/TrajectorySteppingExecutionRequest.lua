@@ -144,7 +144,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.goal = goal_handle:getGoal()
     self.error_codes = errorCodes
     self.check_collision = self.goal.goal.check_collision
-    self.velocity_scaling = 1
+    self.velocity_scaling = 0.5
      --self.goal.goal.veloctiy_scaling -- Trajectory is already planed with slow limits
     self.position_deviation_threshold = math.rad(5)
     self.publisher = nil
@@ -169,7 +169,8 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.time_of_last_command_request = ros.Time.now()
     self.current_direction = MOTIONDIRECTIONS.stopped
     self.last_send_joint_target = nil
-    self.max_since_last_call = ros.Duaration(0.02)
+    self.max_since_last_call = ros.Duration(0.02)
+    self.last_proceed = nil
 end
 
 local function next(self, msg, header)
@@ -328,6 +329,7 @@ function TrajectorySteppingExecutionRequest:accept()
 
         self.goal_handle:setAccepted('Starting trajectory execution')
         self.simulated_time = ros.Duration(0)
+        self.last_proceed = nil
         self.index = 1
         return true
     else
@@ -388,7 +390,8 @@ function TrajectorySteppingExecutionRequest:proceed()
                 dt_since_last_call = ros.Duration(0)
             end
 
-            if (time_stamp_now - self.time_of_last_command_request) > ros.Duration(0.3) then
+            if (time_stamp_now - self.time_of_last_command_request) > ros.Duration(0.1) then
+                local q, qd, index = determineNextTarget(self, traj)
                 mPoint.velocities:set(qd:zero())
                 self.current_direction = MOTIONDIRECTIONS.stopped
                 ros.DEBUG_NAMED(
@@ -409,7 +412,6 @@ function TrajectorySteppingExecutionRequest:proceed()
                         self.simulated_time = ros.Duration(0)
                     end
                 end
-
                 local q, qd, index = determineNextTarget(self, traj)
                 self.index = index
                 local q_dot = q - p
@@ -423,14 +425,15 @@ function TrajectorySteppingExecutionRequest:proceed()
                 self.last_send_joint_target = q
 
                 mPoint.positions:set(q)
+                if self.index >= #traj.points and dist:gt(1e-2):sum() == 0 then
+                    self.status = errorCodes.SUCCESS
+                end
             end
 
             mPoint.time_from_start = ros.Duration(0.0)
             m.points = {mPoint}
             self.publisher:publish(m)
-            if self.index >= #traj.points and dist:gt(1e-2):sum() == 0 then
-                self.status = errorCodes.SUCCESS
-            end
+
             local fb = ros.Message(progress_spec)
             fb.index = self.index
             fb.num_of_points = #traj.points
@@ -490,7 +493,7 @@ end
 function TrajectorySteppingExecutionRequest:cancel()
     local status = self.goal_handle:getGoalStatus().status
     if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
-        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'Send Cancel Request: %d', status)
+        ros.INFO_NAMED('TrajectorySteppingExecutionRequest', 'Send Cancel Request: %d', status)
         self.goal_handle:setCancelRequested()
     end
 end

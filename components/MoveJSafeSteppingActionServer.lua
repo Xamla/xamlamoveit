@@ -161,7 +161,7 @@ function MoveJSafeSteppingActionServer:onShutdown()
 end
 
 function MoveJSafeSteppingActionServer:hasTrajectoryActive()
-    return self.worker.currentPlan ~= nil
+    return self.worker.current_plan ~= nil
 end
 
 function MoveJSafeSteppingActionServer:doTrajectoryAsync(traj)

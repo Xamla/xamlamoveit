@@ -114,7 +114,7 @@ function MoveJActionServer:onShutdown()
 end
 
 function MoveJActionServer:hasTrajectoryActive()
-    return self.worker.currentPlan ~= nil
+    return self.worker.current_plan ~= nil
 end
 
 function MoveJActionServer:doTrajectoryAsync(traj)
