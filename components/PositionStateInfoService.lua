@@ -128,6 +128,7 @@ end
 
 
 local function queryIKService2Handler(self, request, response, header)
+    local point_msg = ros.Message('xamlamoveit_msgs/JointValuesPoint')
     local r_state = self.robot_state:clone()
     ros.DEBUG(tostring(request))
     if request.seed.positions:nElement() > 0 then
@@ -137,6 +138,12 @@ local function queryIKService2Handler(self, request, response, header)
 
     local known_joint_names = self.robot_model:getGroupJointNames(request.group_name)
     ros.DEBUG('query Group EndEffector Names for: ' .. request.group_name)
+    if #known_joint_names == 0 then
+        response.error_codes[1] = ros.Message('moveit_msgs/MoveItErrorCodes')
+        response.error_codes[1].val = errorCodes.INVALID_GROUP_NAME
+        response.solutions[1] = point_msg
+        return true
+    end
 
     local attempts = request.attempts or 1
     local timeout = request.timeout or ros.Duration(0.1)
@@ -156,7 +163,7 @@ local function queryIKService2Handler(self, request, response, header)
         )
         local ik_res = self.ik_service_client:call(ik_req)
         response.error_codes[point_index] = ik_res.error_code
-        local point_msg = ros.Message('xamlamoveit_msgs/JointValuesPoint')
+
         if ik_res.error_code.val == errorCodes.SUCCESS and not r_state:fromRobotStateMsg(ik_res.solution) then
             response.error_codes[point_index] = ros.Message('moveit_msgs/MoveItErrorCodes')
             response.error_codes[point_index].val = errorCodes.INVALID_ROBOT_STATE
