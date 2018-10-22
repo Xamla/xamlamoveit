@@ -11,7 +11,7 @@ bool const_seed
 EndEffectorPoses[] points
 
 bool collision_check
-int32 attemts
+int32 attempts
 duration timeout
 
 ---

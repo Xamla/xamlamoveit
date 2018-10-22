@@ -12,7 +12,7 @@ bool const_seed
 geometry_msgs/PoseStamped[] points
 
 bool collision_check
-int32 attemts
+int32 attempts
 duration timeout
 
 ---

@@ -500,9 +500,9 @@ local function queryControllerList(node_handle)
     local config = node_handle:getParamVariable(string.format('%s/controller_list', node_handle:getNamespace()))
     local start_time = ros.Time.now()
     local current_time = ros.Time.now()
-    local attemts = 0
+    local attempts = 0
     while config == nil do
-        attemts = attemts + 1
+        attempts = attempts + 1
         ros.WARN('no controller specified in "%s/controller_list". Retry in 5sec', node_handle:getNamespace())
         while current_time:toSec() - start_time:toSec() < 5 do
             current_time = ros.Time.now()
@@ -516,7 +516,7 @@ local function queryControllerList(node_handle)
             return -1, config, 'Ros is not ok'
         end
 
-        if attemts > 5 then
+        if attempts > 5 then
             return -2, config, 'Reached max attempts'
         end
     end
