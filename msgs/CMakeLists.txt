@@ -61,6 +61,7 @@ add_message_files(
   TrajectoryProgress.msg
   CartesianPath.msg
   EndEffectorPoses.msg
+  Step.msg
 )
 
 ## Generate services in the 'srv' folder
