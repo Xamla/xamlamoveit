@@ -65,7 +65,7 @@ end
 
 local function CancelCallBack(self, goal_handle)
     ros.INFO('MoveJSafeSteppingActionServerCancel')
-    if self.worker.currentPlan ~= nil and self.worker.currentPlan.traj.goal_handle == goal_handle then
+    if self.worker.current_plan ~= nil and self.worker.current_plan.traj.goal_handle == goal_handle then
         ros.INFO('Cancel active trajectory')
         self.worker:cancelCurrentPlan('Trajectory canceled')
     else
@@ -88,7 +88,7 @@ local function CancelCallBack(self, goal_handle)
     end
 end
 
-function MoveJSafeSteppingActionServer:onInitialize()
+function MoveJSafeSteppingActionServer:onCreate()
     self.worker = IterativeMoveJWorker(self.node_handle, self.joint_monitor)
     self.action_server = actionlib.ActionServer(self.node_handle, '/moveJ_step_action', 'xamlamoveit_msgs/StepwiseMoveJ')
     self.action_server:registerGoalCallback(
@@ -101,11 +101,8 @@ function MoveJSafeSteppingActionServer:onInitialize()
             CancelCallBack(self, gh)
         end
     )
-end
-
-function MoveJSafeSteppingActionServer:onStart()
     self.action_server:start()
-    self.info_service =
+        self.info_service =
         self.node_handle:advertiseService(
         'query_active_goalIds',
         srv_spec,
@@ -116,12 +113,14 @@ function MoveJSafeSteppingActionServer:onStart()
     )
 end
 
-function MoveJSafeSteppingActionServer:onProcess()
-    self.worker:spin()
+function MoveJSafeSteppingActionServer:onInitialize()
+    if not self.worker then
+        self.worker = IterativeMoveJWorker(self.node_handle, self.joint_monitor)
+    end
 end
 
-function MoveJSafeSteppingActionServer:onReset()
-    self.action_server:start()
+function MoveJSafeSteppingActionServer:onProcess()
+    self.worker:spin()
 end
 
 function MoveJSafeSteppingActionServer:onStop()
@@ -146,7 +145,11 @@ function MoveJSafeSteppingActionServer:onShutdown()
 end
 
 function MoveJSafeSteppingActionServer:hasTrajectoryActive()
-    return self.worker.current_plan ~= nil
+    if self.worker then
+        return self.worker.current_plan ~= nil
+    else
+        return false
+    end
 end
 
 function MoveJSafeSteppingActionServer:doTrajectoryAsync(traj)

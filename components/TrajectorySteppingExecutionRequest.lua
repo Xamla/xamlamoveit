@@ -131,7 +131,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.error_codes = errorCodes
     self.check_collision = self.goal.goal.check_collision
     self.jogging_velocity_scaling = 1.0     -- value send to jogging service
-    self.global_velocity_scaling = 0.5      -- global trajectory velocity scaling (avoid trajectory run-away due to jogging limits)
+    self.global_velocity_scaling = 0.85      -- global trajectory velocity scaling (avoid trajectory run-away due to jogging limits)
     self.position_deviation_threshold = math.rad(5)
     self.publisher = nil
     self.subscriber_next = nil
@@ -149,7 +149,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.index = 1
     self.scaling_target = 0.5          -- dynamic scaling factor (e.g. modified by step messages)
     self.scaling_current = 0
-    self.ramp_up_time = 1.0            -- ramp-up time for acceleartion to 1.0 velocity scaling
+    self.ramp_up_time = 0.1            -- ramp-up time for acceleartion to 1.0 velocity scaling
     self.progress_topic = 'feedback'
     self.allow_index_switch = false
     self.is_canceled = false

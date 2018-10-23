@@ -90,7 +90,6 @@ end
 
 function RosComponent:onInitialize()
     print('onInitialize was called')
-    self.current_state = circle_states.INITIALIZED
 end
 
 function RosComponent:start()
@@ -129,7 +128,9 @@ function RosComponent:onReset()
 end
 
 function RosComponent:reset()
+    print('reset was called')
     if self.current_state == circle_states.EXECUTE then
+        print('node is running')
         self:stop()
     end
     self:onReset()

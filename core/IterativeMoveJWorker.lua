@@ -176,22 +176,20 @@ end
 local function dispatchTrajectory(self)
     local status = 0
     if self.current_plan == nil then
-        if #self.trajectoryQueue > 0 then -- check if new trajectory is available
-            while #self.trajectoryQueue > 0 do
-                local traj = table.remove(self.trajectoryQueue, 1)
-                traj.joint_monitor = self.joint_monitor
-                local msg
-                traj, status, msg = handleMoveJTrajectory(self, traj)
+        while #self.trajectoryQueue > 0 do
+            local traj = table.remove(self.trajectoryQueue, 1)
+            traj.joint_monitor = self.joint_monitor
+            local msg
+            traj, status, msg = handleMoveJTrajectory(self, traj)
 
-                if traj.accept == nil or traj:accept() then -- call optional accept callback
-                    traj.status = math.min(traj.status, status)
-                    self.current_plan = {
-                        startTime = sys.clock(), -- debug information
-                        traj = traj,
-                        error_msg = msg
-                    }
-                    break
-                end
+            if traj.accept == nil or traj:accept() then -- call optional accept callback
+                traj.status = math.min(traj.status, status)
+                self.current_plan = {
+                    startTime = sys.clock(), -- debug information
+                    traj = traj,
+                    error_msg = msg
+                }
+                break
             end
         end
     end
@@ -239,13 +237,10 @@ function IterativeMoveJWorker:reset()
         end
         self.current_plan = nil
     end
-    if #self.trajectoryQueue > 0 then -- check if new trajectory is available
-        while #self.trajectoryQueue > 0 do
-            --print('#self.trajectoryQueue ' .. #self.trajectoryQueue)
-            local traj = table.remove(self.trajectoryQueue, 1)
-            if traj.abort ~= nil then
-                traj:abort()
-            end
+    while #self.trajectoryQueue > 0 do
+        local traj = table.remove(self.trajectoryQueue, 1)
+        if traj.abort ~= nil then
+            traj:abort()
         end
     end
     self.allowed_start_tolerance =
@@ -257,9 +252,7 @@ local function IterativeMoveJWorkerCore(self)
 end
 
 function IterativeMoveJWorker:spin()
-    --local ok, err = pcall(function() IterativeMoveJWorkerCore(self) end)
-    local ok = true
-    IterativeMoveJWorkerCore(self)
+    local ok, err = pcall(function() IterativeMoveJWorkerCore(self) end)
     -- abort current trajectory
     if (not ok) and self.current_plan then
         local traj = self.current_plan.traj

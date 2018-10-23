@@ -31,7 +31,7 @@ end
 
 local function CancelCallBack(self, goal_handle)
     ros.INFO('Cancel moveJ Goal')
-    if self.worker.currentPlan ~= nil and self.worker.currentPlan.traj.goal_handle == goal_handle then
+    if self.worker.current_plan ~= nil and self.worker.current_plan.traj.goal_handle == goal_handle then
         ros.INFO('Cancel active trajectory')
         self.worker:cancelCurrentPlan('Trajectory canceled')
     else
