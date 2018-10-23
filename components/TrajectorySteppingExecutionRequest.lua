@@ -149,7 +149,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.index = 1
     self.scaling_target = 0.5          -- dynamic scaling factor (e.g. modified by step messages)
     self.scaling_current = 0
-    self.ramp_up_time = 2.5            -- ramp-up time for acceleartion to 1.0 velocity scaling
+    self.ramp_up_time = 1.0            -- ramp-up time for acceleartion to 1.0 velocity scaling
     self.progress_topic = 'feedback'
     self.allow_index_switch = false
     self.is_canceled = false
@@ -338,9 +338,9 @@ function TrajectorySteppingExecutionRequest:accept()
     end
 end
 
-local function determineNextTarget(self, traj)
+local function determineNextTarget(self, traj, time)
     local index = 1
-    local time = self.simulated_time:toSec()
+    time = time or self.simulated_time:toSec()
     local point_count = #traj.points
     while index < point_count and time >= traj.points[index + 1].time_from_start:toSec() do
         index = index + 1
@@ -351,6 +351,33 @@ local function determineNextTarget(self, traj)
     local p1, v1 = traj.points[k].positions, traj.points[k].velocities
     local q, qd = interpolateCubic(time - t0, t0, t1, p0, p1, v0, v1)
     return q, qd, index
+end
+
+local function syncTrajectory(self, traj, dt, simulated_time, p)
+    local q = determineNextTarget(self, traj, simulated_time)
+    local err = (p - q):norm()
+    local point_count = #traj.points
+    if point_count < 1 then
+        return simulated_time
+    end
+    local end_time = traj.points[point_count].time_from_start:toSec()
+    local t = simulated_time + dt
+    while true do
+        local t = math.min(math.max(0, simulated_time + dt), end_time)
+        local q = determineNextTarget(self, traj, t)
+        local new_err = (p - q):norm()
+        if new_err >= err then      -- if the new position is not nearer, stop
+            break
+        end
+        err = new_err
+        simulated_time = t
+    end
+
+    if math.abs(dt) > 1e-3 then
+        return syncTrajectory(self, traj, dt * 0.5, simulated_time, p)
+    end
+
+    return simulated_time
 end
 
 function TrajectorySteppingExecutionRequest:proceed()
@@ -398,20 +425,28 @@ function TrajectorySteppingExecutionRequest:proceed()
                     (time_stamp_now - self.time_of_last_command_request):toSec()
                 )
             else
-                if self.scaling_current < self.scaling_target then
-                    -- ramp up to target scaling
-                    self.scaling_current = math.min(self.scaling_target, self.scaling_current + dt_since_last_call:toSec() / self.ramp_up_time)
-                end
                 if self.current_direction == MOTIONDIRECTIONS.forward then
-                    self.simulated_time = self.simulated_time + dt_since_last_call * self.scaling_current * self.global_velocity_scaling
-                    local last_index = #traj.points
-                    if self.simulated_time > traj.points[last_index].time_from_start then
-                        self.simulated_time = traj.points[last_index].time_from_start
+                    if self.scaling_current == 0 then
+                        local before = self.simulated_time
+                        self.simulated_time = ros.Duration(syncTrajectory(self, traj, 0.05, self.simulated_time:toSec(), p))
+                        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'forward sync from %f -> %f, delta: %f', before:toSec(), self.simulated_time:toSec(), (self.simulated_time - before):toSec())
+                    else
+                        self.simulated_time = self.simulated_time + dt_since_last_call * self.scaling_current * self.global_velocity_scaling
+                        local last_index = #traj.points
+                        if self.simulated_time > traj.points[last_index].time_from_start then
+                            self.simulated_time = traj.points[last_index].time_from_start
+                        end
                     end
                 elseif self.current_direction == MOTIONDIRECTIONS.backward then
-                    self.simulated_time = self.simulated_time - dt_since_last_call * self.scaling_current * self.global_velocity_scaling
-                    if self.simulated_time:toSec() < 0 then
-                        self.simulated_time = ros.Duration(0)
+                    if self.scaling_current == 0 then
+                        local before = self.simulated_time
+                        self.simulated_time = ros.Duration(syncTrajectory(self, traj, -0.05, self.simulated_time:toSec(), p))
+                        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'backward sync from %f -> %f, delta: %f', before:toSec(), self.simulated_time:toSec(), (self.simulated_time - before):toSec())
+                    else
+                        self.simulated_time = self.simulated_time - dt_since_last_call * self.scaling_current * self.global_velocity_scaling
+                        if self.simulated_time:toSec() < 0 then
+                            self.simulated_time = ros.Duration(0)
+                        end
                     end
                 end
                 local q, qd, index = determineNextTarget(self, traj)
@@ -429,6 +464,11 @@ function TrajectorySteppingExecutionRequest:proceed()
                 mPoint.positions:set(q)
                 if self.index >= #traj.points and dist:gt(1e-2):sum() == 0 then
                     self.status = errorCodes.SUCCESS
+                end
+
+                if self.scaling_current < self.scaling_target then
+                    -- ramp up to target scaling
+                    self.scaling_current = math.min(self.scaling_target, self.scaling_current + dt_since_last_call:toSec() / self.ramp_up_time)
                 end
             end
 
