@@ -136,6 +136,7 @@ local function queryIKService2Handler(self, request, response, header)
         timeout = ros.Duration(0.1)
     end
     for point_index = 1, #request.points do
+        point_msg = ros.Message('xamlamoveit_msgs/JointValuesPoint')
         local ik_req =
             createIKRequest(
             request.group_name,
