@@ -15,12 +15,14 @@ local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
 local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
 local set_flag_spec = ros.SrvSpec('xamlamoveit_msgs/SetFlag')
 
+local jogging_feedback_spec = ros.MsgSpec('xamlamoveit_msgs/ControllerState')
 
 local TrajectorySteppingExecutionRequest =
     torch.class('xamlamoveit.components.TrajectorySteppingExecutionRequest', components)
 
 local errorCodes = require 'xamlamoveit.core.ErrorCodes'.error_codes
 errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 
 local FLAGS = {
     [1] = 'self_collision_check_enabled',
@@ -143,6 +145,8 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.jogging_status_service = nil
     self.jogging_state_collision_check_service = nil
     self.jogging_move_group_name_service = nil
+    self.last_jogging_feedback_msg = nil
+    self.subscriber_jogging_feedback = nil
     self.move_group_name = nil
     self.abort_action = false
     self.status = 0
@@ -201,19 +205,25 @@ local function cancel(self, msg, header)
     end
 end
 
+local function jogging_feedback(self, msg, header)
+    self.last_jogging_feedback_msg = msg
+end
+
 function TrajectorySteppingExecutionRequest:connect(
     jogging_topic,
     start_stop_service,
     status_service,
     set_velocity_service,
     set_flag,
-    set_move_group_name)
+    set_move_group_name,
+    feedback_topic)
     ros.INFO('[TrajectorySteppingExecutionRequest] Create service client for jogging node.')
     self.jogging_activation_service = ros.ServiceClient(start_stop_service, set_bool_spec)
     self.jogging_velocity_scaling_service = ros.ServiceClient(set_velocity_service, set_double_sec)
     self.jogging_status_service = ros.ServiceClient(status_service, get_status_spec)
     self.jogging_state_collision_check_service = ros.ServiceClient(set_flag, set_flag_spec)
     self.jogging_move_group_name_service = ros.ServiceClient(set_move_group_name, set_string_spec)
+
     local is_running, status_msg = checkStatusJoggingNode(self)
     if is_running then
         return false
@@ -222,6 +232,12 @@ function TrajectorySteppingExecutionRequest:connect(
     ros.INFO('[TrajectorySteppingExecutionRequest] Create command publisher')
     self.publisher = self.node_handle:advertise(jogging_topic, joint_pos_spec, 1, false)
     self.feedback = self.node_handle:advertise(self.progress_topic, progress_spec)
+    self.subscriber_jogging_feedback = self.node_handle:subscribe(feedback_topic, jogging_feedback_spec, 2)
+    self.subscriber_jogging_feedback:registerCallback(
+        function(msg, header)
+            jogging_feedback(self, msg, header)
+        end
+    )
 
     self.subscriber_step = self.node_handle:subscribe('step', 'xamlamoveit_msgs/Step', 2)
     self.subscriber_step:registerCallback(
@@ -247,6 +263,7 @@ function TrajectorySteppingExecutionRequest:connect(
             cancel(self, msg, header)
         end
     )
+    ros.INFO('[TrajectorySteppingExecutionRequest] Connected')
     return true
 end
 
@@ -254,15 +271,20 @@ function TrajectorySteppingExecutionRequest:accept()
     if self.goal_handle:getGoalStatus().status == GoalStatus.PENDING then
         self.starttime_debug = ros.Time.now()
         self.status = 0
-        local ok =
-            self:connect(
+
+        local ok, err =
+            xpcall (
+                function () return self:connect(
                 '/xamlaJointJogging/jogging_command',
                 '/xamlaJointJogging/start_stop_tracking',
                 '/xamlaJointJogging/status',
                 '/xamlaJointJogging/set_velocity_scaling',
                 '/xamlaJointJogging/set_flag',
-                '/xamlaJointJogging/set_movegroup_name'
-            )
+                '/xamlaJointJogging/set_movegroup_name',
+                '/xamlaJointJogging/feedback'
+                )
+            end, error_msg_func
+        )
 
         if not ok then
             local code = errorCodes.PREEMPTED
@@ -385,6 +407,10 @@ function TrajectorySteppingExecutionRequest:proceed()
     if status == GoalStatus.ACTIVE or status == GoalStatus.PENDING or status == GoalStatus.PREEMPTING then
         self.status = 0
         local is_running, msg = checkStatusJoggingNode(self)
+        if self.last_jogging_feedback_msg and (self.last_jogging_feedback_msg.self_collision_check_enabled and self.last_jogging_feedback_msg.error_code == -2 or
+           self.last_jogging_feedback_msg.scene_collision_check_enabled and self.last_jogging_feedback_msg.error_code == -3) then
+            self.abort_action = true
+        end
         if self.abort_action == true or is_running == false or self.is_canceled then
             if self.abort_action then
                 ros.WARN('[TrajectorySteppingExecutionRequest] could not set status on Jogging node')
@@ -554,6 +580,8 @@ function TrajectorySteppingExecutionRequest:shutdown()
     disposeRos(self, 'subscriber_next')
     disposeRos(self, 'subscriber_prev')
     disposeRos(self, 'subscriber_cancel')
+    disposeRos(self, 'subscriber_cancel')
+    disposeRos(self, 'subscriber_jogging_feedback')
 
     if self.jogging_activation_service then
         setJoggingCheckCollisionState(self, true)
