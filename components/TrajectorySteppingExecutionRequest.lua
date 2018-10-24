@@ -563,6 +563,12 @@ function TrajectorySteppingExecutionRequest:cancel()
     if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
         ros.INFO_NAMED('TrajectorySteppingExecutionRequest', 'Send Cancel Request: %d', status)
         self.goal_handle:setCancelRequested()
+    elseif status == GoalStatus.PREEMPTING then
+        ros.INFO('[TrajectorySteppingExecutionRequest] Notifying client about PREEMTING state')
+        local code = code or errorCodes.PREEMPTED
+        local r = self.goal_handle:createResult()
+        r.result = code
+        self.goal_handle:setAborted(r, msg or 'Abort')
     end
 end
 
