@@ -62,7 +62,7 @@ local function reachedGoal(self)
     else
         q_actual = torch.zeros(#self.traj.joint_names)
         for i,v in pairs(feedback_idx) do
-            q_actual[v] = state_pos[i]
+            q_actual[i] = state_pos[v]
         end
     end
     --self.realtimeState.q_actual
