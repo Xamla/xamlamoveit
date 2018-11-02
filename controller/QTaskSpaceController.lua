@@ -72,7 +72,6 @@ function QTaskSpaceController:update(goal, dt)
         self.goal_pose = goal:toTransform()
     elseif torch.isTypeOf(goal, tf.Transform) then
         self.goal_pose = goal
-        print(self.start_pose, self.goal_pose, goal)
         self.difference_angle = self.start_pose:getRotation():angleShortestPath(self.goal_pose:getRotation())
         goal = poseToPositionTensor(goal, self.difference_angle)
     end
