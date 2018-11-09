@@ -208,10 +208,12 @@ local function pose2jointTrajectory(
         return result, 0
     end
 
+    local seed_joint_values = createJointValues(joint_names, seed)
+    local zero_seed_joint_values = createJointValues(joint_names, torch.zeros(seed:size()))
     self.robot_state:setVariablePositions(seed, joint_names)
     self.robot_state:update()
     local traj_joint_names = self.robot_model:getGroupJointNames(move_group):totable()
-    local velocity_limits = self.joint_limits.vel:select(traj_joint_names):getValues()
+    local velocity_limits = self.joint_limits.vel:select(joint_names):getValues()
     for i, pose in ipairs(poses6D) do
         --ros.INFO('set IK')
         local old_state = self.robot_state:copyJointGroupPositions(move_group)
@@ -233,10 +235,13 @@ local function pose2jointTrajectory(
                     return result, error_codes.NO_IK_SOLUTION
                 end
                 local jac = self.robot_state:getJacobian(move_group)
-                local tmp = createJointValues(traj_joint_names, new_state)
                 result[i] = {}
-                result[i].pos = tmp:select(traj_joint_names):getValues()
-                result[i].vel = pseudoInverse(jac) * pose.vel
+                seed_joint_values:setValues(traj_joint_names, new_state)
+                result[i].pos = seed_joint_values:getValues()
+                local vel = pseudoInverse(jac) * pose.vel
+                zero_seed_joint_values:setValues(traj_joint_names, vel)
+                result[i].vel = zero_seed_joint_values:getValues()
+
                 if torch.abs(result[i].vel * dt):gt(velocity_limits):sum() > 0 then
                     ros.ERROR(
                         '[pose2jointTrajectory] Exceeded joint limits in move_group %s. Transformed %f%% of trajectory',
