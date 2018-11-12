@@ -56,6 +56,38 @@ local last_command_time = ros.Time.now()
 local controller = {}
 local feedback_buffer_pos = {}
 local feedback_buffer_vel = {}
+local srv_spec = ros.SrvSpec("xamlamoveit_msgs/SetJointPosture")
+local set_state_service = nil
+
+local function setStateServiceHandler(request, response, header)
+    joint_names = request.joint_names
+    positions = request.point.positions
+    for i, name in ipairs(joint_names) do
+        local index = table.indexof(joint_name_collection, name)
+        if index > -1 then
+            last_command_joint_position[index] = positions[i]
+            controller.state.pos[index] = positions[i]
+        else
+            response.success = false
+            response.error = string.format('could not find joint name "%s" in collection', name)
+            return true
+        end
+    end
+    controller.state.vel:zero()
+    controller.state.acc:zero()
+    response.success = true
+    response.error = ''
+    return true
+end
+
+function adverticeServices()
+    set_state_service =
+        node_handle:advertiseService(
+        "set_state",
+        srv_spec,
+        setStateServiceHandler
+    )
+end
 
 local function jointCommandCb(msg, header)
     if #msg.points > 0 then
@@ -243,6 +275,7 @@ local function init(delay, dt)
         return
     end
 
+    adverticeServices()
     return dt
 end
 
