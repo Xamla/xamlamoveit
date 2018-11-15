@@ -58,6 +58,38 @@ local feedback_buffer_pos = {}
 local feedback_buffer_vel = {}
 local srv_spec = ros.SrvSpec("xamlamoveit_msgs/SetJointPosture")
 local set_state_service = nil
+local joint_monitor
+local joint_state_publisher
+local sim_seq = 1
+local offset
+
+local function sendJointState(position, velocity, joint_names, sequence)
+    local m = ros.Message(joint_sensor_spec)
+    m.header.seq = sequence
+    m.header.stamp = ros.Time.now()
+    --m.frame_id = "global"
+    m.name = joint_names
+    m.position:set(position)
+    m.velocity:set(velocity)
+    joint_state_publisher:publish(m)
+end
+
+function publishUpdateAndWait(values, joint_names)
+    local ok, state_pos = joint_monitor:getNextPositionsTensor(0.1, joint_names)
+    pos = feedback_buffer_pos:getPastIndex(offset)
+    vel = feedback_buffer_vel:getPastIndex(offset)
+    if pos then
+        sendJointState(pos, vel, joint_name_collection, sim_seq)
+    end
+    sim_seq = sim_seq + 1
+    while not ok or (values - state_pos):norm() > 1e-6 and ros.ok() do
+        print('update', (values - state_pos):norm())
+        sendJointState(pos, vel, joint_name_collection, sim_seq)
+        ros.spinOnce(0.01)
+        sim_seq = sim_seq + 1
+        ok, state_pos = joint_monitor:getNextPositionsTensor(0.1, joint_names)
+    end
+end
 
 local function setStateServiceHandler(request, response, header)
     joint_names = request.joint_names
@@ -75,6 +107,10 @@ local function setStateServiceHandler(request, response, header)
     end
     controller.state.vel:zero()
     controller.state.acc:zero()
+    for i = 1,feedback_buffer_pos.WINDOW_SIZE do
+        feedback_buffer_pos:add(controller.state.pos)
+        feedback_buffer_vel:add(controller.state.vel)
+    end
     response.success = true
     response.error = ''
     return true
@@ -230,6 +266,7 @@ local function initControllers(delay, dt)
     subscriber = node_handle:subscribe(string.format('/%s/joint_command', ns[1]), jointtrajmsg_spec, 1)
     subscriber:registerCallback(jointCommandCb)
 
+    joint_monitor = core.JointMonitor(joint_name_collection)
     return 0, 'Success'
 end
 
@@ -240,20 +277,7 @@ cmd:option('-frequency', 0.008, 'Node cycle time in s')
 local parameter = xutils.parseRosParametersFromCommandLine(arg, cmd) or {}
 initSetup(parameter['__name'], parameter)
 
-local joint_state_publisher
-local sim_seq = 1
-local offset
 
-local function sendJointState(position, velocity, joint_names, sequence)
-    local m = ros.Message(joint_sensor_spec)
-    m.header.seq = sequence
-    m.header.stamp = ros.Time.now()
-    --m.frame_id = "global"
-    m.name = joint_names
-    m.position:set(position)
-    m.velocity:set(velocity)
-    joint_state_publisher:publish(m)
-end
 
 local function init(delay, dt)
     joint_state_publisher = node_handle:advertise('/joint_states', joint_sensor_spec, 1)
@@ -362,13 +386,13 @@ local function simulation(delay, dt)
         if pos then
             sendJointState(pos, vel, joint_name_collection, sim_seq)
         end
-        ros.spinOnce()
+
 
         sim_seq = sim_seq + 1
 
         timeout_recovery_counter = timeout_recovery_counter + 1
         heartbeat:publish()
-        dt:sleep()
+        ros.spinOnce(dt:expectedCycleTime():toSec())
     end
     joint_state_publisher:shutdown()
 end

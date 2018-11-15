@@ -28,17 +28,21 @@ end
 
 
 function xutils.toc(id)
+  local t
   if id then
     if tictocStack[id] ~= nil then
-      xutils.printf("Time elapsed (ID %s): %f sec", id, sys.clock() - tictocStack[id])
+      t = sys.clock() - tictocStack[id]
+      xutils.printf("Time elapsed (ID %s): %f sec", id, t)
       tictocStack[id] = nil
     else
       xutils.printf('unknown ID')
     end
   else
+    t = sys.clock() - tictocStack[#tictocStack]
     xutils.printf("Time elapsed (ID %d) : %f sec", #tictocStack, (sys.clock() - tictocStack[#tictocStack]))
     table.remove(tictocStack)
   end
+  return t
 end
 
 
