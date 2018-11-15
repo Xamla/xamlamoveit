@@ -234,15 +234,11 @@ local function pose2jointTrajectory(
                     )
                     return result, error_codes.NO_IK_SOLUTION
                 end
-                local jac = self.robot_state:getJacobian(move_group)
                 result[i] = {}
                 seed_joint_values:setValues(traj_joint_names, new_state)
                 result[i].pos = seed_joint_values:getValues()
-                local vel = pseudoInverse(jac) * pose.vel
-                zero_seed_joint_values:setValues(traj_joint_names, vel)
-                result[i].vel = zero_seed_joint_values:getValues()
-
-                if torch.abs(result[i].vel * dt):gt(velocity_limits):sum() > 0 then
+                result[i].vel = (result[i].pos - result[math.max(i-1,1)].pos) / dt
+                if torch.abs(result[i].vel):gt(velocity_limits):sum() > 0 then
                     ros.ERROR(
                         '[pose2jointTrajectory] Exceeded joint limits in move_group %s. Transformed %f%% of trajectory',
                         move_group,
@@ -318,10 +314,20 @@ local function getLinearPath(
     local result = {}
     for i, pose in ipairs(result_4D) do
         local full_pose = tensorToPose(self.controller, pose.pos)
+        local prev_full_pose
+        if i > 2 then
+            prev_full_pose = tensor6DToPose(result[i-2].pos)
+        end
+
         result[i] = {pos = poseTo6DTensor(full_pose), vel = torch.zeros(6)}
         if i > 1 then
-            local vel_pose = full_pose:mul(tensor6DToPose(result[i-1].pos):toTransform():inverse())
-            result[i-1].vel = poseTo6DTensor(vel_pose)
+            if prev_full_pose then
+                local vel_pose = full_pose:mul(prev_full_pose:toTransform():inverse())
+                result[i-1].vel = poseTo6DTensor(vel_pose) / dt
+            else
+                local vel_pose = full_pose:mul(tensor6DToPose(result[i-1].pos):toTransform():inverse())
+                result[i-1].vel = poseTo6DTensor(vel_pose) / (2 * dt)
+            end
         end
     end
     assert(#result > 1)
