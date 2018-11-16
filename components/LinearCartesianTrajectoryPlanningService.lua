@@ -9,6 +9,7 @@ local moveit = require 'moveit'
 local Controller = require 'xamlamoveit.controller'
 local Datatypes = require 'xamlamoveit.datatypes'
 local Xutils = require 'xamlamoveit.xutils'
+local core = require 'xamlamoveit.core'
 local error_codes = require 'xamlamoveit.core.ErrorCodes'.error_codes
 error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
 local TvpController = Controller.QTaskSpaceController
@@ -192,7 +193,7 @@ end
 
 local function msgToTensor(trajectory_msg)
     local points = trajectory_msg.points
-    local time, pos, vel, acc = {},{},{},{}
+    local time, pos, vel, acc = {}, {}, {}, {}
     for i = 1, #points do
         time[i] = points[i].time_from_start:toSec()
         pos[i] = points[i].positions
@@ -201,11 +202,10 @@ local function msgToTensor(trajectory_msg)
             acc[i] = points[i].accelerations
         end
     end
-    return torch.Tensor(time), torch.cat(pos,2), torch.cat(vel,2)
+    return torch.Tensor(time), torch.cat(pos, 2), torch.cat(vel, 2)
 end
 
 local function plot(trajectory_msg, filename)
-
     local time, pos, vel, acc = msgToTensor(trajectory_msg)
     local g = {}
     local plot_position = true
@@ -224,7 +224,7 @@ local function plot(trajectory_msg, filename)
         g = {}
         gnuplot.pngfigure(string.format('%s_velocities.png', filename or 'test'))
         for i = 1, pos:size(1) do
-            g[#g + 1] = {string.format('vel%d', i), time, vel[{i,{}}], '-'}
+            g[#g + 1] = {string.format('vel%d', i), time, vel[{i, {}}], '-'}
         end
         gnuplot.plot(g)
         gnuplot.plotflush()
@@ -268,7 +268,7 @@ local function pose2jointTrajectory(
     for i, pose in ipairs(poses6D) do
         --ros.INFO('set IK')
         local old_state = self.robot_state:copyJointGroupPositions(move_group)
-        local suc = self.robot_state:setFromIK(move_group, tensor6DToPose(pose.pos):toTensor(), 1, 0.25)
+        local suc = self.robot_state:setFromIK(move_group, pose.pos:toTensor(), 1, 0.25)
         if suc then
             self.robot_state:update()
             local colliding = false
@@ -288,7 +288,7 @@ local function pose2jointTrajectory(
                 result[i] = {}
                 seed_joint_values:setValues(traj_joint_names, new_state)
                 result[i].pos = seed_joint_values:getValues()
-                result[i].vel = (result[i].pos - result[math.max(i-1, 1)].pos) / dt
+                result[i].vel = (result[i].pos - result[math.max(i - 1, 1)].pos) / dt
                 local abs_vel = torch.abs(result[i].vel)
                 if abs_vel:gt(velocity_limits):sum() > 0 then
                     ros.ERROR(
@@ -343,7 +343,7 @@ local function getLinearPath(
         return {}, error_codes.FRAME_TRANSFORM_FAILURE
     end
     self.controller = TvpController()
-    controller = self.controller
+    local controller = self.controller
     local taskspace_max_vel = torch.ones(4) * 0.2 --m/s
     taskspace_max_vel[4] = math.pi / 2
     local taskspace_max_acc = torch.ones(4) * 0.8 --m/s^2
@@ -367,45 +367,12 @@ local function getLinearPath(
     local result = {}
     for i, pose in ipairs(result_4D) do
         local full_pose = tensorToPose(self.controller, pose.pos)
-        local prev_full_pose
-        if i > 2 then
-            prev_full_pose = tensor6DToPose(result[i-2].pos)
-        end
-
-        result[i] = {pos = poseTo6DTensor(full_pose), vel = torch.zeros(6)}
-        if i > 1 then
-            if prev_full_pose then
-                local vel_pose = full_pose:mul(prev_full_pose:toTransform():inverse())
-                result[i-1].vel = poseTo6DTensor(vel_pose) / dt
-            else
-                local vel_pose = full_pose:mul(tensor6DToPose(result[i-1].pos):toTransform():inverse())
-                result[i-1].vel = poseTo6DTensor(vel_pose) / (2 * dt)
-            end
-        end
+        result[i] = {pos = full_pose}
     end
     assert(#result > 1)
     toc('generateOfflineTrajectory')
     toc('getLinearPath')
     return result, error_codes.SUCCESS
-end
-
-local function transformInput(input, ref)
-    local new_input
-    if torch.isTypeOf(input, tf.StampedTransform) then
-        input = input:toTransform()
-    end
-
-    if torch.isTypeOf(input, tf.Transform) then
-        new_input = poseTo6DTensor(input, ref)
-    end
-    if torch.isTypeOf(input, torch.DoubleTensor) then
-        new_input = input
-    end
-    assert(
-        torch.isTypeOf(new_input, torch.DoubleTensor),
-        string.format('Input should be of type [torch.DoubleTensor] but is of type: [%s]', torch.type(new_input))
-    )
-    return new_input
 end
 
 local function getOptimLinearPath(
@@ -434,17 +401,19 @@ local function getOptimLinearPath(
         return {}, error_codes.INVALID_GOAL_CONSTRAINTS
     end
     tic('getOptimLinearPath')
+
+    -- get waypoints as stamped transforms
     local tmp_waypoints = {}
-    local ref = torch.zeros(3)
     for i, v in ipairs(waypoints) do
         local suc, transformed = poseStampedMsg2StampedTransform(self, v)
         if suc == false then
             return {}, error_codes.FRAME_TRANSFORM_FAILURE
         end
-        tmp_waypoints[#tmp_waypoints + 1] = transformInput(transformed, ref)
-        ref = tmp_waypoints[#tmp_waypoints][{{4, 6}}]
+        tmp_waypoints[#tmp_waypoints + 1] = transformed
     end
-    tmp_waypoints = torch.cat(tmp_waypoints, 2):t()
+
+    local converter = core.XyzAngularSpaceConverter(tmp_waypoints)
+    local xyzaPath = converter:getXyzAngularPath()
 
     local taskspace_max_vel = torch.ones(4) * 0.2 --m/s
     taskspace_max_vel[4] = math.pi / 2
@@ -464,12 +433,14 @@ local function getOptimLinearPath(
     end
 
     local valid, time, pos, vel, acc =
-        optimplan.generateTrajectory(tmp_waypoints, taskspace_max_vel, taskspace_max_acc, max_deviation, dt)
+        optimplan.generateTrajectory(xyzaPath, taskspace_max_vel, taskspace_max_acc, max_deviation, dt)
+    assert(valid)
+
     local result = {}
     for i = 1, time:size(1) do
-        result[#result + 1] = {pos = pos[{i, {}}], vel = vel[{i, {}}], acc = acc[{i, {}}]}
+        result[#result + 1] = {pos = converter:samplePose(pos[{i, {}}])}
     end
-    assert(valid)
+    print(tmp_waypoints[1], result[1].pos)
     toc('getOptimLinearPath')
     return result, error_codes.SUCCESS
 end
@@ -554,7 +525,6 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         response.error_code.val = code
         return true
     end
-
 
     local valid, time, pos, vel, acc = generateTrajectory(waypoints, request.dt)
     toc('queryCartesianPathServiceHandler')
