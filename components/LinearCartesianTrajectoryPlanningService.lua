@@ -2,10 +2,10 @@
 LinearCartesianTrajectoryPlanningService.lua
 Copyright (c) 2018, Xamla and/or its affiliates. All rights reserved.
 --]]
+require 'gnuplot'
 local ros = require 'ros'
 local tf = ros.tf
 local moveit = require 'moveit'
-local optimplan = require 'optimplan'
 local Controller = require 'xamlamoveit.controller'
 local Datatypes = require 'xamlamoveit.datatypes'
 local Xutils = require 'xamlamoveit.xutils'
@@ -190,6 +190,56 @@ local function pseudoInverse(M, W)
     return torch.inverse(inv) * M:t() * weights
 end
 
+local function msgToTensor(trajectory_msg)
+    local points = trajectory_msg.points
+    local time, pos, vel, acc = {},{},{},{}
+    for i = 1, #points do
+        time[i] = points[i].time_from_start:toSec()
+        pos[i] = points[i].positions
+        vel[i] = points[i].velocities
+        if points[i].accelerations then
+            acc[i] = points[i].accelerations
+        end
+    end
+    return torch.Tensor(time), torch.cat(pos,2), torch.cat(vel,2)
+end
+
+local function plot(trajectory_msg, filename)
+
+    local time, pos, vel, acc = msgToTensor(trajectory_msg)
+    local g = {}
+    local plot_position = true
+    local plot_velocity = true
+    local plot_acceleration = false
+    if plot_position == nil or plot_position then
+        g = {}
+        gnuplot.pngfigure(string.format('%s_positions.png', filename or 'test'))
+        for i = 1, pos:size(1) do
+            g[#g + 1] = {string.format('pos%d', i), time, pos[{i, {}}], '-'}
+        end
+        gnuplot.plot(g)
+        gnuplot.plotflush()
+    end
+    if plot_velocity == nil or plot_velocity then
+        g = {}
+        gnuplot.pngfigure(string.format('%s_velocities.png', filename or 'test'))
+        for i = 1, pos:size(1) do
+            g[#g + 1] = {string.format('vel%d', i), time, vel[{i,{}}], '-'}
+        end
+        gnuplot.plot(g)
+        gnuplot.plotflush()
+    end
+    if plot_acceleration == nil or plot_acceleration then
+        g = {}
+        gnuplot.pngfigure(string.format('%s_accelerations.png', filename or 'test'))
+        for i = 1, pos:size(1) do
+            g[#g + 1] = {string.format('acc%d', i), time, acc[{{}, i}], '-'}
+        end
+        gnuplot.plot(g)
+        gnuplot.plotflush()
+    end
+end
+
 local function pose2jointTrajectory(
     self,
     seed,
@@ -246,7 +296,7 @@ local function pose2jointTrajectory(
                         move_group,
                         100 * i / #poses6D
                     )
-                    print('index', i, 'dt', dt, 'abs vel', abs_vel, 'limits', velocity_limits)
+                    --print('index', i, 'dt', dt, 'abs vel', abs_vel, 'limits', velocity_limits)
                     error = error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS
                 end
             else
@@ -396,9 +446,9 @@ local function getOptimLinearPath(
     end
     tmp_waypoints = torch.cat(tmp_waypoints, 2):t()
 
-    local taskspace_max_vel = torch.ones(6) * 0.2 --m/s
+    local taskspace_max_vel = torch.ones(4) * 0.2 --m/s
     taskspace_max_vel[4] = math.pi / 2
-    local taskspace_max_acc = torch.ones(6) * 0.8 --m/s^2
+    local taskspace_max_acc = torch.ones(4) * 0.8 --m/s^2
     taskspace_max_acc[4] = math.pi
     if max_xyz_velocity then
         taskspace_max_vel[{{1, 3}}]:fill(max_xyz_velocity)
@@ -499,10 +549,12 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         request.ik_jump_threshold,
         request.dt
     )
-    if code < 0 then
+
+    if code < 0 and code ~= error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS then
         response.error_code.val = code
         return true
     end
+
 
     local valid, time, pos, vel, acc = generateTrajectory(waypoints, request.dt)
     toc('queryCartesianPathServiceHandler')
@@ -529,6 +581,11 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
     response.solution.joint_names = request.joint_names
     response.solution.points = tmp_msg.joint_trajectory.points
     response.error_code.val = 1
+    if code == error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS then
+        local filename = string.format('/tmp/%d_velocity_profile', ros.Time.now():toSec())
+        print('write log to:', filename)
+        plot(tmp_msg.joint_trajectory, filename)
+    end
     return true
 end
 
