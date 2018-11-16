@@ -66,11 +66,25 @@ local function checkStartState(self, trajectory)
 
     local distance = ori_start_state:distance(start_state)
     ros.INFO('start state distance to current state: %f', distance)
+
     if distance > self.allowed_start_tolerance then
-        local msg = string.format('start state is too far away from current state. tolerance: %f', self.allowed_start_tolerance)
-        ros.ERROR(msg)
-        return self.error_codes.START_STATE_VIOLATES_PATH_CONSTRAINTS, msg
+        local ok, state_pos
+        local start_time = ros.Time.now()
+        local timeout = ros.Duration(1.5)
+        -- wait until timeout or presicion reached
+        while (ros.Time.now() - start_time) < timeout and distance > self.allowed_start_tolerance and ros.ok() do
+            ok, state_pos = self.joint_monitor:getNextPositionsTensor(1.0)
+            ori_start_state:setVariablePositions(state_pos, self.joint_monitor:getJointNames())
+            distance = ori_start_state:distance(start_state)
+        end
+
+        if distance > self.allowed_start_tolerance then
+            local msg = string.format('start state is too far away from current state. tolerance: %f', self.allowed_start_tolerance)
+            ros.ERROR(msg)
+            return self.error_codes.START_STATE_VIOLATES_PATH_CONSTRAINTS, msg
+        end
     end
+
     return self.error_codes.SUCCESS, ''
 end
 
