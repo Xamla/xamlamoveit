@@ -289,7 +289,7 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
         local start_time = ros.Time.now()
         local timeout = ros.Duration(1.5)
         -- wait until timeout or presicion reached
-        while (ros.Time.now() - start_time) < timeout or distance > self.allowed_start_tolerance and ros.ok() do
+        while (ros.Time.now() - start_time) < timeout and distance > self.allowed_start_tolerance and ros.ok() do
             ok, state_pos = self.joint_monitor:getNextPositionsTensor(1.0)
             ori_start_state:setVariablePositions(state_pos, self.joint_monitor:getJointNames())
             distance = ori_start_state:distance(start_state)

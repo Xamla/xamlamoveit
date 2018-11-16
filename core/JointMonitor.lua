@@ -62,16 +62,16 @@ end
 
 local function updated(self, seq)
     for k, v in pairs(self.joint_status) do
-        if v[1] and v[3] <= seq then
+        if not v[1] or v[3] <= seq then
             return false
         end
     end
     return true
 end
 
--- waits until all joints have seen new values
-function JointMonitor:waitForNextState(timeout)
-    local start_seq = self.last_seq
+-- waits until all joints have been updated since seq
+function JointMonitor:waitForUpdate(timeout, seq)
+    local start_seq = seq or self.seq
     if not updated(self, start_seq) then
         timeout = toDuration(timeout)
 
@@ -90,6 +90,11 @@ function JointMonitor:waitForNextState(timeout)
     self.last_seq = self.seq
 
     return true
+end
+
+-- waits until all joints have seen new values
+function JointMonitor:waitForNextState(timeout)
+    return self:waitForUpdate(timeout, self.last_seq)
 end
 
 -- wait to receive initial state
@@ -135,9 +140,9 @@ function JointMonitor:getPositions(target_joint_names)
             if latency > max_latency then
                 max_latency = latency
             end
-            if latency > self.joint_timeout then
-                ros.ERROR_THROTTLE('JointMonitor:getPositions' .. v, 1, string.format("joint timeout: '%s' was last updated %fs ago.", v, latency:toSec()))
-            end
+            --if latency > self.joint_timeout then
+            --    ros.ERROR_THROTTLE('JointMonitor:getPositions' .. v, 1, string.format("joint timeout: '%s' was last updated %fs ago.", v, latency:toSec()))
+            --end
             pos[#pos + 1] = self.joint_status[v][1]
             assert(pos[#pos] ~= nil, string.format("Position value of joint '%s' is invalid.", v))
         end
@@ -158,9 +163,9 @@ function JointMonitor:getPositionsOrdered(target_joint_names)
         if latency > max_latency then
             max_latency = latency
         end
-        if latency > self.joint_timeout then
-            ros.ERROR_THROTTLE('JointMonitor:getPositionsOrdered' .. v, 1, string.format("joint timeout: '%s' was last updated %fs ago.", v, latency:toSec()))
-        end
+        --if latency > self.joint_timeout then
+        --    ros.ERROR_THROTTLE('JointMonitor:getPositionsOrdered' .. v, 1, string.format("joint timeout: '%s' was last updated %fs ago.", v, latency:toSec()))
+        --end
         pos[#pos + 1] = self.joint_status[v][1]
         assert(pos[#pos] ~= nil, string.format("Position value of joint '%s' is invalid.", v))
     end

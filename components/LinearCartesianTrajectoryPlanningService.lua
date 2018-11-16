@@ -214,6 +214,7 @@ local function pose2jointTrajectory(
     self.robot_state:update()
     local traj_joint_names = self.robot_model:getGroupJointNames(move_group):totable()
     local velocity_limits = self.joint_limits.vel:select(joint_names):getValues()
+    local error = error_codes.SUCCESS
     for i, pose in ipairs(poses6D) do
         --ros.INFO('set IK')
         local old_state = self.robot_state:copyJointGroupPositions(move_group)
@@ -237,14 +238,16 @@ local function pose2jointTrajectory(
                 result[i] = {}
                 seed_joint_values:setValues(traj_joint_names, new_state)
                 result[i].pos = seed_joint_values:getValues()
-                result[i].vel = (result[i].pos - result[math.max(i-1,1)].pos) / dt
-                if torch.abs(result[i].vel):gt(velocity_limits):sum() > 0 then
+                result[i].vel = (result[i].pos - result[math.max(i-1, 1)].pos) / dt
+                local abs_vel = torch.abs(result[i].vel)
+                if abs_vel:gt(velocity_limits):sum() > 0 then
                     ros.ERROR(
-                        '[pose2jointTrajectory] Exceeded joint limits in move_group %s. Transformed %f%% of trajectory',
+                        '[pose2jointTrajectory] Exceeded joint velocity limits in move_group [%s]. Transformed %f%% of trajectory',
                         move_group,
                         100 * i / #poses6D
                     )
-                    return result, error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS
+                    print('index', i, 'dt', dt, 'abs vel', abs_vel, 'limits', velocity_limits)
+                    error = error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS
                 end
             else
                 ros.ERROR(
@@ -264,7 +267,7 @@ local function pose2jointTrajectory(
             return result, error_codes.NO_IK_SOLUTION
         end
     end
-    return result, error_codes.SUCCESS
+    return result, error
 end
 
 local function getLinearPath(

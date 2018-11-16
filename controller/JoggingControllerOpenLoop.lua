@@ -564,7 +564,7 @@ function JoggingControllerOpenLoop:getCurrentPose()
     if link_name and #link_name > 0 then
         return self.state:getGlobalLinkTransform(link_name)
     else
-        ros.WARN('no pose available since no link_name for EndEffector exists.')
+        ros.WARN_THROTTLE('getCurrentPose', 1, '[%s] no pose available since no link_name for EndEffector exists.', self.curr_move_group_name)
         return tf.Transform()
     end
 end

@@ -243,9 +243,9 @@ end
 
 local function queryJointPositionServiceHandler(self, request, response, header)
     local joint_names = request.joint_names
-    local wait_duration = ros.Duration(0.1)
-    local ok, joints = self.joint_monitor:getNextPositionsTensor(wait_duration, joint_names)
-    --local joints = self.robot_state:getVariablePositions(joint_names):clone()
+    local wait_duration = ros.Duration(0.25)
+    local ok = self.joint_monitor:waitForUpdate(wait_duration)
+    local joints = self.joint_monitor:getPositionsTensor(joint_names)
     response.current_joint_position.header.stamp = ros.Time.now()
     response.current_joint_position.name = joint_names
     response.current_joint_position.position = joints
