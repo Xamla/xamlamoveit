@@ -283,10 +283,23 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
 
     local distance = ori_start_state:distance(start_state)
     ros.INFO('start state distance to current state: %f', distance)
+    -- todo wait until timeout or presicion reached
+
     if distance > self.allowed_start_tolerance then
-        ros.ERROR('start state is too far away from current state. tolerance: %f', self.allowed_start_tolerance)
-        suc = self.error_codes.START_STATE_VIOLATES_PATH_CONSTRAINTS
-        return traj, start_state, suc
+        local ok, state_pos
+        local start_time = ros.Time.now()
+        local timeout = ros.Duration(1.5)
+        while (ros.Time.now() - start_time) < timeout and not ok or distance > self.allowed_start_tolerance and ros.ok() do
+            ok, state_pos = self.joint_monitor:getNextPositionsTensor(1.0)
+            start_state:setVariablePositions(state_pos, self.joint_monitor:getJointNames())
+            distance = ori_start_state:distance(start_state)
+        end
+
+        if distance > self.allowed_start_tolerance then
+            ros.ERROR('start state is too far away from current state. tolerance: %f', self.allowed_start_tolerance)
+            suc = self.error_codes.START_STATE_VIOLATES_PATH_CONSTRAINTS
+            return traj, start_state, suc
+        end
     end
 
     traj:addSuffixWayPoint(start_state, dt)
