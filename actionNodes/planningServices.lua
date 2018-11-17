@@ -60,9 +60,7 @@ while ros.ok() and not emerg_stop_flag do
     if ok then
         local status = true
         for i, v in pairs(services) do
-            --local single_status, err = xpcall( function() v:spin() end, error_msg_func )
-            local single_status, err = true,''
-            v:spin()
+            local single_status, err = xpcall( function() v:spin() end, error_msg_func )
             if v.current_state == 5 then
                 emerg_stop_flag = true
             end
@@ -83,5 +81,6 @@ end
 for i, v in pairs(services) do
     v:shutdown()
 end
+
 sp:stop()
 ros.shutdown()

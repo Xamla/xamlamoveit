@@ -46,10 +46,7 @@ for i, v in ipairs(mj_action_server) do
     )
     v:start()
 end
-local dt = ros.Rate(125)
-dt:reset()
 
-local idle_dt = ros.Rate(20)
 heartbeat:updateStatus(heartbeat.GO, 'Running ...')
 heartbeat:publish()
 local global_state_summary = sysmon_watch:getGlobalStateSummary()
@@ -62,14 +59,7 @@ while ros.ok() do
     if ok then
         heartbeat:updateStatus(heartbeat.GO, 'Running ...')
         for i, v in ipairs(mj_action_server) do
-            local status,
-                err =
-                xpcall(
-                function()
-                    v:spin()
-                end,
-                error_msg_func
-            )
+            local status, err = xpcall( function() v:spin() end, error_msg_func )
             if status == false then
                 ros.ERROR(tostring(err))
                 heartbeat:updateStatus(heartbeat.INTERNAL_ERROR, torch.type(v) .. ' ' .. tostring(err))
@@ -94,5 +84,6 @@ end
 for i, v in pairs(mj_action_server) do
     v:shutdown()
 end
+
 sp:stop()
 ros.shutdown()
