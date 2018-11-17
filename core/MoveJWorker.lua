@@ -267,8 +267,9 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
     local traj = moveit.RobotTrajectory(self.robot_model, move_group_name)
     tic('getCurrentState')
     local start_state = moveit.RobotState.createFromModel(self.robot_model) --manipulator:getCurrentState()
+    local joints_timeout = ros.Duration(0.25)
+    self.joint_monitor:waitForUpdate(joints_timeout)    -- explicitly wait for joint state update!
     local p, latency = self.joint_monitor:getPositionsTensor()
-
     start_state:setVariablePositions(p, self.joint_monitor:getJointNames())
     toc('getCurrentState')
     local ori_start_state = start_state:clone()
@@ -290,13 +291,14 @@ local function generateRobotTrajectory(self, manipulator, trajectory, check_coll
         local timeout = ros.Duration(1.5)
         -- wait until timeout or presicion reached
         while (ros.Time.now() - start_time) < timeout and distance > self.allowed_start_tolerance and ros.ok() do
-            ok, state_pos = self.joint_monitor:getNextPositionsTensor(1.0)
+            ok = self.joint_monitor:waitForUpdate(joints_timeout)
+            state_pos = self.joint_monitor:getPositionsTensor()
             ori_start_state:setVariablePositions(state_pos, self.joint_monitor:getJointNames())
             distance = ori_start_state:distance(start_state)
         end
 
         if distance > self.allowed_start_tolerance then
-            ros.ERROR('start state is too far away from current state. tolerance: %f', self.allowed_start_tolerance)
+            ros.ERROR('start state is too far away from current state, distance: %f (tolerance: %f)', distance, self.allowed_start_tolerance)
             suc = self.error_codes.START_STATE_VIOLATES_PATH_CONSTRAINTS
             return traj, start_state, suc
         end
