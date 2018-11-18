@@ -9,7 +9,7 @@ local LeaseBasedLockClient = torch.class('xamlamoveit.core.LeaseBasedLockClient'
 function LeaseBasedLockClient:__init(node_handle)
     self.nh = node_handle
     self.query_resource_lock_service =
-        self.nh:serviceClient('/xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+        self.nh:serviceClient('/xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock', true)
     local timeout = ros.Duration(5)
     local ok = self.query_resource_lock_service:waitForExistence(timeout)
     if not ok then

@@ -113,7 +113,7 @@ function MoveJWorker:__init(nh, joint_monitor)
         self.joint_monitor = joint_monitor
     else
         ros.INFO('created own joint monitor')
-        self.joint_monitor = core.JointMonitor(self.robot_model:getActiveJointNames():totable(),nil,nil,nh)
+        self.joint_monitor = core.JointMonitor(self.robot_model:getActiveJointNames():totable(), nil, nil, nh)
     end
     local once = true
     local ready = false
@@ -125,7 +125,7 @@ function MoveJWorker:__init(nh, joint_monitor)
         ready = self.joint_monitor:waitReady(20.0)
     end
     self.query_resource_lock_service =
-        self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
+        self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock', true)
     self.action_client =
         actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
     self.manipulators = {}
@@ -492,14 +492,14 @@ function MoveJWorker:reset()
         end
         self.current_plan = nil
     end
-    if #self.trajectoryQueue > 0 then -- check if new trajectory is available
-        while #self.trajectoryQueue > 0 do
-            local traj = table.remove(self.trajectoryQueue, 1)
-            if traj.abort ~= nil then
-                traj:abort()
-            end
+
+    while #self.trajectoryQueue > 0 do  -- handle remaining queued trajectories
+        local traj = table.remove(self.trajectoryQueue, 1)
+        if traj.abort ~= nil then
+            traj:abort()
         end
     end
+
     self.allowed_execution_duration_scaling =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_execution_duration_scaling')
     self.allowed_goal_duration_margin =
@@ -513,10 +513,6 @@ function MoveJWorker:reset()
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_duration_monitoring')
     self.execution_velocity_scaling =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_velocity_scaling')
-    --self.query_resource_lock_service =
-    --    self.nodehandle:serviceClient('xamlaResourceLockService/query_resource_lock', 'xamlamoveit_msgs/QueryLock')
-    --self.action_client =
-    --    actionlib.SimpleActionClient('moveit_msgs/ExecuteTrajectory', 'execute_trajectory', self.node_handle)
 end
 
 local function MoveJWorkerCore(self)
