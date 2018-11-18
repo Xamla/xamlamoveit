@@ -399,23 +399,23 @@ end
 
 local function dispatchTrajectory(self)
     local status = 0
-    if self.current_plan == nil then
-        if #self.trajectoryQueue > 0 then -- check if new trajectory is available
-            while #self.trajectoryQueue > 0 do
-                local traj = table.remove(self.trajectoryQueue, 1)
-                traj.joint_monitor = self.joint_monitor
-                if traj.accept == nil or traj:accept() then -- call optional accept callback
-                    local msg, suc
-                    suc, msg, traj, status = handleMoveJTrajectory(self, traj)
-
-                    self.current_plan = {
-                        startTime = sys.clock(), -- debug information
-                        traj = traj,
-                        status = status,
-                        error_msg = msg
-                    }
-                    break
-                end
+    -- check if new trajectory is available
+    while self.current_plan == nil and #self.trajectoryQueue > 0 do
+        local traj = table.remove(self.trajectoryQueue, 1)
+        traj.joint_monitor = self.joint_monitor
+        if traj.accept == nil or traj:accept() then -- call optional accept callback
+            if #traj.goal.goal.trajectory.points == 0 then
+                ros.WARN('Marking empty trajectory as completed without further processing.')
+                traj:completed()
+            else
+                local msg, suc
+                suc, msg, traj, status = handleMoveJTrajectory(self, traj)
+                self.current_plan = {
+                    startTime = sys.clock(), -- debug information
+                    traj = traj,
+                    status = status,
+                    error_msg = msg
+                }
             end
         end
     end
