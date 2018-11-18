@@ -6,7 +6,7 @@ local core = require 'xamlamoveit.core.env'
 local XyzAngularSpaceConverter = torch.class('xamlamoveit.core.XyzAngularSpaceConverter', core)
 
 local function tensorToPose(start_pose, goal_pose, xyza)
-    assert(xyza:size(1) == 4, 'Vector should be of size 4D (offset, anglevelocities)')
+    assert(xyza:size(1) == 4, 'Vector should be of size 4D (offset, angle)')
     local start_q = start_pose:getRotation()
     local goal_q = goal_pose:getRotation()
     local angle = start_q:angleShortestPath(goal_q)
@@ -14,9 +14,10 @@ local function tensorToPose(start_pose, goal_pose, xyza)
     local end_pose = tf.StampedTransform()
     end_pose:setOrigin(xyza[{{1, 3}}])
     local fraction = d_angle / angle
-    if fraction ~= fraction then
+    if fraction ~= fraction then    -- replace NaN by 0
         fraction = 0
     end
+    fraction = math.max(0, math.min(fraction, 1))   -- clamp fraction to [0,1]
     local end_pose_rotation = start_q:slerp(goal_q, fraction)
     end_pose:setRotation(end_pose_rotation)
     return end_pose
@@ -44,8 +45,6 @@ function XyzAngularSpaceConverter:__init(stamped_stransforms)
         a[#a + 1] = angle_sum
         s[{i, 4}] = angle_sum
     end
-    --print('base_angle', a)
-    --print('s', s)
 end
 
 function XyzAngularSpaceConverter:getXyzAngularPath()
@@ -67,7 +66,6 @@ function XyzAngularSpaceConverter:samplePose(xyza)
     -- make angle in xyza relative to 2-pose path segment
     local xyza = xyza:clone()
     xyza[4] = angle_pos - a[i - 1]
-    --print('angle_pos', angle_pos, 'xyza', xyza[4])
 
     local p0 = self.input[i - 1]:toTransform()
     local p1 = self.input[math.min(i, #self.input)]:toTransform()

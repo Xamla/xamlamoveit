@@ -104,7 +104,7 @@ end
 
 local function poseStampedMsg2StampedTransform(self, msg)
     local result = tf.StampedTransform()
-    result:setOrigin(torch.Tensor {msg.pose.position.x, msg.pose.position.y, msg.pose.position.z})
+    result:setOrigin({msg.pose.position.x, msg.pose.position.y, msg.pose.position.z})
     result:setRotation(
         tf.Quaternion(msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w)
     )
@@ -122,61 +122,19 @@ local function poseStampedMsg2StampedTransform(self, msg)
     return success, result
 end
 
-local function poseTo6DTensor(input, ref)
-    local ref = ref or torch.zeros(3)
-    local new_input
-    if torch.isTypeOf(input, tf.StampedTransform) then
-        input = input:toTransform()
-    end
-    if torch.isTypeOf(input, tf.Transform) then
-        new_input = torch.zeros(6)
-        new_input[{{1, 3}}] = input:getOrigin()
-        --RPY version
-        local rot = input:getRotation()
-        local A = rot:getRPY(1)
-        local B = rot:getRPY(2)
-        if (A - ref):norm() < (B - ref):norm() then
-            new_input[{{4, 6}}]:copy(A)
-        else
-            new_input[{{4, 6}}]:copy(B)
-        end
-    end
-
-    if torch.isTypeOf(input, torch.DoubleTensor) then
-        new_input = input
-    end
-    assert(
-        torch.isTypeOf(new_input, torch.DoubleTensor),
-        string.format('Input should be of type [torch.DoubleTensor] but is of type: [%s]', torch.type(new_input))
-    )
-    return new_input
-end
-
-local function tensor6DToPose(vector6D)
-    assert(vector6D:size(1) == 6, 'Vector should be of size 6D (offset, anglevelocities)')
-    local end_pose = tf.StampedTransform()
-    end_pose:setOrigin(vector6D[{{1, 3}}])
-    if vector6D[{{4, 6}}]:norm() > 1e-12 then
-        local end_pose_rotation = end_pose:getRotation()
-        end_pose:setRotation(end_pose_rotation:setRPY(vector6D[{{4, 6}}]))
-    end
-    return end_pose
-end
-
-local function tensorToPose(controller, vector4D)
+local function xyzaToPose(start_pose, goal_pose, angle, vector4D)
     assert(vector4D:size(1) == 4, 'Vector should be of size 4D (offset, anglevelocities)')
-    assert(controller.start_pose)
-    assert(controller.goal_pose)
-    local start_q = controller.start_pose:getRotation()
-    local goal_q = controller.goal_pose:getRotation()
-    local angle = controller.difference_angle
+    assert(start_pose)
+    assert(goal_pose)
+    local start_q = start_pose:getRotation()
+    local goal_q = goal_pose:getRotation()
     local d_angle = vector4D[4]
     local step = d_angle / angle
-    local end_pose = tf.StampedTransform()
-    end_pose:setOrigin(vector4D[{{1, 3}}])
-    local end_pose_rotation = start_q:slerp(goal_q, step)
-    end_pose:setRotation(end_pose_rotation)
-    return end_pose
+    local result = tf.StampedTransform()
+    result:setOrigin(vector4D[{{1, 3}}])
+    local result_rotation = start_q:slerp(goal_q, step)
+    result:setRotation(result_rotation)
+    return result
 end
 
 -- calculates the weighted pseudo inverse of a matrix M
@@ -292,9 +250,10 @@ local function pose2jointTrajectory(
                 local abs_vel = torch.abs(result[i].vel)
                 if abs_vel:gt(velocity_limits):sum() > 0 then
                     ros.ERROR(
-                        '[pose2jointTrajectory] Exceeded joint velocity limits in move_group [%s]. Transformed %f%% of trajectory',
+                        '[pose2jointTrajectory] Exceeded joint velocity limits in move_group [%s]. Transformed %f%% of trajectory (index: %d)',
                         move_group,
-                        100 * i / #poses6D
+                        100 * i / #poses6D,
+                        i
                     )
                     --print('index', i, 'dt', dt, 'abs vel', abs_vel, 'limits', velocity_limits)
                     error = error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS
@@ -334,14 +293,6 @@ local function getLinearPath(
     assert(max_angular_velocity > 0)
     assert(max_angular_acceleration > 0)
     tic('getLinearPath')
-    local suc, start = poseStampedMsg2StampedTransform(self, start)
-    if suc == false then
-        return {}, error_codes.FRAME_TRANSFORM_FAILURE
-    end
-    local suc, goal = poseStampedMsg2StampedTransform(self, goal)
-    if suc == false then
-        return {}, error_codes.FRAME_TRANSFORM_FAILURE
-    end
     self.controller = TvpController()
     local controller = self.controller
     local taskspace_max_vel = torch.ones(4) * 0.2 --m/s
@@ -366,8 +317,8 @@ local function getLinearPath(
     local result_4D = controller:generateOfflineTrajectory(start, goal, dt)
     local result = {}
     for i, pose in ipairs(result_4D) do
-        local full_pose = tensorToPose(self.controller, pose.pos)
-        result[i] = {pos = full_pose}
+        local full_pose = xyzaToPose(controller.start_pose, controller.goal_pose, controller.difference_angle, pose.pos)
+        result[i] = { pos = full_pose }
     end
     assert(#result > 1)
     toc('generateOfflineTrajectory')
@@ -402,17 +353,7 @@ local function getOptimLinearPath(
     end
     tic('getOptimLinearPath')
 
-    -- get waypoints as stamped transforms
-    local tmp_waypoints = {}
-    for i, v in ipairs(waypoints) do
-        local suc, transformed = poseStampedMsg2StampedTransform(self, v)
-        if suc == false then
-            return {}, error_codes.FRAME_TRANSFORM_FAILURE
-        end
-        tmp_waypoints[#tmp_waypoints + 1] = transformed
-    end
-
-    local converter = core.XyzAngularSpaceConverter(tmp_waypoints)
+    local converter = core.XyzAngularSpaceConverter(waypoints)
     local xyzaPath = converter:getXyzAngularPath()
 
     local taskspace_max_vel = torch.ones(4) * 0.2 --m/s
@@ -440,41 +381,88 @@ local function getOptimLinearPath(
     for i = 1, time:size(1) do
         result[#result + 1] = {pos = converter:samplePose(pos[{i, {}}])}
     end
-    print(tmp_waypoints[1], result[1].pos)
+    print(waypoints[1], result[1].pos)
     toc('getOptimLinearPath')
     return result, error_codes.SUCCESS
 end
 
 local function generateTrajectory(waypoints, dt)
     local time = torch.zeros(#waypoints)
-    valid = true
     local pos = torch.zeros(#waypoints, waypoints[1].pos:size(1))
     local vel = pos:clone()
 
-    for i, point in ipairs(waypoints) do -- TODO check limits
+    for i, point in ipairs(waypoints) do
         time[i] = dt * (i - 1)
         pos[{i, {}}]:copy(point.pos)
         vel[{i, {}}]:copy(point.vel)
     end
 
-    return valid, time, pos, vel
+    return time, pos, vel
+end
+
+-- convert list of geometry_msgs/PoseStamped to list of stamped transforms
+local function convertToTransforms(self, waypoints)
+    local poses = {}
+    for i,p in ipairs(waypoints) do
+        local ok, pose = poseStampedMsg2StampedTransform(self, p)
+        if not ok then
+            return {}, error_codes.FRAME_TRANSFORM_FAILURE
+        end
+        poses[#poses + 1] = pose
+    end
+    return poses, error_codes.SUCCESS
+end
+
+local function transfomEqual(t1, t2)
+    local origin_delta = (t1:getOrigin() - t2:getOrigin()):norm()
+    local rotation_delta = t1:getRotation():angleShortestPath(t2:getRotation())
+    return origin_delta < 1e-6 and rotation_delta < 1e-4
+end
+
+-- Remove duplicate transforms, but in any case return a list with at least two waypoints (start, goal).
+-- If only one input transform is passed it will be duplicated to form start and end point.
+local function removeDuplicateMidTransforms(transforms)
+    assert(#transforms >= 1)
+    local result = {}
+    result[1] = transforms[1] -- always include start
+    for i = 2, #transforms-1 do
+        if not transfomEqual(result[#result], transforms[i]) then
+            result[#result + 1] = transforms[i]
+        end
+    end
+    result[#result + 1] = transforms[#transforms]   -- always include goal
+    return result
 end
 
 local function queryCartesianPathServiceHandler(self, request, response, header)
-    if #request.waypoints < 2 then
-        request.error_code.val = -2
+    if #request.waypoints == 0 then
+        ros.WARN('[queryCartesianPath] Empty waypoints list received. Returning empty trajectory.')
+        response.solution.joint_names = request.joint_names
+        response.solution.points = {}
+        response.error_code.val = error_codes.SUCCESS
         return true
     end
+
+    local waypoints, code = convertToTransforms(self, request.waypoints)
+    if code < 0 then
+        response.error_code.val = code
+        return true
+    end
+
+    -- remove duplicate poses
+    local waypoints, code = removeDuplicateMidTransforms(waypoints)
+    assert(#waypoints >= 2) -- we expect two transforms here (even if the request only contained a single transform)
+
     tic('queryCartesianPathServiceHandler')
     self.planning_scene:syncPlanningScene()
     local g_path = {}
-    if 2 == #request.waypoints then
-        ros.INFO('only start und goal received. Controller runs with dt = %f', request.dt)
+    if #waypoints == 2 then
+        ros.INFO('[queryCartesianPath] Only start und goal received. Controller runs with dt = %f', request.dt)
         local traj, code =
             getLinearPath(
             self,
-            request.waypoints[1],
-            request.waypoints[2],
+            waypoints[1],
+            waypoints[2],
             request.dt,
             request.max_xyz_velocity,
             request.max_xyz_acceleration,
@@ -488,11 +476,11 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         if #traj > 0 then
             table_concat(g_path, traj)
         end
-    elseif #request.waypoints > 1 then
+    elseif #waypoints > 1 then
         local traj, code =
             getOptimLinearPath(
             self,
-            request.waypoints,
+            waypoints,
             request.dt,
             request.max_xyz_velocity,
             request.max_xyz_acceleration,
@@ -508,7 +496,8 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
             table_concat(g_path, traj)
         end
     end
-    ros.INFO('got taskspace trajectory. Next convert to joint trajectory')
+
+    ros.INFO('[queryCartesianPath] Produced taskspace trajectory. Converting to joint trajectory.')
     local waypoints, code =
         pose2jointTrajectory(
         self,
@@ -526,10 +515,10 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         return true
     end
 
-    local valid, time, pos, vel, acc = generateTrajectory(waypoints, request.dt)
+    local time, pos, vel = generateTrajectory(waypoints, request.dt)
     toc('queryCartesianPathServiceHandler')
 
-    ros.INFO('Generated Trajectory is valid!')
+    ros.INFO('[queryCartesianPath] Generated Trajectory is valid!')
     local move_group = self.end_effector_map[request.end_effector_name]
     local traj = moveit.RobotTrajectory(self.robot_model, move_group)
     local tmp_msg = traj:getRobotTrajectoryMsg()
@@ -539,21 +528,18 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
         tmp_msg.joint_trajectory.points[i] = ros.Message('trajectory_msgs/JointTrajectoryPoint')
         tmp_msg.joint_trajectory.points[i].positions = pos[i]
         tmp_msg.joint_trajectory.points[i].velocities = vel[i]
-        if acc then
-            tmp_msg.joint_trajectory.points[i].accelerations = acc[i]
-        end
         tmp_msg.joint_trajectory.points[i].time_from_start = ros.Duration(time[i])
     end
-    ros.INFO('Check for limits')
     traj:setRobotTrajectoryMsg(self.robot_state, tmp_msg)
     traj:unwind()
     tmp_msg = traj:getRobotTrajectoryMsg()
     response.solution.joint_names = request.joint_names
     response.solution.points = tmp_msg.joint_trajectory.points
-    response.error_code.val = 1
+    response.error_code.val = code
+    ros.INFO('[queryCartesianPath] Finished. (error_code: %d; #points: %d)', response.error_code.val, #response.solution.points)
     if code == error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS then
         local filename = string.format('/tmp/%d_velocity_profile', ros.Time.now():toSec())
-        print('write log to:', filename)
+        print('writing failure log to:', filename)
         plot(tmp_msg.joint_trajectory, filename)
     end
     return true
