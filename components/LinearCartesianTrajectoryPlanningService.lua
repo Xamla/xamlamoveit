@@ -215,8 +215,12 @@ local function pose2jointTrajectory(
     if not move_group then
         return result, 0
     end
-
+    local pos_limits = self.joint_limits.pos:select(joint_names)
     local seed_joint_values = createJointValues(joint_names, seed)
+    if pos_limits.values:lt(torch.abs(seed_joint_values.values)):sum() > 0 then
+        ros.ERROR('[pose2jointTrajectory] seed exceeds joint limits')
+        return result, error_codes.INVALID_ROBOT_STATE
+    end
     local zero_seed_joint_values = createJointValues(joint_names, torch.zeros(seed:size()))
     self.robot_state:setVariablePositions(seed, joint_names)
     self.robot_state:update()
@@ -538,7 +542,7 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
     response.error_code.val = code
     ros.INFO('[queryCartesianPath] Finished. (error_code: %d; #points: %d)', response.error_code.val, #response.solution.points)
     if code == error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS then
-        local filename = string.format('/tmp/%d_velocity_profile', ros.Time.now():toSec())
+        local filename = string.format('/tmp/%d_velocity_profile.png', ros.Time.now():toSec())
         print('writing failure log to:', filename)
         plot(tmp_msg.joint_trajectory, filename)
     end
