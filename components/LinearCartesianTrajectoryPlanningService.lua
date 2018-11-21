@@ -177,6 +177,7 @@ local function plot(trajectory_msg, filename)
         end
         gnuplot.plot(g)
         gnuplot.plotflush()
+        gnuplot.close()
     end
     if plot_velocity == nil or plot_velocity then
         g = {}
@@ -186,6 +187,7 @@ local function plot(trajectory_msg, filename)
         end
         gnuplot.plot(g)
         gnuplot.plotflush()
+        gnuplot.close()
     end
     if plot_acceleration == nil or plot_acceleration then
         g = {}
@@ -195,6 +197,7 @@ local function plot(trajectory_msg, filename)
         end
         gnuplot.plot(g)
         gnuplot.plotflush()
+        gnuplot.close()
     end
 end
 
@@ -227,6 +230,7 @@ local function pose2jointTrajectory(
     local traj_joint_names = self.robot_model:getGroupJointNames(move_group):totable()
     local velocity_limits = self.joint_limits.vel:select(joint_names):getValues()
     local error = error_codes.SUCCESS
+    local limits_exceeded = false
     for i, pose in ipairs(poses6D) do
         --ros.INFO('set IK')
         local old_state = self.robot_state:copyJointGroupPositions(move_group)
@@ -253,12 +257,15 @@ local function pose2jointTrajectory(
                 result[i].vel = (result[i].pos - result[math.max(i - 1, 1)].pos) / dt
                 local abs_vel = torch.abs(result[i].vel)
                 if abs_vel:gt(velocity_limits):sum() > 0 then
-                    ros.ERROR(
-                        '[pose2jointTrajectory] Exceeded joint velocity limits in move_group [%s]. Transformed %f%% of trajectory (index: %d)',
-                        move_group,
-                        100 * i / #poses6D,
-                        i
-                    )
+                    if limits_exceeded == false then
+                        ros.ERROR(
+                            '[pose2jointTrajectory] Exceeded joint velocity limits in move_group [%s]. Transformed %f%% of trajectory (index: %d)',
+                            move_group,
+                            100 * i / #poses6D,
+                            i
+                        )
+                        limits_exceeded = true
+                    end
                     --print('index', i, 'dt', dt, 'abs vel', abs_vel, 'limits', velocity_limits)
                     error = error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS
                 end
@@ -385,7 +392,6 @@ local function getOptimLinearPath(
     for i = 1, time:size(1) do
         result[#result + 1] = {pos = converter:samplePose(pos[{i, {}}])}
     end
-    print(waypoints[1], result[1].pos)
     toc('getOptimLinearPath')
     return result, error_codes.SUCCESS
 end
