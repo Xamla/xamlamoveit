@@ -66,7 +66,8 @@ end
 
 local function CancelCallBack(self, goal_handle)
     ros.INFO('MoveJSafeSteppingActionServerCancel')
-    if self.worker.current_plan ~= nil and self.worker.current_plan.traj.goal_handle == goal_handle then
+    if self.worker.current_plan ~= nil and
+       self.worker.current_plan.traj.goal_handle:getGoalID().id == goal_handle:getGoalID().id then
         ros.INFO('Cancel active trajectory')
         self.worker:cancelCurrentPlan('Trajectory canceled')
     else
@@ -76,7 +77,7 @@ local function CancelCallBack(self, goal_handle)
             table.findIndex(
             self.worker.trajectoryQueue,
             function(x)
-                return x.goal_handle == goal_handle
+                return x.goal_handle:getGoalID().id == goal_handle:getGoalID().id
             end
         )
         if i > 0 then
