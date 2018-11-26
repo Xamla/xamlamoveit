@@ -563,12 +563,12 @@ local LinearCartesianTrajectoryPlanningService, parent =
     components
 )
 
-function LinearCartesianTrajectoryPlanningService:__init(node_handle, joint_monitor)
+function LinearCartesianTrajectoryPlanningService:__init(node_handle, joint_monitor, robot_model)
     self.node_handle = node_handle
     self.callback_queue = ros.CallbackQueue()
     self.info_server = nil
     self.robot_model_loader = nil
-    self.robot_model = nil
+    self.robot_model = robot_model
     self.planning_scene = nil
     self.robot_state = nil
     self.all_group_joint_names = nil
@@ -580,8 +580,10 @@ function LinearCartesianTrajectoryPlanningService:__init(node_handle, joint_moni
 end
 
 function LinearCartesianTrajectoryPlanningService:onInitialize()
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = self.robot_model_loader:getModel()
+    if not self.robot_model then
+        self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+        self.robot_model = self.robot_model_loader:getModel()
+    end
     self.planning_scene = moveit.PlanningScene(self.robot_model)
     self.planning_scene:syncPlanningScene()
     self.end_effector_map = getEndEffectorMoveGroupMap(self.robot_model)

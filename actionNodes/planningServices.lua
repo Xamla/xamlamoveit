@@ -36,9 +36,9 @@ local robot_model_loader = moveit.RobotModelLoader('robot_description')
 local robot_model = robot_model_loader:getModel()
 local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable(), ros.Duration(0.2))
 
-local jtps_service = jtps(nh, joint_monitor)
-local jpps_service = jpps(nh, joint_monitor)
-local cpps_service = cpps(nh, joint_monitor)
+local jtps_service = jtps(nh, joint_monitor, robot_model)
+local jpps_service = jpps(nh, joint_monitor, robot_model)
+local cpps_service = cpps(nh, joint_monitor, robot_model)
 local services = {jtps_service, jpps_service, cpps_service}
 
 for i, v in pairs(services) do
