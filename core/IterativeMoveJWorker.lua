@@ -17,9 +17,11 @@ error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
 local IterativeMoveJWorker = torch.class('IterativeMoveJWorker')
 
 local function checkMoveGroupName(self, name)
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = self.robot_model_loader:getModel()
-    self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
+    if not self.robot_model then
+        self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+        self.robot_model = self.robot_model_loader:getModel()
+    end
+    self.plan_scene = moveit.PlanningScene(self.robot_model)
     self.plan_scene:syncPlanningScene()
     local all_group_joint_names = self.robot_model:getJointModelGroupNames()
     ros.INFO('available move_groups:\n%s', tostring(all_group_joint_names))
@@ -91,17 +93,19 @@ local function checkStartState(self, trajectory)
     return self.error_codes.SUCCESS, ''
 end
 
-function IterativeMoveJWorker:__init(nh, joint_monitor)
+function IterativeMoveJWorker:__init(nh, joint_monitor, robot_model)
     self.trajectoryQueue = {} -- list of pending trajectories
     self.syncCallbacks = {}
     self.nodehandle = nh
     self.error_codes = error_codes
     self.allowed_start_tolerance =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/allowed_start_tolerance')
-
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = self.robot_model_loader:getModel()
-    self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
+    self.robot_model = robot_model
+    if not self.robot_model then
+        self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+        self.robot_model = self.robot_model_loader:getModel()
+    end
+    self.plan_scene = moveit.PlanningScene(self.robot_model)
     self.plan_scene:syncPlanningScene()
     if torch.isTypeOf(joint_monitor, core.JointMonitor) then
         self.joint_monitor = joint_monitor

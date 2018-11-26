@@ -48,9 +48,10 @@ local MoveJSafeSteppingActionServer, parent =
     components
 )
 
-function MoveJSafeSteppingActionServer:__init(nh, joint_monitor)
+function MoveJSafeSteppingActionServer:__init(nh, joint_monitor, robot_model)
     self.node_handle = nh
     self.joint_monitor = joint_monitor
+    self.robot_model = robot_model
     self.worker = nil
     self.action_server = nil
     self.info_service = nil
@@ -89,7 +90,7 @@ local function CancelCallBack(self, goal_handle)
 end
 
 function MoveJSafeSteppingActionServer:onCreate()
-    self.worker = IterativeMoveJWorker(self.node_handle, self.joint_monitor)
+    self.worker = IterativeMoveJWorker(self.node_handle, self.joint_monitor, self.robot_model)
     self.action_server = actionlib.ActionServer(self.node_handle, '/moveJ_step_action', 'xamlamoveit_msgs/StepwiseMoveJ')
     self.action_server:registerGoalCallback(
         function(gh)
@@ -115,7 +116,7 @@ end
 
 function MoveJSafeSteppingActionServer:onInitialize()
     if not self.worker then
-        self.worker = IterativeMoveJWorker(self.node_handle, self.joint_monitor)
+        self.worker = IterativeMoveJWorker(self.node_handle, self.joint_monitor, self.robot_model)
     end
 end
 

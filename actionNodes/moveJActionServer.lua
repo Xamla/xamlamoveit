@@ -37,7 +37,8 @@ local sysmon_watch = xamla_sysmon.Watch.new(root_nh, 3.0)
 local robot_model_loader = moveit.RobotModelLoader('robot_description')
 local robot_model = robot_model_loader:getModel()
 local joint_monitor = core.JointMonitor(robot_model:getActiveJointNames():totable())
-local mj_action_server = {[1] = MoveJActionServer(root_nh, joint_monitor), [2] = MoveJSafeSteppingActionServer(local_nh, joint_monitor)}
+local mj_action_server = {[1] = MoveJActionServer(root_nh, joint_monitor, robot_model),
+                          [2] = MoveJSafeSteppingActionServer(local_nh, joint_monitor, robot_model)}
 for i, v in ipairs(mj_action_server) do
     system_state_subscriber:registerCallback(
         function(msg, header)

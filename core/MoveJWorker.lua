@@ -16,10 +16,13 @@ error_codes = table.merge(error_codes, table.swapKeyValue(error_codes))
 local MoveJWorker = torch.class('MoveJWorker')
 
 local function checkMoveGroupName(self, name)
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = self.robot_model_loader:getModel()
-    self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
-    self.plan_scene:syncPlanningScene()
+    if not self.robot_model then
+        self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+        self.robot_model = self.robot_model_loader:getModel()
+        self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
+        self.plan_scene:syncPlanningScene()
+    end
+
     local all_group_joint_names = self.robot_model:getJointModelGroupNames()
     ros.INFO('available move_groups:\n%s', tostring(all_group_joint_names))
     for k, v in pairs(all_group_joint_names) do
@@ -86,7 +89,7 @@ local function initializeMoveGroup(self, group_id, velocity_scaling)
     end
 end
 
-function MoveJWorker:__init(nh, joint_monitor)
+function MoveJWorker:__init(nh, joint_monitor, robot_model)
     self.trajectoryQueue = {} -- list of pending trajectories
     self.syncCallbacks = {}
     self.nodehandle = nh
@@ -104,10 +107,12 @@ function MoveJWorker:__init(nh, joint_monitor)
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_duration_monitoring')
     self.execution_velocity_scaling =
         checkParameterForAvailability(self, '/move_group/trajectory_execution/execution_velocity_scaling')
-
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = self.robot_model_loader:getModel()
-    self.plan_scene = moveit.PlanningScene(self.robot_model_loader:getModel())
+    self.robot_model = robot_model
+    if not robot_model then
+        self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+        self.robot_model = self.robot_model_loader:getModel()
+    end
+    self.plan_scene = moveit.PlanningScene(self.robot_model)
     self.plan_scene:syncPlanningScene()
     if torch.isTypeOf(joint_monitor, core.JointMonitor) then
         self.joint_monitor = joint_monitor
