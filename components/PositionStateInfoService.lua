@@ -257,12 +257,12 @@ local PositionStateInfoService,
     parent =
     torch.class('xamlamoveit.components.PositionStateInfoService', 'xamlamoveit.components.RosComponent', components)
 
-function PositionStateInfoService:__init(node_handle, joint_monitor)
+function PositionStateInfoService:__init(node_handle, joint_monitor, robot_model)
     self.node_handle = node_handle
     self.callback_queue = ros.CallbackQueue()
     self.ik_callback_queue = ros.CallbackQueue()
     self.fk_callback_queue = ros.CallbackQueue()
-    self.robot_model = nil
+    self.robot_model = robot_model
     self.robot_model_loader = nil
     self.planning_scene = nil
     self.joint_monitor = nil
@@ -277,8 +277,11 @@ function PositionStateInfoService:__init(node_handle, joint_monitor)
 end
 
 function PositionStateInfoService:onInitialize()
-    self.robot_model_loader = moveit.RobotModelLoader('robot_description')
-    self.robot_model = self.robot_model_loader:getModel()
+    if not self.robot_model then
+        self.robot_model_loader = moveit.RobotModelLoader('robot_description')
+        self.robot_model = self.robot_model_loader:getModel()
+    end
+
     self.planning_scene = moveit.PlanningScene(self.robot_model)
     self.planning_scene:syncPlanningScene()
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
