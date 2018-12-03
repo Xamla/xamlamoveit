@@ -53,7 +53,7 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
     local num_steps = waypoints:size(1)
     ros.INFO("getMoveitPath with %d via points", num_steps)
     local manipulator = self.manipulators[group_name]
-    manipulator:setPlanningTime(5) --sec
+    manipulator:setPlanningTime(10) --sec
     manipulator:setNumPlanningAttempts(5)
     local plannedwaypoints = {}
     local robot_state = manipulator:getCurrentState()
