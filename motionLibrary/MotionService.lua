@@ -489,12 +489,15 @@ end
 
 
 -- get Path from service
-local function queryJointPath(self, move_group_name, joint_names, waypoints)
+local function queryJointPath(self, move_group_name, joint_names, waypoints, planning_time, planning_attempts, goal_tolerance)
     local generate_path_interface =
-        self.node_handle:serviceClient('xamlaPlanningServices/query_joint_path', 'xamlamoveit_msgs/GetMoveItJointPath')
+        self.node_handle:serviceClient('/xamlaPlanningServices/query_joint_path_parameterized', 'xamlamoveit_msgs/GetMoveItJointPath')
     local request = generate_path_interface:createRequest()
     request.group_name = move_group_name
     request.joint_names = joint_names
+    request.parameters.planning_attempts = planning_attempts or 5
+    request.parameters.planning_time = planning_time or ros.Duration(10)
+    request.parameters.goal_tolerance = goal_tolerance or 1e-5
     for i = 1, waypoints:size(2) do
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
         request.waypoints[i].positions = waypoints[{{}, i}]

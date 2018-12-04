@@ -8,6 +8,7 @@ local xutils = require 'xamlamoveit.xutils'
 local errorCodes = require 'xamlamoveit.core.ErrorCodes'
 errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetMoveItJointPath')
+local srv_with_parameter_spec = ros.SrvSpec('xamlamoveit_msgs/GetMoveItJointPathWithParameters')
 local set_float_spec = ros.SrvSpec('xamlamoveit_msgs/SetFloat')
 local get_float_spec = ros.SrvSpec('xamlamoveit_msgs/GetFloat')
 
@@ -155,6 +156,20 @@ local function queryJointPathServiceHandler(self, request, response, header)
     return true
 end
 
+local function queryJointPathServiceHandlerWithParameters(self, request, response, header)
+    local tmp = {planning_time = 10, goal_tolerance = 1E-5, planning_attemts = 5}
+    tmp.planning_attempts = self.moveit_parameters.planning_attempts
+    tmp.goal_tolerance = self.moveit_parameters.goal_tolerance
+    tmp.planning_time = self.moveit_parameters.planning_time
+    self.moveit_parameters.planning_attempts = request.parameters.planning_time
+    self.moveit_parameters.goal_tolerance = request.parameters.goal_tolerance
+    self.moveit_parameters.planning_time = request.parameters.planning_attempts
+    local suc = queryJointPathServiceHandler(self, request, response, header)
+    self.moveit_parameters.planning_attempts = tmp.planning_attempts
+    self.moveit_parameters.goal_tolerance = tmp.goal_tolerance
+    self.moveit_parameters.planning_time = tmp.planning_time
+    return suc
+end
 
 local function getParameterNames(self, request, response, header)
     response.result = PARAMETERS
@@ -198,6 +213,7 @@ function JointPathPlanningService:__init(node_handle, joint_monitor, robot_model
     self.get_planning_time_server = nil
     self.set_goal_tolerance_server = nil
     self.get_goal_tolerance_server = nil
+    self.info_server_with_parameter = nil
     self.joint_monitor = joint_monitor
     self.manipulators = {}
     self.moveit_parameters = {planning_time = 10, goal_tolerance = 1E-5, planning_attemts = 5}
@@ -228,6 +244,15 @@ function JointPathPlanningService:onInitialize()
 end
 
 function JointPathPlanningService:onStart()
+    self.info_server_with_parameter =
+        self.node_handle:advertiseService(
+        'query_joint_path_parameterized',
+        srv_with_parameter_spec,
+        function(request, response, header)
+            return queryJointPathServiceHandlerWithParameters(self, request, response, header)
+        end,
+        self.callback_queue
+    )
     self.info_server =
         self.node_handle:advertiseService(
         'query_joint_path',

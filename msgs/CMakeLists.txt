@@ -55,6 +55,7 @@ add_message_files(
 	FILES
 #	XamlaGripper.msg
   MoveGroupInterfaceDescription.msg
+  MoveitPlanParameters.msg
   ControllerState.msg
   JointPathPoint.msg
   JointValuesPoint.msg
@@ -67,6 +68,7 @@ add_message_files(
 ## Generate services in the 'srv' folder
 add_service_files(
    FILES
+   GetMoveItJointPathWithParameters.srv
    QueryMoveGroupInterfaces.srv
    GetStrings.srv
    SetString.srv
