@@ -72,6 +72,8 @@ add_service_files(
    SetString.srv
    SetFlag.srv
    GetFlag.srv
+   SetFloat.srv
+   GetFloat.srv
    GetSelected.srv
    StatusController.srv
    GetCurrentJointState.srv

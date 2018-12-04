@@ -8,6 +8,27 @@ local xutils = require 'xamlamoveit.xutils'
 local errorCodes = require 'xamlamoveit.core.ErrorCodes'
 errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
 local srv_spec = ros.SrvSpec('xamlamoveit_msgs/GetMoveItJointPath')
+local set_float_spec = ros.SrvSpec('xamlamoveit_msgs/SetFloat')
+local get_float_spec = ros.SrvSpec('xamlamoveit_msgs/GetFloat')
+
+local PARAMETERS = {
+    [1] = 'planning_time',
+    [2] = 'goal_tolerance',
+    [3] = 'planning_attemts'
+}
+
+local function findString(my_string, collection)
+    local index = -1
+    if torch.type(collection) == 'table' then
+        index = table.indexof(collection, my_string)
+    elseif torch.type(collection) == 'std.StringVector' then
+        index = table.indexof(collection:totable(), my_string)
+    else
+        error('unknown type: ' .. torch.type(collection))
+    end
+
+    return index > -1, index
+end
 
 local function table_concat(dst, src)
     for i, v in ipairs(src) do
@@ -36,8 +57,8 @@ local function initializeMoveGroup(self, group_id, velocity_scaling)
         local manipulator = moveit.MoveGroupInterface(group_id)
 
         manipulator:setMaxVelocityScalingFactor(velocity_scaling)
-        manipulator:setGoalTolerance(1E-5)
-        manipulator:setPlanningTime(2.0)
+        manipulator:setGoalTolerance(self.moveit_parameters.goal_tolerance)
+        manipulator:setPlanningTime(self.moveit_parameters.planning_time)
 
         -- ask move group for current state
         manipulator:startStateMonitor(0.008)
@@ -53,8 +74,9 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
     local num_steps = waypoints:size(1)
     ros.INFO("getMoveitPath with %d via points", num_steps)
     local manipulator = self.manipulators[group_name]
-    manipulator:setPlanningTime(10) --sec
-    manipulator:setNumPlanningAttempts(5)
+    manipulator:setGoalTolerance(self.moveit_parameters.goal_tolerance)
+    manipulator:setPlanningTime(self.moveit_parameters.planning_time)
+    manipulator:setNumPlanningAttempts(self.moveit_parameters.planning_attemts)
     local plannedwaypoints = {}
     local robot_state = manipulator:getCurrentState()
     for i = 1, num_steps do
@@ -133,6 +155,33 @@ local function queryJointPathServiceHandler(self, request, response, header)
     return true
 end
 
+
+local function getParameterNames(self, request, response, header)
+    response.result = PARAMETERS
+    response.success = true
+    return true
+end
+
+
+local function setParameterServiceHandler(self, request, response, header, parameter_name)
+    local suc, index = findString(parameter_name, PARAMETERS)
+    response.success = suc
+    ros.INFO('Set parameter %s to %f', PARAMETERS[index], request.data)
+    self.moveit_parameters[PARAMETERS[index]] = request.data
+    return true
+end
+
+
+local function getParameterServiceHandler(self, request, response, header, parameter_name)
+    local suc, index = findString(parameter_name, PARAMETERS)
+    response.success = suc
+    local value = self.moveit_parameters[PARAMETERS[index]]
+    ros.INFO('Get parameter %s to %f', PARAMETERS[index], value)
+    response.data = value
+    return true
+end
+
+
 local components = require 'xamlamoveit.components.env'
 local JointPathPlanningService,
     parent =
@@ -145,9 +194,13 @@ function JointPathPlanningService:__init(node_handle, joint_monitor, robot_model
     self.robot_model_loader = nil
     self.robot_state = nil
     self.info_server = nil
+    self.set_planning_time_server = nil
+    self.get_planning_time_server = nil
+    self.set_goal_tolerance_server = nil
+    self.get_goal_tolerance_server = nil
     self.joint_monitor = joint_monitor
     self.manipulators = {}
-
+    self.moveit_parameters = {planning_time = 10, goal_tolerance = 1E-5, planning_attemts = 5}
     parent.__init(self, node_handle)
 end
 
@@ -181,6 +234,42 @@ function JointPathPlanningService:onStart()
         srv_spec,
         function(request, response, header)
             return queryJointPathServiceHandler(self, request, response, header)
+        end,
+        self.callback_queue
+    )
+    self.set_planning_time_server =
+        self.node_handle:advertiseService(
+        'set_planning_time',
+        set_float_spec,
+        function(request, response, header)
+            return setParameterServiceHandler(self, request, response, header, 'planning_time')
+        end,
+        self.callback_queue
+    )
+    self.get_planning_time_server =
+        self.node_handle:advertiseService(
+        'get_planning_time',
+        get_float_spec,
+        function(request, response, header)
+            return getParameterServiceHandler(self, request, response, header, 'planning_time')
+        end,
+        self.callback_queue
+    )
+    self.set_goal_tolerance_server =
+        self.node_handle:advertiseService(
+        'set_goal_tolerance',
+        set_float_spec,
+        function(request, response, header)
+            return setParameterServiceHandler(self, request, response, header, 'goal_tolerance')
+        end,
+        self.callback_queue
+    )
+    self.get_goal_tolerance_server =
+        self.node_handle:advertiseService(
+        'get_goal_tolerance',
+        get_float_spec,
+        function(request, response, header)
+            return getParameterServiceHandler(self, request, response, header, 'goal_tolerance')
         end,
         self.callback_queue
     )
