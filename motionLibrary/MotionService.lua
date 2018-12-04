@@ -495,9 +495,13 @@ local function queryJointPath(self, move_group_name, joint_names, waypoints, pla
     local request = generate_path_interface:createRequest()
     request.group_name = move_group_name
     request.joint_names = joint_names
+    request.parameters.has_planning_attempts = planning_attempts ~= nil
     request.parameters.planning_attempts = planning_attempts or 5
+    request.parameters.has_planning_time = planning_time ~= nil
     request.parameters.planning_time = planning_time or ros.Duration(10)
+    request.parameters.has_goal_tolerance = goal_tolerance ~= nil
     request.parameters.goal_tolerance = goal_tolerance or 1e-5
+
     for i = 1, waypoints:size(2) do
         request.waypoints[i] = ros.Message('xamlamoveit_msgs/JointPathPoint')
         request.waypoints[i].positions = waypoints[{{}, i}]

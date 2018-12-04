@@ -161,9 +161,15 @@ local function queryJointPathServiceHandlerWithParameters(self, request, respons
     tmp.planning_attempts = self.moveit_parameters.planning_attempts
     tmp.goal_tolerance = self.moveit_parameters.goal_tolerance
     tmp.planning_time = self.moveit_parameters.planning_time
-    self.moveit_parameters.planning_attempts = request.parameters.planning_time
-    self.moveit_parameters.goal_tolerance = request.parameters.goal_tolerance
-    self.moveit_parameters.planning_time = request.parameters.planning_attempts
+    if request.parameters.has_planning_time then
+        self.moveit_parameters.planning_attempts =  request.parameters.planning_time
+    end
+    if request.parameters.has_goal_tolerance then
+        self.moveit_parameters.goal_tolerance = request.parameters.goal_tolerance
+    end
+    if request.parameters.has_planning_time then
+        self.moveit_parameters.planning_time = request.parameters.planning_time:toSec()
+    end
     local suc = queryJointPathServiceHandler(self, request, response, header)
     self.moveit_parameters.planning_attempts = tmp.planning_attempts
     self.moveit_parameters.goal_tolerance = tmp.goal_tolerance
