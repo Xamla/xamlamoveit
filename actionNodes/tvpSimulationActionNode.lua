@@ -10,8 +10,6 @@ local xutils = xamlamoveit.xutils
 local core = xamlamoveit.core
 local actionlib = ros.actionlib
 local ActionServer = actionlib.ActionServer
-local errorCodes = require 'xamlamoveit.core.ErrorCodes'.error_codes
-errorCodes = table.merge(errorCodes, table.swapKeyValue(errorCodes))
 local GoalStatus = actionlib.GoalStatus
 
 local GenerativeSimulationWorker = require 'xamlamoveit.core.GenerativeSimulationWorker'
@@ -159,21 +157,23 @@ local function moveJAction_serverGoal(global_state_summary, goal_handle, joint_m
         end,
         -- abort signals end of trajectory processing
         abort = function(self, msg)
+            local r = self.goal_handle:createResult()
+            r.error_code = TrajectoryResultStatus.ABORTED
             local status = self.goal_handle:getGoalStatus().status
             ros.ERROR('[abort trajectory] goal status: %d', status)
             if status == GoalStatus.ACTIVE or status == GoalStatus.PREEMPTING then
                 ros.ERROR('[abort trajectory] goal status: %d', status)
-                self.goal_handle:setAborted(nil, msg or 'Error')
+                self.goal_handle:setAborted(r, msg or 'Error')
             elseif status == GoalStatus.PENDING or status == GoalStatus.RECALLING then
                 ros.ERROR('[cancel trajectory] goal status: %d', status)
-                self.goal_handle:setCanceled(nil, msg or 'Error')
+                self.goal_handle:setCanceled(r, msg or 'Error')
             elseif not isTerminalGoalStatus(status) then
                 ros.ERROR('[abort trajectory] Unexpected goal status: %d', status)
             end
         end,
         completed = function(self)
             local r = self.goal_handle:createResult()
-            r.error_code = worker.errorCodes.SUCCESSFUL
+            r.error_code = TrajectoryResultStatus.SUCCESSFUL
             self.goal_handle:setSucceeded(r, 'Completed')
         end
     }

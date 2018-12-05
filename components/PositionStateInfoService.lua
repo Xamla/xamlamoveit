@@ -25,7 +25,7 @@ local function createIKRequest(
     local ik_link_names = ik_link_names or {}
     local robot_state_msg
     if robot_state then
-        robot_state_msg = robot_state:toRobotStateMsg()
+        robot_state_msg = robot_state:toRobotStateMsg(true)
     end
     local ik_spec = ros.MsgSpec('moveit_msgs/PositionIKRequest')
     local req_msg = ros.Message(ik_spec)

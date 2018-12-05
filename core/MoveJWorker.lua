@@ -389,7 +389,7 @@ local function handleMoveJTrajectory(self, traj)
         else
             suc = true
             plan = moveit.Plan()
-            plan:setStartStateMsg(start_state:toRobotStateMsg())
+            plan:setStartStateMsg(start_state:toRobotStateMsg(true))
             plan:setTrajectoryMsg(rest:getRobotTrajectoryMsg())
         end
     end
