@@ -287,6 +287,7 @@ local function pose2jointTrajectory(
             return result, error_codes.NO_IK_SOLUTION
         end
     end
+    result[#result+1] = {pos = result[#result].pos:clone(), vel = result[#result].vel:clone():zero()}
     return result, error
 end
 
