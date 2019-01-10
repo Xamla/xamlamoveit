@@ -491,7 +491,7 @@ end
 -- get Path from service
 local function queryJointPath(self, move_group_name, joint_names, waypoints, planning_time, planning_attempts, goal_tolerance)
     local generate_path_interface =
-        self.node_handle:serviceClient('/xamlaPlanningServices/query_joint_path_parameterized', 'xamlamoveit_msgs/GetMoveItJointPath')
+        self.node_handle:serviceClient('/xamlaPlanningServices/query_joint_path_parameterized', 'xamlamoveit_msgs/GetMoveItJointPathWithParameters')
     local request = generate_path_interface:createRequest()
     request.group_name = move_group_name
     request.joint_names = joint_names
