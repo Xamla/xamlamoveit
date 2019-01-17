@@ -11,6 +11,7 @@ local datatypes = require 'xamlamoveit.datatypes'
 local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
 local tvpPoseController = require 'xamlamoveit.controller.MultiAxisTvpController2'
 local xutils = require 'xamlamoveit.xutils'
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 
 local error_codes = {
     OK = 1,
@@ -562,7 +563,14 @@ function JoggingControllerOpenLoop:getCurrentPose()
         link_name = self.move_groups[self.curr_move_group_name]:getEndEffectorLink()
     end
     if link_name and #link_name > 0 then
-        return self.state:getGlobalLinkTransform(link_name)
+        local get_pose = function () return self.state:getGlobalLinkTransform(link_name) end
+        local status, pose = xpcall(get_pose, error_msg_func)
+        if status then
+            return pose
+        else
+            ros.ERROR(pose)
+            return tf.Transform()
+        end
     else
         ros.WARN_THROTTLE('getCurrentPose', 1, '[%s] no pose available since no link_name for EndEffector exists.', self.curr_move_group_name)
         return tf.Transform()
@@ -571,10 +579,10 @@ end
 
 local function satisfiesBounds(self, positions, joint_names)
     local state = self.state:clone()
+
     local tmp_joint_values = datatypes.JointValues(datatypes.JointSet(joint_names), positions)
     state:setVariablePositions(positions, joint_names)
     state:update()
-    self.planning_scene:syncPlanningScene()
     local self_collisions = false
     if not self.no_self_collision_check then
         self_collisions = self.planning_scene:checkSelfCollision(state)
@@ -853,6 +861,8 @@ function JoggingControllerOpenLoop:getNewRobotState()
         print(names, p)
         return
     end
+    self.planning_scene:syncPlanningScene()
+    self.state:fromRobotStateMsg(self.planning_scene:getCurrentState():toRobotStateMsg(true))
     self.state:setVariablePositions(p, names)
     self.state:update()
     self.lastCommandJointPositions:setValues(names, p)
@@ -912,7 +922,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
         end
 
         local state = self.state:clone()
-        local attempts, timeout = 1, self.dt:toSec() * 2
+        local attempts, timeout = 1, self.dt:toSec() * 0.5
         local suc = (not detectNan(self.target_pose:getOrigin())) and
             state:setFromIK(
             self.move_groups[self.curr_move_group_name]:getName(),
