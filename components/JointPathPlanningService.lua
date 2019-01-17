@@ -80,6 +80,7 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
     manipulator:setNumPlanningAttempts(self.moveit_parameters.planning_attemts)
     local plannedwaypoints = {}
     local robot_state = manipulator:getCurrentState()
+    robot_state:fromRobotStateMsg(self.plan_scene:getCurrentState():toRobotStateMsg(true))
     for i = 1, num_steps do
         local k = math.min(i + 1, num_steps)
         if i < k then
@@ -214,6 +215,7 @@ function JointPathPlanningService:__init(node_handle, joint_monitor, robot_model
     self.robot_model = robot_model
     self.robot_model_loader = nil
     self.robot_state = nil
+    self.plan_scene = nil
     self.info_server = nil
     self.set_planning_time_server = nil
     self.get_planning_time_server = nil
@@ -232,6 +234,8 @@ function JointPathPlanningService:onInitialize()
         self.robot_model = self.robot_model_loader:getModel()
     end
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
+    self.plan_scene = moveit.PlanningScene(self.robot_model)
+    self.plan_scene:syncPlanningScene()
     local ready = self.joint_monitor:waitReady(2.0) -- it is not important to have the joint monitor ready at start up
     if not ready then
         ros.WARN('joint states not ready')
