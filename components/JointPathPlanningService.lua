@@ -80,7 +80,9 @@ local function getMoveitPath(self, group_name, joint_names, waypoints)
     manipulator:setNumPlanningAttempts(self.moveit_parameters.planning_attemts)
     local plannedwaypoints = {}
     local robot_state = manipulator:getCurrentState()
-    robot_state:fromRobotStateMsg(self.plan_scene:getCurrentState():toRobotStateMsg(true))
+    self.plan_scene:syncPlanningScene()
+    local robot_state_msg = self.plan_scene:getCurrentState():toRobotStateMsg(true)
+    robot_state:fromRobotStateMsg(robot_state_msg)
     for i = 1, num_steps do
         local k = math.min(i + 1, num_steps)
         if i < k then

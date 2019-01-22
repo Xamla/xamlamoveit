@@ -48,7 +48,8 @@ local function queryCollisionCheckServiceHandler(self, request, response, header
         response.error_codes[1] = codes.INVALID_MOVE_GROUP
         return true
     end
-
+    self.plan_scene:syncPlanningScene()
+    self.robot_state:fromRobotStateMsg(self.plan_scene:getCurrentState():toRobotStateMsg(true))
     local robot_state = self.robot_state
     robot_state:enforceBounds() -- nur auf joint model ebene nicht im state
     robot_state:update()
@@ -71,8 +72,6 @@ local function queryCollisionCheckServiceHandler(self, request, response, header
         robot_state:setVariablePositions(request.points[i].positions, request.joint_names)
         ros.DEBUG('update state')
         robot_state:update()
-        ros.DEBUG('sync scene')
-        self.plan_scene:syncPlanningScene()
         ros.DEBUG('checks selfcollision')
         local is_state_colliding = self.plan_scene:isStateColliding(nil, robot_state, true)
         ros.DEBUG('checks scene collision')

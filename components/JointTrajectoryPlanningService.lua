@@ -141,6 +141,7 @@ function JointTrajectoryPlanningService:__init(node_handle, joint_monitor, robot
     self.robot_model = robot_model
     self.robot_model_loader = nil
     self.robot_state = nil
+    self.plan_scene = nil
     self.info_server = nil
     self.joint_monitor = joint_monitor
     parent.__init(self, node_handle)
@@ -152,6 +153,8 @@ function JointTrajectoryPlanningService:onInitialize()
         self.robot_model = self.robot_model_loader:getModel()
     end
     self.robot_state = moveit.RobotState.createFromModel(self.robot_model)
+    self.plan_scene = moveit.PlanningScene(self.robot_model)
+    self.plan_scene:syncPlanningScene()
     self.all_group_joint_names = self.robot_model:getJointModelGroupNames()
     local ready = self.joint_monitor:waitReady(2.0) -- it is not important to have the joint monitor ready at start up
     if not ready then
