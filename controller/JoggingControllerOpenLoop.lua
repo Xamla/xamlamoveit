@@ -992,6 +992,10 @@ function JoggingControllerOpenLoop:update()
     local new_twist_message, twist_goal, transformed_successful = self:getTwistGoal()
 
     --update state
+    ros.DEBUG_NAMED('Init_states',
+                    "cool_down_timeout: %f sec, time since start: %f sec. Converged: %s",
+                    self.cool_down_timeout:toSec(), (curr_time - self.start_cool_down_time):toSec(),
+                    self.controller.converged and "True" or "False")
     if
         self.controller.converged == true and
             self.cool_down_timeout:toSec() < (curr_time - self.start_cool_down_time):toSec()
@@ -1005,6 +1009,7 @@ function JoggingControllerOpenLoop:update()
             self:getNewRobotState()
             local diff = self.lastCommandJointPositions - jointPositionsBeforeSync
             if diff.values:norm() < 1e-3 then
+                ros.INFO('Reset controller. Sync finished.')
                 self.taskspace_controller:reset()
                 self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
                 self.controller:reset()
@@ -1305,8 +1310,8 @@ function JoggingControllerOpenLoop:reset()
     self:setSceneCollisionChecksState(true)
     self:setJointLimitsChecks(true)
     resetGoals(self)
-    self.synced = true
-    ros.INFO('resetting finished successfully')
+    self.synced = false
+    ros.INFO('resetting finished successfully. Wait for sync.')
     return true
 end
 

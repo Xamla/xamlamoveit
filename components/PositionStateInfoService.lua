@@ -155,6 +155,13 @@ local function queryIKService2Handler(self, request, response, header)
             response.error_codes[point_index].val = errorCodes.INVALID_ROBOT_STATE
         end
 
+        if ik_res.error_code.val == errorCodes.NO_IK_SOLUTION then
+            self.planning_scene:syncPlanningScene()
+            if self.planning_scene:isStateColliding(nil, r_state, true) then
+                ros.WARN("Solution of requested pose is in collision")
+            end
+        end
+
         local state = r_state:getVariablePositions()
         local names = r_state:getVariableNames():totable()
         local res = torch.zeros(#request.joint_names)
