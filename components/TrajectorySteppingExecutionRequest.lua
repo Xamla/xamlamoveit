@@ -54,9 +54,9 @@ local function setMoveGroupName(self)
 end
 
 local function setJoggingCheckCollisionState(self, state)
-    local req = self.jogging_state_collision_check_service:createRequest()
-    req.value = state
     for i = 1, 2 do
+        local req = self.jogging_state_collision_check_service:createRequest()
+        req.value = state
         req.name = FLAGS[i]
         local res = self.jogging_state_collision_check_service:call(req)
         if res then
@@ -161,6 +161,7 @@ function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
     self.dt = ros.Duration(1 / 30)
     self.time_of_last_command_request = ros.Time.now()
     self.current_direction = MOTIONDIRECTIONS.stopped
+    self.current_tracking_error = 0
     self.last_send_joint_target = nil
     self.max_since_last_call = ros.Duration(0.02)
     self.last_proceed = nil
@@ -207,6 +208,12 @@ end
 
 local function jogging_feedback(self, msg, header)
     self.last_jogging_feedback_msg = msg
+end
+
+local function rescaleDeltaT(self, max_dt, distance)
+    local alpha = 0.00045
+    local sigmoid = 1/(1+ math.exp((distance-0.04)/alpha))
+    return ros.Duration(max_dt:toSec()*sigmoid)
 end
 
 function TrajectorySteppingExecutionRequest:connect(
@@ -404,6 +411,7 @@ end
 
 function TrajectorySteppingExecutionRequest:proceed()
     local status = self.goal_handle:getGoalStatus().status
+    local current_tracking_error = self.current_tracking_error
     if status == GoalStatus.ACTIVE or status == GoalStatus.PENDING or status == GoalStatus.PREEMPTING then
         self.status = 0
         local is_running, msg = checkStatusJoggingNode(self)
@@ -411,16 +419,20 @@ function TrajectorySteppingExecutionRequest:proceed()
            self.last_jogging_feedback_msg.scene_collision_check_enabled and self.last_jogging_feedback_msg.error_code == -3) then
             self.abort_action = true
         end
-        if self.abort_action == true or is_running == false or self.is_canceled then
-            if self.abort_action then
-                ros.WARN('[TrajectorySteppingExecutionRequest] could not set status on Jogging node')
+        if self.abort_action == true or is_running == false or self.is_canceled == true then
+            if self.abort_action == true then
+                ros.WARN('[TrajectorySteppingExecutionRequest] could not set status on Jogging node\n %s', tostring(self.last_jogging_feedback_msg))
             end
             if is_running == false then
-                ros.WARN('[TrajectorySteppingExecutionRequest] Jogging node should be running but is not.')
+                ros.WARN('[TrajectorySteppingExecutionRequest] Jogging node should be running but is not.\n %s', tostring(msg))
             end
             self.status = errorCodes.PREEMPTED
             return false
         elseif self.joint_monitor then
+            if self.last_jogging_feedback_msg then
+                local err_norm = self.last_jogging_feedback_msg.joint_distance:norm()
+                ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest',"current_tracking_error norm: %f, max %f", err_norm, current_tracking_error)
+            end
             local time_stamp_now = ros.Time.now()
             local traj = self.goal.goal.trajectory
             local p = self.joint_monitor:getPositionsOrderedTensor(traj.joint_names)
@@ -442,6 +454,11 @@ function TrajectorySteppingExecutionRequest:proceed()
             -- send stop signal on timeout or when step message with velocity_scaling == 0 was received
             if (time_stamp_now - self.time_of_last_command_request) > ros.Duration(0.1) or self.scaling_target == 0 then
                 local q, qd, index = determineNextTarget(self, traj)
+                local q_dot = q - p
+                local dist = torch.abs(q_dot)
+                ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest','trajectory step error norm: %f, max: %f', q_dot:norm(), dist:max(1)[1])
+                self.current_tracking_error = dist:max(1)[1]
+
                 mPoint.velocities:set(qd:zero())
                 self.scaling_current = 0
                 self.current_direction = MOTIONDIRECTIONS.stopped
@@ -457,7 +474,10 @@ function TrajectorySteppingExecutionRequest:proceed()
                         self.simulated_time = ros.Duration(syncTrajectory(self, traj, 0.05, self.simulated_time:toSec(), p))
                         ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'forward sync from %f -> %f, delta: %f', before:toSec(), self.simulated_time:toSec(), (self.simulated_time - before):toSec())
                     else
-                        self.simulated_time = self.simulated_time + dt_since_last_call * self.scaling_current * self.global_velocity_scaling
+                        local max_dt = dt_since_last_call * math.min(self.scaling_current, self.global_velocity_scaling)
+                        local new_dt = rescaleDeltaT(self, max_dt, current_tracking_error)
+                        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'dt: %f', new_dt:toSec())
+                        self.simulated_time = self.simulated_time + new_dt
                         local last_index = #traj.points
                         if self.simulated_time > traj.points[last_index].time_from_start then
                             self.simulated_time = traj.points[last_index].time_from_start
@@ -469,7 +489,10 @@ function TrajectorySteppingExecutionRequest:proceed()
                         self.simulated_time = ros.Duration(syncTrajectory(self, traj, -0.05, self.simulated_time:toSec(), p))
                         ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest', 'backward sync from %f -> %f, delta: %f', before:toSec(), self.simulated_time:toSec(), (self.simulated_time - before):toSec())
                     else
-                        self.simulated_time = self.simulated_time - dt_since_last_call * self.scaling_current * self.global_velocity_scaling
+                        local max_dt = dt_since_last_call * math.min(self.scaling_current, self.global_velocity_scaling)
+                        local new_dt = rescaleDeltaT(self, max_dt, current_tracking_error)
+                        ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest','dt: %f', new_dt:toSec())
+                        self.simulated_time = self.simulated_time - new_dt
                         if self.simulated_time:toSec() < 0 then
                             self.simulated_time = ros.Duration(0)
                         end
@@ -484,9 +507,9 @@ function TrajectorySteppingExecutionRequest:proceed()
                     0.1,
                     string.format('comparison: %04f', q_dot / q_dot:norm() * qd / qd:norm())
                 )
-
+                ros.DEBUG_NAMED('TrajectorySteppingExecutionRequest','trajectory step error norm: %f, max: %f', q_dot:norm(), dist:max(1)[1])
                 self.last_send_joint_target = q
-
+                self.current_tracking_error = dist:max(1)[1]
                 mPoint.positions:set(q)
                 if self.index >= #traj.points and dist:gt(1e-2):sum() == 0 then
                     self.status = errorCodes.SUCCESS
@@ -572,7 +595,7 @@ function TrajectorySteppingExecutionRequest:cancel()
     end
 end
 
-function disposeRos(self, unit)
+local function disposeRos(self, unit)
     if self[unit] then
         self[unit]:shutdown()
         self[unit] = nil
