@@ -593,6 +593,7 @@ function TrajectorySteppingExecutionRequest:cancel()
         r.result = code
         self.goal_handle:setAborted(r, msg or 'Abort')
     end
+    self:shutdown()
 end
 
 local function disposeRos(self, unit)
