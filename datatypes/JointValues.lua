@@ -70,7 +70,7 @@ function JointValues.__add(a, b)
 end
 
 function JointValues:sub(other)
-    assert(other.joint_set == self.joint_set, 'JointSets are not equal.')
+    assert(other.joint_set:isSimilar(self.joint_set), 'JointSets are not similar.')
     for i, v in ipairs(self:getNames()) do
         self.values[i] = self.values[i] - other:getValue(v)
     end

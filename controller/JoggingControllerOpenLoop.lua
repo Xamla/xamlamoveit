@@ -854,8 +854,13 @@ end
 
 function JoggingControllerOpenLoop:getNewRobotState()
     local names = self.lastCommandJointPositions:getNames()
-    local ok, p, l = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.1), names)
-    assert(ok, '[getNewRobotState] exceeded timeout for next robot joint state.')
+    local timeout = ros.Duration(0.1)
+    local p, l = self.joint_monitor:getPositionsOrderedTensor(names)
+    local ok = l < timeout
+    if not ok then
+        ros.ERROR('[getNewRobotState] exceeded timeout for next robot joint state. Max latency: %f', l:toSec())
+        return
+    end
     if #names ~= p:size(1) then
         ros.ERROR('Miss match: ')
         print(names, p)
@@ -1235,8 +1240,7 @@ function JoggingControllerOpenLoop:reset()
     ros.DEBUG('resetting ....')
     while self.cool_down_timeout:toSec() > (ros.Time.now() - self.start_cool_down_time):toSec() do
         ros.INFO_THROTTLE('coolDown', 1, '[JoggingControllerOpenLoop] need to cool down first')
-        ros.spinOnce()
-        self.dt:sleep()
+        self.joint_monitor:waitForNextState(self.dt*2)
     end
     if publisherPointPositionCtrl then
         for i, v in pairs(publisherPointPositionCtrl) do
