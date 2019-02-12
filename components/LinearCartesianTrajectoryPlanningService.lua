@@ -249,6 +249,7 @@ local function pose2jointTrajectory(
                         move_group,
                         100 * i / #poses6D
                     )
+                    return result, error_codes.PLANNING_FAILED
                     return result, error_codes.NO_IK_SOLUTION
                 end
                 result[i] = {}
