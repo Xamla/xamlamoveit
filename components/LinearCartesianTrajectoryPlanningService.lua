@@ -250,7 +250,6 @@ local function pose2jointTrajectory(
                         100 * i / #poses6D
                     )
                     return result, error_codes.PLANNING_FAILED
-                    return result, error_codes.NO_IK_SOLUTION
                 end
                 result[i] = {}
                 seed_joint_values:setValues(traj_joint_names, new_state)
