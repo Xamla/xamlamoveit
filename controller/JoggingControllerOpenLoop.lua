@@ -908,6 +908,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
     if link_name and #link_name > 0 then
         local dt = self.dt:toSec()
         if detectNan(pose_goal:getOrigin()) then
+            ros.INFO("received stop")
             return self.lastCommandJointPositions, error_codes.OK
         end
         pose_goal:setOrigin(
@@ -1138,52 +1139,56 @@ function JoggingControllerOpenLoop:update()
             if self.mode ~= jogging_node_tracking_states.IDLE then
                 ros.INFO('[twist] Received stop signal')
                 stop_received = true
+                self.taskspace_controller:reset()
+                self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
             end
             self.goals.twist_goal = nil
         end
-        local rel_tmp_pose = tf.StampedTransform()
-        local dt = self.dt:toSec()
+        if stop_received == false then
+            local rel_tmp_pose = tf.StampedTransform()
+            local dt = self.dt:toSec()
 
-        local pos_offset = twist_goal[{{1, 3}}] * self.command_distance_threshold * dt
-        local rot_offset = twist_goal[{{4, 6}}] * self.command_rotation_threshold * dt
+            local pos_offset = twist_goal[{{1, 3}}] * self.command_distance_threshold * dt
+            local rot_offset = twist_goal[{{4, 6}}] * self.command_rotation_threshold * dt
 
-        local quaternion = rel_tmp_pose:getRotation()
-        if (rot_offset):norm() > 0 then
-            quaternion:setRotation(rot_offset, (rot_offset):norm())
-        end
-        rel_tmp_pose:setRotation(quaternion)
-        rel_tmp_pose:setOrigin(pos_offset)
+            local quaternion = rel_tmp_pose:getRotation()
+            if (rot_offset):norm() > 0 then
+                quaternion:setRotation(rot_offset, (rot_offset):norm())
+            end
+            rel_tmp_pose:setRotation(quaternion)
+            rel_tmp_pose:setOrigin(pos_offset)
 
-        local rel_poseAB = rel_tmp_pose:clone()
-        local tmp = tf.StampedTransform()
-        tmp:setOrigin(rel_poseAB:getOrigin() + self.current_pose:getOrigin())
-        tmp:setRotation(rel_poseAB:getRotation() * self.current_pose:getRotation())
-        local posture_tmp_goal, err_code = transformPose2PostureTarget(self, tmp, q_dot:getNames())
+            local rel_poseAB = rel_tmp_pose:clone()
+            local tmp = tf.StampedTransform()
+            tmp:setOrigin(rel_poseAB:getOrigin() + self.current_pose:getOrigin())
+            tmp:setRotation(rel_poseAB:getRotation() * self.current_pose:getRotation())
+            local posture_tmp_goal, err_code = transformPose2PostureTarget(self, tmp, q_dot:getNames())
 
-        if posture_tmp_goal and self.lastCommandJointPositions then
-            q_dot = posture_tmp_goal - self.lastCommandJointPositions
-            if self.mode == jogging_node_tracking_states.IDLE then
+            if posture_tmp_goal and self.lastCommandJointPositions then
+                q_dot = posture_tmp_goal - self.lastCommandJointPositions
+                if self.mode == jogging_node_tracking_states.IDLE then
+                    q_dot.values:zero()
+                end
+                self.mode = jogging_node_tracking_states.TWIST
+                self.feedback_message.error_code = err_code
+                stop_received = true
+                if err_code == error_codes.OK or err_code == error_codes.CLOSE_TO_SINGULARITY then
+                    stop_received = false
+                end
+            end
+
+            if torch.abs(q_dot.values):gt(math.pi / 2):sum() > 1 then
+                ros.ERROR(
+                    '[twist] detected jump in IK. In %d number of joints threshold was exceeded.',
+                    torch.abs(q_dot.values):gt(math.pi / 2):sum()
+                )
+                self.feedback_message.error_code = error_codes.IK_JUMP_DETECTED
                 q_dot.values:zero()
             end
-            self.mode = jogging_node_tracking_states.TWIST
-            self.feedback_message.error_code = err_code
-            stop_received = true
-            if err_code == error_codes.OK or err_code == error_codes.CLOSE_TO_SINGULARITY then
-                stop_received = false
+
+            if transformed_successful == false then
+                self.feedback_message.error_code = error_codes.INVALID_LINK_NAME
             end
-        end
-
-        if torch.abs(q_dot.values):gt(math.pi / 2):sum() > 1 then
-            ros.ERROR(
-                '[twist] detected jump in IK. In %d number of joints threshold was exceeded.',
-                torch.abs(q_dot.values):gt(math.pi / 2):sum()
-            )
-            self.feedback_message.error_code = error_codes.IK_JUMP_DETECTED
-            q_dot.values:zero()
-        end
-
-        if transformed_successful == false then
-            self.feedback_message.error_code = error_codes.INVALID_LINK_NAME
         end
         if not stop_received then
             self.controller.converged = false
