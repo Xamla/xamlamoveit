@@ -243,11 +243,19 @@ local function pose2jointTrajectory(
             end
             if not colliding then
                 local new_state = self.robot_state:copyJointGroupPositions(move_group)
-                if torch.abs(old_state - new_state):gt(ik_jump_threshold):sum() > 0 then
+                local state_diff = torch.abs(old_state - new_state)
+                local index_ik_jump = state_diff:gt(ik_jump_threshold)
+                if index_ik_jump:sum() > 0 then
+                    for ii = 1, index_ik_jump:size(1) do
+                        if index_ik_jump[ii] > 0 then
+                            ros.ERROR('Joint: %s, diff: %f', joint_names[ii], state_diff[ii])
+                        end
+                    end
                     ros.ERROR(
-                        '[pose2jointTrajectory] Jump in IK detected. In move_group %s. Transformed %f%% of trajectory',
+                        '[pose2jointTrajectory] Jump in IK detected. In move_group %s. Transformed %f%% of trajectory. Threshold %f',
                         move_group,
-                        100 * i / #poses6D
+                        100 * i / #poses6D,
+                        ik_jump_threshold
                     )
                     return result, error_codes.PLANNING_FAILED
                 end
