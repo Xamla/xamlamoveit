@@ -556,11 +556,11 @@ local function queryCartesianPathServiceHandler(self, request, response, header)
     response.solution.points = tmp_msg.joint_trajectory.points
     response.error_code.val = code
     ros.INFO('[queryCartesianPath] Finished. (error_code: %d; #points: %d)', response.error_code.val, #response.solution.points)
-    if code == error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS then
+    --[[if code == error_codes.GOAL_VIOLATES_PATH_CONSTRAINTS then
         local filename = string.format('/tmp/%d_velocity_profile.png', ros.Time.now():toSec())
         print('writing failure log to:', filename)
         plot(tmp_msg.joint_trajectory, filename)
-    end
+    end]]
     return true
 end
 
