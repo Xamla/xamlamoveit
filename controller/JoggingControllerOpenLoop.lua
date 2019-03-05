@@ -915,13 +915,19 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             getPostureForFullStop(self.taskspace_controller, pose_goal:getOrigin(), dt, 'position control')
         )
         self.target_pose = pose_goal:clone()
+        local diff = (pose_goal:getOrigin() - self.taskspace_controller.state.pos)
+        local to_go = diff:norm()
         self.taskspace_controller:update(pose_goal:getOrigin(), dt)
 
+        local diff_after = (pose_goal:getOrigin() - self.taskspace_controller.state.pos)
         local current_rotation = self.current_pose:getRotation()
         local target_rotation = pose_goal:getRotation()
-        local to_go = (pose_goal:getOrigin() - self.current_pose:getOrigin()):norm()
-        if to_go > 0 then
-            local step = (self.current_pose:getOrigin() - self.taskspace_controller.state.pos):norm() / to_go
+
+        if to_go < 1e-4 then
+            self.taskspace_controller:reset()
+            self.taskspace_controller.state.pos:copy(self.target_pose:getOrigin())
+        elseif to_go > 0 then
+            local step = diff_after:norm() / to_go
             local result_rotation = current_rotation:slerp(target_rotation, step)
             self.target_pose:setOrigin(self.taskspace_controller.state.pos)
             self.target_pose:setRotation(result_rotation)
@@ -953,9 +959,8 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
                 createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(joint_names)
 
             -- Check if pose motion direction is corresponding to the joint posture motion direction (handles IK jumps)
-            local tmp_q = posture_goal:clone()
-            local tmp_q_dot = posture_goal:clone()
-            tmp_q_dot = (tmp_q_dot - self.lastCommandJointPositions) * self.dt:toSec()
+            local tmp_q = self.lastCommandJointPositions:clone()
+            local tmp_q_dot = (posture_goal:clone() - self.lastCommandJointPositions) * self.dt:toSec()
             tmp_q:add(tmp_q_dot)
             state:setVariablePositions(tmp_q:getValues(), tmp_q:getNames())
             state:update()
@@ -1013,6 +1018,7 @@ function JoggingControllerOpenLoop:update()
             self.synced = true
             local jointPositionsBeforeSync = self.lastCommandJointPositions:clone()
             self:getNewRobotState()
+            self.target_pose = self.current_pose:clone()
             local diff = self.lastCommandJointPositions - jointPositionsBeforeSync
             if diff.values:norm() < 1e-3 then
                 ros.INFO('Reset controller. Sync finished.')
@@ -1020,6 +1026,7 @@ function JoggingControllerOpenLoop:update()
                 self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
                 self.controller:reset()
                 self.controller.state.pos:copy(self.lastCommandJointPositions.values)
+                resetGoals(self)
             else
                 ros.WARN(
                     'could not sync with controller state since last command is to far away from current robto state.'
@@ -1031,7 +1038,6 @@ function JoggingControllerOpenLoop:update()
                     self.lastCommandJointPositions:getNames()
                 )
                 self.state:update()
-                self.current_pose = self:getCurrentPose()
                 self.synced = false
             end
         end
@@ -1085,9 +1091,9 @@ function JoggingControllerOpenLoop:update()
             q_dot = posture_tmp_goal - self.lastCommandJointPositions
             self.mode = jogging_node_tracking_states.POSE
             self.feedback_message.error_code = err_code
-            stop_received = true
-            if err_code == error_codes.OK or err_code == error_codes.CLOSE_TO_SINGULARITY then
-                stop_received = false
+
+            if err_code ~= error_codes.OK and err_code ~= error_codes.CLOSE_TO_SINGULARITY then
+                stop_received = true
             end
         end
 
@@ -1139,8 +1145,6 @@ function JoggingControllerOpenLoop:update()
             if self.mode ~= jogging_node_tracking_states.IDLE then
                 ros.INFO('[twist] Received stop signal')
                 stop_received = true
-                self.taskspace_controller:reset()
-                self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
             end
             self.goals.twist_goal = nil
         end
@@ -1160,8 +1164,7 @@ function JoggingControllerOpenLoop:update()
 
             local rel_poseAB = rel_tmp_pose:clone()
             local tmp = tf.StampedTransform()
-            tmp:setOrigin(rel_poseAB:getOrigin() + self.current_pose:getOrigin())
-            tmp:setRotation(rel_poseAB:getRotation() * self.current_pose:getRotation())
+            tmp:fromTensor((rel_poseAB:toTensor() * self.current_pose:toTensor()))
             local posture_tmp_goal, err_code = transformPose2PostureTarget(self, tmp, q_dot:getNames())
 
             if posture_tmp_goal and self.lastCommandJointPositions then
@@ -1171,9 +1174,8 @@ function JoggingControllerOpenLoop:update()
                 end
                 self.mode = jogging_node_tracking_states.TWIST
                 self.feedback_message.error_code = err_code
-                stop_received = true
-                if err_code == error_codes.OK or err_code == error_codes.CLOSE_TO_SINGULARITY then
-                    stop_received = false
+                if err_code ~= error_codes.OK and err_code ~= error_codes.CLOSE_TO_SINGULARITY then
+                    stop_received = true
                 end
             end
 
@@ -1215,6 +1217,7 @@ function JoggingControllerOpenLoop:update()
         self.controller.state.pos:copy(self.lastCommandJointPositions.values)
         self.taskspace_controller:reset()
         self.taskspace_controller.state.pos:copy(self.current_pose:getOrigin())
+        self.target_pose = self.current_pose:clone()
         q_dot.values:zero()
         timeout_b = true
     end

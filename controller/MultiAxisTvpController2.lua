@@ -139,7 +139,7 @@ function MultiAxisTvpController2:generateOfflineTrajectory(start, goal, dt, star
     result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
     local T = 2 * dt
     while T > dt / 4 do
-	counter = counter + 1
+        counter = counter + 1
         T = self:update(goal, dt)
         result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
     end
@@ -149,7 +149,8 @@ function MultiAxisTvpController2:generateOfflineTrajectory(start, goal, dt, star
         local correction_counter = 0
         while final_delta:norm() >= self.convergence_threshold and correction_counter < 33 do
             T = self:update(goal, dt)
-	    counter = counter + 1
+
+            counter = counter + 1
             result[counter] = createState(self.state.pos, self.state.vel, self.state.acc)
             final_delta = goal - self.state.pos
             correction_counter = correction_counter + 1
