@@ -37,7 +37,7 @@ local function checkStatusJoggingNode(self)
     if res then
         return res.is_running, res.status_message_tracking
     else
-        return false
+        return nil, 'Jogging status service is not reachable.'
     end
 end
 
@@ -234,6 +234,9 @@ function TrajectorySteppingExecutionRequest:connect(
     local is_running, status_msg = checkStatusJoggingNode(self)
     if is_running then
         return false
+    elseif is_running == nil then
+        ros.ERROR(status_msg)
+        return false
     end
     activateJoggingService(self)
     ros.INFO('[TrajectorySteppingExecutionRequest] Create command publisher')
@@ -275,78 +278,61 @@ function TrajectorySteppingExecutionRequest:connect(
 end
 
 function TrajectorySteppingExecutionRequest:accept()
+    local function rejectCall(msg)
+        local code = errorCodes.PREEMPTED
+        self.status = code
+        local r = self.goal_handle:createResult()
+        r.result = code
+        self.goal_handle:setRejected(r, msg or 'unknown')
+        ros.WARN_NAMED('TrajectorySteppingExecutionRequest',msg)
+        self:shutdown()
+    end
+
     if self.goal_handle:getGoalStatus().status == GoalStatus.PENDING then
         self.starttime_debug = ros.Time.now()
         self.status = 0
-
+        local ns = "/xamlaJointJogging"
         local ok, err =
             xpcall (
                 function () return self:connect(
-                '/xamlaJointJogging/jogging_command',
-                '/xamlaJointJogging/start_stop_tracking',
-                '/xamlaJointJogging/status',
-                '/xamlaJointJogging/set_velocity_scaling',
-                '/xamlaJointJogging/set_flag',
-                '/xamlaJointJogging/set_movegroup_name',
-                '/xamlaJointJogging/feedback'
+                    paths.concat(ns, 'jogging_command'),
+                    paths.concat(ns, 'start_stop_tracking'),
+                    paths.concat(ns, 'status'),
+                    paths.concat(ns, 'set_velocity_scaling'),
+                    paths.concat(ns, 'set_flag'),
+                    paths.concat(ns, 'set_movegroup_name'),
+                    paths.concat(ns, 'feedback')
                 )
             end, error_msg_func
         )
 
         if not ok then
-            local code = errorCodes.PREEMPTED
-            self.status = code
-            local r = self.goal_handle:createResult()
-            r.result = code
-            self.goal_handle:setRejected(r, 'Jogging node is not ready.')
-            self:shutdown()
+            rejectCall('Jogging node is not ready.')
             return false
         end
 
         ok = self.joint_monitor:waitReady(10.0)
         if not ok then
-            local code = errorCodes.PREEMPTED
-            self.status = code
-            local r = self.goal_handle:createResult()
-            r.result = code
-            self.goal_handle:setRejected(r, 'Joint state is not ready.')
-            self:shutdown()
+            rejectCall('Joint state is not ready.')
             return false
         end
 
         ok = setJoggingServiceVelocityScaling(self, self.jogging_velocity_scaling)
         if not ok then
-            local code = errorCodes.PREEMPTED
-            self.status = code
-            local r = self.goal_handle:createResult()
-            r.result = code
-            self.goal_handle:setRejected(r, 'Could not set velocity scaling on jogging node.')
-            self:shutdown()
+            rejectCall('Could not set velocity scaling on jogging node.')
             return false
         end
 
         ok = setJoggingCheckCollisionState(self, self.check_collision)
         if not ok then
-            local code = errorCodes.PREEMPTED
-            self.status = code
-            local r = self.goal_handle:createResult()
-            r.result = code
-            self.goal_handle:setRejected(r, 'Could not set collision check flag on jogging node.')
-            self:shutdown()
+            rejectCall('Could not set collision check flag on jogging node.')
             return false
         end
 
         ok, msg = setMoveGroupName(self)
         if not ok then
-            local code = errorCodes.PREEMPTED
-            self.status = code
-            local r = self.goal_handle:createResult()
-            r.result = code
-            self.goal_handle:setRejected(
-                r,
-                string.format('Could not set move grou name on jogging node. [%s]', self.move_group_name)
-            )
-            self:shutdown()
+            local reject_msg = string.format('Could not set move grou name on jogging node. [%s]', self.move_group_name)
+            rejectCall(reject_msg)
             return false
         end
 
@@ -511,7 +497,7 @@ function TrajectorySteppingExecutionRequest:proceed()
                 self.last_send_joint_target = q
                 self.current_tracking_error = dist:max(1)[1]
                 mPoint.positions:set(q)
-                if self.index >= #traj.points and dist:gt(1e-2):sum() == 0 then
+                if self.index >= #traj.points and dist:gt(1e-3):sum() == 0 then
                     self.status = errorCodes.SUCCESS
                 end
 
@@ -584,7 +570,7 @@ end
 function TrajectorySteppingExecutionRequest:cancel()
     local status = self.goal_handle:getGoalStatus().status
     if status == GoalStatus.PENDING or status == GoalStatus.ACTIVE then
-        ros.INFO_NAMED('TrajectorySteppingExecutionRequest', 'Send Cancel Request: %d', status)
+        ros.INFO('[TrajectorySteppingExecutionRequest] Send Cancel Request: %d', status)
         self.goal_handle:setCancelRequested()
     elseif status == GoalStatus.PREEMPTING then
         ros.INFO('[TrajectorySteppingExecutionRequest] Notifying client about PREEMTING state')
