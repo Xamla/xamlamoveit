@@ -1,3 +1,14 @@
+--- Jogging controller using an open control loop
+-- This controller can be used for Teleoperation tasks considering velocity and acceleration limits.
+-- It can handle control targets in JointSpace and TaskSpace, so either Joint positions or JointDelta commands are possible
+-- as well as pose positions and twist commands
+-- It expects an continous command stream while been activated to perform the control task.
+-- If the control stream is not steady a timeout mechanism will abort the action and the robot stops and the controlloop changes to IDLE mode.
+-- Each position is checked if it results in collisions with other objects or with itself. 
+-- In case a collison is detected the command is not sent to the robot.
+-- The scene collisions and self collision are detected seperatly, which can also be deactivated if needed.
+
+-- @classmod xamlamoveit.motionLibrary.MotionService
 --[[
 JoggingControllerOpenLoop.lua
 Copyright (c) 2018, Xamla and/or its affiliates. All rights reserved.
@@ -26,11 +37,12 @@ local error_codes = {
     TASK_SPACE_JUMP_DETECTED = -9
 }
 
+--- Controller states
 local jogging_node_tracking_states = {
-    IDLE = 0,
-    POSTURE = 2,
-    POSE = 1,
-    TWIST = 3
+    IDLE = 0, -- Wait for commands
+    POSTURE = 2, -- Process Jointvalue targets
+    POSE = 1, -- Full pose (4x4) is set as target
+    TWIST = 3 -- 6D Twist
 }
 
 local transformListener
@@ -48,6 +60,11 @@ local cartesian_pose_spec = ros.MsgSpec('geometry_msgs/PoseStamped')
 local cartesian_twist_spec = ros.MsgSpec('geometry_msgs/TwistStamped')
 local feedback_spec = ros.MsgSpec('xamlamoveit_msgs/ControllerState')
 
+--- lookup Pose in ros system by using the transform listener
+--@param string link_name
+--@param string base_link_name
+--@return bool, success of call
+--@retrun tf.StampedTransform transformation from baselink to link
 local function lookupPose(link_name, base_link_name)
     local base_link_name = base_link_name or 'base_link'
     if transformListener:frameExists(base_link_name) and transformListener:frameExists(link_name) then
@@ -64,6 +81,13 @@ local function createJointValues(names, values)
     return joint_values
 end
 
+--- query joint limits from ros param server
+--@param ros.NodeHandle
+--@param table table of strings containing joint names
+--@param string namespace where the joint limits are stored
+--@return torch.Tensor 2xlen(joint_names). Max and Min position limits for each joint in joint_names
+--@return torch.Tensor 1xlen(joint_names). Max velocity limits for each joint in joint_names
+--@return torch.Tensor 1xlen(joint_names). Max acceleration limits for each joint in joint_names
 local function queryJointLimits(node_handle, joint_names, namespace)
     namespace = namespace or node_handle:getNamespace()
     local max_vel = torch.zeros(#joint_names)
@@ -102,6 +126,12 @@ local function queryJointLimits(node_handle, joint_names, namespace)
     return max_min_pos, max_vel, max_acc
 end
 
+
+--- query Task space limits from rosparam server
+--@param string name of end effector
+--@return bool success of the operation
+--@return torch.Tensor 3D velocity limit
+--@return torch.Tensor 3D acceleration limit
 local function queryTaskSpaceLimits(self, name)
     local name = name or ''
     local max_vel = torch.zeros(3)
@@ -116,11 +146,15 @@ local function queryTaskSpaceLimits(self, name)
     joint_max = math.rad(5)
     joint_min = math.rad(0.1)
 
+    -- get parameters from parameter server
     local parameters = nh:getParamVariable('end_effector_list')
+    -- return false if no parameters are available
     if parameters == nil then
         ros.WARN_THROTTLE('noEE', 1, 'no end_effector_list set for node')
         return false
     end
+
+    -- if parameters are found find correct endeffector specified by name
     local index =
         table.findIndex(
         parameters,
@@ -128,12 +162,16 @@ local function queryTaskSpaceLimits(self, name)
             return x.name == name
         end
     )
+
+    -- if no end effector with name exist return false
     if parameters[index] == nil then
         ros.WARN_THROTTLE(name, 1, 'no end_effector_list set for %s', name)
         return false
     end
 
+    -- get correct parameters
     parameters = parameters[index]
+
     if parameters.has_taskspace_xyz_vel_limit == true then
         max_vel:fill(parameters.taskspace_xyz_max_vel)
         print(1.1 * parameters.taskspace_xyz_max_vel * self.dt:toSec(), position_max)
@@ -162,18 +200,25 @@ local function queryTaskSpaceLimits(self, name)
         joint_min = parameters.jointspace_step_min
     end
 
+    -- initialize step width model
     self:setStepWidthModel(joint_max, joint_min, position_max, position_min, rotation_max, rotation_min)
     return success, max_vel, max_acc
 end
 
+--- create necessary publisher for commanding the robot move groups
+--@param table joint names in move_group which is controlled
 local function createPublisher(self, names)
+    -- first look for perfect mach of specified joint names in "names" and joint names in controller list
+    -- run through controller list
     for i, v in ipairs(self.controller_list) do
+        --check if controller is a perfect match
         if table.isSimilar(names, v.joints) then
             self.current_id = v.name
             local myTopic = string.format('/%s/joint_command', v.name)
             --ros.WARN(myTopic)
             if publisherPointPositionCtrl[v.name] == nil then
                 publisherPointPositionCtrl[v.name] = self.nh:advertise(myTopic, joint_pos_spec)
+                -- check if the publisher is correct for driver subscrption
                 if publisherPointPositionCtrl[v.name]:getNumSubscribers() == 0 then
                     publisherPointPositionCtrl[v.name]:shutdown()
                     publisherPointPositionCtrl[v.name] = nil
@@ -197,7 +242,9 @@ local function createPublisher(self, names)
             end
         end
     end
+    -- run through controller list
     for i, v in ipairs(self.controller_list) do
+        -- check if joint names is a subset of controller joints
         if table.isSubset(names, v.joints) then
             self.current_id = v.name
             local myTopic = string.format('/%s/joint_command', v.name)
@@ -230,7 +277,7 @@ local function createPublisher(self, names)
     --TODO find correct publisher for corresponding joint value set controllers
 end
 
----
+---Send position command
 --@param desired joint angle position
 local function sendPositionCommand(self, q_des, q_dot, names, dt)
     assert(torch.isTypeOf(dt, ros.Duration))
@@ -262,7 +309,7 @@ local function sendFeedback(self, changing)
     local tmp = torch.zeros(6)
     tmp[{{1, 3}}]:copy(rel_pose:getOrigin())
     tmp[{{4, 6}}]:copy(rel_pose:getRotation():getAxisAngle())
-    tmp:apply(
+    tmp:apply( -- substitude NaN values with 0
         function(x)
             if x ~= x then
                 return 0
@@ -293,45 +340,55 @@ local function sendFeedback(self, changing)
     self.publisher_feedback:publish(self.feedback_message)
 end
 
+--- Set goals to nil
 local function resetGoals(self)
     self.goals = {pose_goal = nil, posture_goal = nil, twist_goal = nil}
 end
 
+--- Set goals to stop sentinal object
 local function setStopGoals(self)
     if self.goals.pose_goal then
+        -- set origin to NaN values
         self.goals.pose_goal:setOrigin(self.goals.pose_goal:getOrigin() * 0 / 0)
     end
+    -- set goal to nil
     if self.goals.posture_goal then
         self.goals.posture_goal = nil
     end
+    -- set goal to zero
     if self.goals.twist_goal then
         self.goals.twist_goal:zero()
     end
 end
 
+--- get end-effector <-> move group map
+-- go through kinematic model and create map from endeffector name to movegroup
+--@return table map end effector name to move group
+--@return table end effector to tool tip link name
 local function getEndEffectorMoveGroupMap(self)
     local move_group_names = self.kinematic_model:getJointModelGroupNames()
     local map = {}
     local linkmap = {}
+    -- itterate over move_groups
     for k, v in pairs(move_group_names) do
-        local name, suc = self.kinematic_model:getGroupEndEffectorName(v)
-        local sub_move_group_ids = self.kinematic_model:getJointModelSubGroupNames(v)
-        local attached_end_effectors = {} --self.kinematic_model:getAttachedEndEffectorNames(v)
-        if suc then
-            local link_name, suc2 = self.kinematic_model:getEndEffectorLinkName(name)
-            if name ~= nil and name ~= '' then
+        local name, suc = self.kinematic_model:getGroupEndEffectorName(v) -- get endeffector name corresponding to move group name
+        local sub_move_group_ids = self.kinematic_model:getJointModelSubGroupNames(v) -- identify sub move groups
+        local attached_end_effectors = {} --self.kinematic_model:getAttachedEndEffectorNames(v) -- identyfy attached end effectors
+        if suc then -- if move group has an endeffector proceed
+            local link_name, suc2 = self.kinematic_model:getEndEffectorLinkName(name) -- get end effector link name
+            if name ~= nil and name ~= '' then -- check if name is valid
                 map[name] = {v}
                 linkmap[name] = link_name
             end
             for i, aee in ipairs(attached_end_effectors) do
                 link_name, suc2 = self.kinematic_model:getEndEffectorLinkName(aee)
-                if suc2 then
+                if suc2 then -- check if link name was found
                     ros.INFO('GroupName: %s EndEffectorName: %s LinkName: %s', v, aee, link_name)
                     if map[aee] == nil then
-                        map[aee] = {}
+                        map[aee] = {} -- initialize
                     end
-                    table.insert(map[aee], v)
-                    linkmap[aee] = link_name
+                    table.insert(map[aee], v) -- add movegroup for endeffector
+                    linkmap[aee] = link_name -- add link name for endeffector
                 end
             end
         end
@@ -361,42 +418,42 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.move_groups = {}
     self.curr_move_group_name = nil
     self.curr_end_effector_name = nil
-    if move_group then
-        self.move_groups[move_group:getName()] = move_group
-        self.curr_move_group_name = move_group:getName()
-        local key =
-            table.findFirst(
-            self.end_effector_to_move_group_map,
-            function(x)
-                return 0 <
-                    table.findIndex(
-                        x,
-                        function(x, ix)
-                            return x == self.curr_move_group_name
-                        end
-                    )
-            end
-        )
-        self.curr_end_effector_name = key
-    else
+    if move_group == nil then
         error('move_group should not be nil')
     end
-    self.state = move_group:getCurrentState()
-    self.time_last = ros.Time.now()
-    self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable())
-    local ok, values = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.5), self.joint_set.joint_names)
-    self.lastCommandJointPositions = createJointValues(self.joint_set.joint_names, values)
-    self.controller = tvpController.new(#self.joint_set.joint_names)
-    self.taskspace_controller = tvpPoseController.new(3)
+    self.move_groups[move_group:getName()] = move_group -- move group interface
+    self.curr_move_group_name = move_group:getName() -- set move group as current move group
+    local key =
+        table.findFirst(
+        self.end_effector_to_move_group_map,
+        function(x)
+            return 0 <
+                table.findIndex(
+                    x,
+                    function(x, ix)
+                        return x == self.curr_move_group_name
+                    end
+                )
+        end
+    )
+    self.curr_end_effector_name = key -- set end effector as current endeffectro or nil
+    
+    self.state = move_group:getCurrentState() -- get robot state
+    self.time_last = ros.Time.now() -- initialze timer
+    self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable()) -- get joint set from move group
+    local ok, values = self.joint_monitor:getNextPositionsOrderedTensor(ros.Duration(0.5), self.joint_set.joint_names) -- update joint values
+    self.lastCommandJointPositions = createJointValues(self.joint_set.joint_names, values) -- initialize variable for joint commands
+    self.controller = tvpController.new(#self.joint_set.joint_names) -- create tvp controller for joints
+    self.taskspace_controller = tvpPoseController.new(3) -- create tvp controller vor taskspace xyz
     self.dt = nil
-    self:setDeltaT(dt)
-    self.start_time = ros.Time.now()
-    self.last_command_send_time = ros.Time.now()
-    self.start_cool_down_time = ros.Time.now()
+    self:setDeltaT(dt) -- initialze dt
+    self.start_time = ros.Time.now() -- set timer if first command arrives
+    self.last_command_send_time = ros.Time.now() -- set timer of last command
+    self.start_cool_down_time = ros.Time.now() -- coll down timer. Robot need to converge for sync
 
-    self.controller_list = ctr_list
+    self.controller_list = ctr_list -- controller list of move groups and joint sets
 
-    self.goals = {pose_goal = nil, posture_goal = nil, twist_goal = nil}
+    self.goals = {pose_goal = nil, posture_goal = nil, twist_goal = nil} -- variable for goals
 
     self.resource_lock = nil
     self.subscriber_pose_goal = nil
@@ -429,6 +486,10 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
     self.last_error_code = error_codes.OK
 end
 
+--- Set command timeout
+-- controller needs a constant stream of commands. 
+-- If in this timeout duration is no command received the contorller stops controlling ang goes in IDLE mode
+--@param number or ros.Duration duration in seconds
 function JoggingControllerOpenLoop:setTimeout(value)
     if type(value) == 'number' then
         if value < 0 then
@@ -518,35 +579,40 @@ function JoggingControllerOpenLoop:getPoseGoal()
     return newMessage, pose
 end
 
+--- get joint values posture goal
+-- either relative or absolute targets are allowed
+--@return bool received new message
+--@retrn datatypes.JointValues new absolute joint value target
 function JoggingControllerOpenLoop:getPostureGoal()
     local newMessage = false
     local msg = nil
     local joint_posture = self.lastCommandJointPositions:clone()
+    -- read new message
     while self.subscriber_posture_goal:hasMessage() and ros.ok() do
         ros.DEBUG('NEW POSTURE MESSAGE RECEIVED')
         msg = self.subscriber_posture_goal:read()
     end
-    if msg then
-        if #msg.joint_names < 1 then
+    if msg then -- check if message is valid
+        if #msg.joint_names < 1 then -- empty message?
             ros.WARN('received posture message without joint names specified')
             return false, nil
-        elseif msg.joint_names[1] == '' then
+        elseif msg.joint_names[1] == '' then -- invalid joint name
             ros.WARN('received posture message without joint names specified')
             return false, nil
         end
         newMessage = true
         local joint_set = datatypes.JointSet(msg.joint_names)
 
-        if msg.points[1].positions:nElement() > 0 then
+        if msg.points[1].positions:nElement() > 0 then -- absolute goal
             joint_posture = datatypes.JointValues(joint_set, msg.points[1].positions)
-        elseif msg.points[1].velocities:nElement() > 0 then
+        elseif msg.points[1].velocities:nElement() > 0 then -- relative goal
             local vel = msg.points[1].velocities
             for i, v in ipairs(joint_set.joint_names) do
-                vel[i] = math.sign(vel[i]) * self.joint_step_width
+                vel[i] = math.sign(vel[i]) * self.joint_step_width -- depending on limits make a joint step. vel should be 1 or -1
             end
             local q_dot = datatypes.JointValues(joint_set, vel)
             if q_dot.joint_set:isSubset(joint_posture.joint_set) then
-                joint_posture:add(q_dot)
+                joint_posture:add(q_dot) -- greate absolute goal from relative delta
             else
                 ros.WARN('jogging is not configure to receive this joint set: ' .. tostring(q_dot.joint_set))
             end
@@ -555,6 +621,9 @@ function JoggingControllerOpenLoop:getPostureGoal()
     return newMessage, joint_posture
 end
 
+--- get current pose
+-- since we are using open loop control we set the approximated position in the robot state and get from here the pose
+--@return tf.Transform current pose from end effector link corresponding to move group
 function JoggingControllerOpenLoop:getCurrentPose()
     local link_name
     if self.curr_end_effector_name then
@@ -577,6 +646,11 @@ function JoggingControllerOpenLoop:getCurrentPose()
     end
 end
 
+--- satisfies bounds
+-- checks for position limits, if true it will clip values to limits 
+-- checks for collisions
+--@return bool if all bounds are satisfied
+--@return string message
 local function satisfiesBounds(self, positions, joint_names)
     local state = self.state:clone()
 
@@ -584,17 +658,17 @@ local function satisfiesBounds(self, positions, joint_names)
     state:setVariablePositions(positions, joint_names)
     state:update()
     local self_collisions = false
-    if not self.no_self_collision_check then
+    if not self.no_self_collision_check then -- if self collision detection is enabled
         self_collisions = self.planning_scene:checkSelfCollision(state)
     end
 
     local is_state_colliding = false
-    if not self.no_scene_collision_check then
+    if not self.no_scene_collision_check then -- if scene collision detection is enabled
         is_state_colliding = self.planning_scene:isStateColliding(nil, state, true)
     end
 
     local in_joint_limits = true
-    if not self.no_joint_limits_check then
+    if not self.no_joint_limits_check then -- if joint limit detection is enabled
         in_joint_limits = self.joint_limits:satisfiesBounds(tmp_joint_values)
     end
 
@@ -634,6 +708,8 @@ local function satisfiesBounds(self, positions, joint_names)
     return true, 'Success'
 end
 
+--- is valid
+-- check if control variable is valid and if command is not in collision and within position joint limits
 --@param desired joint angle position
 function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid large jumps in posture values and check if q_des tensor is valid
     local diff = 2
@@ -657,6 +733,11 @@ function JoggingControllerOpenLoop:isValid(q_des, q_curr, joint_names) -- avoid 
     return diff < 2 and success
 end
 
+--- set step width model
+-- joint position limits with scaling function
+-- xyz postion limits with scaling function
+-- rpy rotation limits with scaling function
+--@return table with models
 function JoggingControllerOpenLoop:setStepWidthModel(
     joint_max,
     joint_min,
@@ -712,6 +793,9 @@ function JoggingControllerOpenLoop:setStepWidthModel(
     return model
 end
 
+--- set speed scaling
+-- set all velocity scalings in both controller
+-- set step width models
 function JoggingControllerOpenLoop:setSpeedScaling(value)
     self.speed_scaling = math.max(0.001, math.min(1, value))
 
@@ -727,6 +811,11 @@ function JoggingControllerOpenLoop:setSpeedScaling(value)
     self.taskspace_controller.max_acc:copy(self.taskspace_max_acc)
 end
 
+--- connect
+--@param string topic to receive joint commands
+--@param string topic ro receive pose commands
+--@param string topic to receive twist commands
+--@return bool
 function JoggingControllerOpenLoop:connect(joint_topic, pose_topic, twist_topic)
     assert(self.step_width_model, 'Step width model was not configured please use setStepWidthModel')
     local pose_topic = pose_topic or 'goal_pose'
@@ -743,6 +832,8 @@ function JoggingControllerOpenLoop:connect(joint_topic, pose_topic, twist_topic)
     return true
 end
 
+---shutdown
+-- clean up all publisher ans subscriber
 function JoggingControllerOpenLoop:shutdown()
     self.subscriber_pose_goal:shutdown()
     self.subscriber_posture_goal:shutdown()
@@ -782,11 +873,13 @@ local function poseTo6DTensor(input)
     return new_input
 end
 
+--- get posture for full stop
+-- to be able to stop at any time we clamp the distance of the current command
 local function getPostureForFullStop(cntr, q_desired, dt, msg)
     local q_actual = cntr.state.pos
     local delta = q_desired - q_actual
 
-    local minTime = torch.cdiv(delta, cntr.max_vel):abs():max()
+    local minTime = torch.cdiv(delta, cntr.max_vel):abs():max() -- get eta
     local trunc_dt = 2 * dt
     if torch.abs(delta):gt(1e-3):sum() > 0 and minTime > trunc_dt then
         -- truncate goal
@@ -794,20 +887,6 @@ local function getPostureForFullStop(cntr, q_desired, dt, msg)
         q_desired = q_actual + delta * math.min(1, trunc_dt / minTime)
     end
     return q_desired
-end
-
-local function getPoseForFullStop(cntr, pose_desired, dt, msg)
-    local msg = msg or 'PoseForFullStop'
-    if torch.isTypeOf(dt, ros.Duration) then
-        dt = dt:toSec()
-    end
-    if not pose_desired then
-        return
-    end
-    pose_desired = poseTo6DTensor(pose_desired)
-    local result = pose_desired:clone()
-    result[{{1, 3}}] = getPostureForFullStop(cntr, pose_desired[{{1, 3}}], dt / 4, msg)
-    return tensor6DToPose(result)
 end
 
 function JoggingControllerOpenLoop:tracking(q_des, duration)
@@ -1244,6 +1323,13 @@ function JoggingControllerOpenLoop:update()
     return true, status_msg
 end
 
+--- reset controller
+-- wait for cool down time.
+-- Shutdown all command publisher
+-- sync positions
+-- query limits
+-- activate collision checks
+-- activate joint limit check
 function JoggingControllerOpenLoop:reset()
     ros.DEBUG('resetting ....')
     while self.cool_down_timeout:toSec() > (ros.Time.now() - self.start_cool_down_time):toSec() do
@@ -1327,6 +1413,7 @@ function JoggingControllerOpenLoop:reset()
     return true
 end
 
+---release lock on recources 
 function JoggingControllerOpenLoop:releaseResources()
     if self.resource_lock ~= nil then
         self.lock_client:release(self.resource_lock)
@@ -1334,6 +1421,11 @@ function JoggingControllerOpenLoop:releaseResources()
     end
 end
 
+--- set move group interface
+-- switch current move group to movegroup specified by movegoup name
+-- set first end effector according to move group
+--@return bool Success
+--@return string Message
 function JoggingControllerOpenLoop:setMoveGroupInterface(name)
     if not self.move_groups[name] then
         local tmp_move_group = moveit.MoveGroupInterface(name)
@@ -1353,6 +1445,10 @@ function JoggingControllerOpenLoop:setMoveGroupInterface(name)
     end
 end
 
+--- set end effector
+-- switch to new end effector and set move group interface accordingly
+--@return bool Success
+--@return string Message
 function JoggingControllerOpenLoop:setEndEffector(name)
     assert(name)
     local suc, msg = true, ''
