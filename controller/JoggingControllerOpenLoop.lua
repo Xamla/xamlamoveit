@@ -918,7 +918,7 @@ local function getPostureForFullStop(cntr, q_desired, dt, msg)
     local delta = q_desired - q_actual
     local to_go = torch.abs(delta)
     local minTime = find_slowest_eta(cntr, to_go)
-    local trunc_dt = 2 * dt
+    local trunc_dt = 4 * dt -- jogging control loop 250Hz. trunc_dt set to ca. 60Hz
     if to_go:gt(1e-3):sum() > 0 and minTime > trunc_dt then
         -- truncate goal
         ros.DEBUG('truncate goal: %f, %s', trunc_dt / minTime, msg or '')
