@@ -4,11 +4,11 @@
 -- as well as pose positions and twist commands
 -- It expects an continous command stream while been activated to perform the control task.
 -- If the control stream is not steady a timeout mechanism will abort the action and the robot stops and the controlloop changes to IDLE mode.
--- Each position is checked if it results in collisions with other objects or with itself. 
+-- Each position is checked if it results in collisions with other objects or with itself.
 -- In case a collison is detected the command is not sent to the robot.
 -- The scene collisions and self collision are detected seperatly, which can also be deactivated if needed.
 
--- @classmod xamlamoveit.motionLibrary.MotionService
+-- @classmod xamlamoveit.controller.JoggingControllerOpenLoop
 --[[
 JoggingControllerOpenLoop.lua
 Copyright (c) 2018, Xamla and/or its affiliates. All rights reserved.
@@ -21,6 +21,7 @@ local core = require 'xamlamoveit.core'
 local datatypes = require 'xamlamoveit.datatypes'
 local tvpController = require 'xamlamoveit.controller.MultiAxisTvpController2'
 local tvpPoseController = require 'xamlamoveit.controller.MultiAxisTvpController2'
+local trajectoryRecorder = require 'xamlamoveit.core.TrajectoryRecorder'
 local xutils = require 'xamlamoveit.xutils'
 local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 
@@ -437,7 +438,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
         end
     )
     self.curr_end_effector_name = key -- set end effector as current endeffectro or nil
-    
+
     self.state = move_group:getCurrentState() -- get robot state
     self.time_last = ros.Time.now() -- initialze timer
     self.joint_set = datatypes.JointSet(move_group:getActiveJoints():totable()) -- get joint set from move group
@@ -487,7 +488,7 @@ function JoggingControllerOpenLoop:__init(node_handle, joint_monitor, move_group
 end
 
 --- Set command timeout
--- controller needs a constant stream of commands. 
+-- controller needs a constant stream of commands.
 -- If in this timeout duration is no command received the contorller stops controlling ang goes in IDLE mode
 --@param number or ros.Duration duration in seconds
 function JoggingControllerOpenLoop:setTimeout(value)
@@ -647,7 +648,7 @@ function JoggingControllerOpenLoop:getCurrentPose()
 end
 
 --- satisfies bounds
--- checks for position limits, if true it will clip values to limits 
+-- checks for position limits, if true it will clip values to limits
 -- checks for collisions
 --@return bool if all bounds are satisfied
 --@return string message
@@ -873,15 +874,52 @@ local function poseTo6DTensor(input)
     return new_input
 end
 
+--- find slowest travel time
+-- consider a tvp controller schema and determin the slowest time of arrival
+--@param Controller e.g. MultiAxisTvpController2
+--@param torch.Tensor distance for each dimension from current state to destination state
+--@return number time of arrival
+local function find_slowest_eta(cntr, to_go)
+    -- find slowest axis to reach goal
+    local slowest_vel_time = torch.cdiv(torch.abs(to_go), cntr.max_vel)
+    local _, slowest_vel_axis = torch.max(slowest_vel_time, 1)
+    local norm_max_vel = cntr.max_vel:clone()
+
+    if slowest_vel_time[slowest_vel_axis[1]] > 0 then
+        for i = 1, cntr.dim do
+            norm_max_vel[i] = cntr.max_vel[i] * slowest_vel_time[i] / slowest_vel_time[slowest_vel_axis[1]]
+        end
+    end
+           -- find slowest axis to reach norm_max_vel
+    local slowest_acc_time = torch.abs(torch.cdiv(norm_max_vel, cntr.max_acc))
+    local _, slowest_acc_axis = torch.max(slowest_acc_time, 1)
+    local norm_max_acc = cntr.max_acc:clone()
+    if slowest_acc_time[slowest_acc_axis[1]] > 0 then
+        for i = 1, cntr.dim do
+            norm_max_acc[i] = cntr.max_acc[i] * slowest_acc_time[i] / slowest_acc_time[slowest_acc_axis[1]]
+        end
+    end
+    local eta = 0
+    for i = 1, cntr.dim do
+        local p1 = to_go[i] -- goal position
+        local amax = norm_max_acc[i] -- max acceleration
+        local time_to_goal = math.sqrt(2 * math.abs(p1) / amax) -- time to goal
+        if time_to_goal > eta then
+            eta = time_to_goal
+        end
+    end
+    return eta
+end
+
 --- get posture for full stop
 -- to be able to stop at any time we clamp the distance of the current command
 local function getPostureForFullStop(cntr, q_desired, dt, msg)
     local q_actual = cntr.state.pos
     local delta = q_desired - q_actual
-
-    local minTime = torch.cdiv(delta, cntr.max_vel):abs():max() -- get eta
+    local to_go = torch.abs(delta)
+    local minTime = find_slowest_eta(cntr, to_go)
     local trunc_dt = 2 * dt
-    if torch.abs(delta):gt(1e-3):sum() > 0 and minTime > trunc_dt then
+    if to_go:gt(1e-3):sum() > 0 and minTime > trunc_dt then
         -- truncate goal
         ros.DEBUG('truncate goal: %f, %s', trunc_dt / minTime, msg or '')
         q_desired = q_actual + delta * math.min(1, trunc_dt / minTime)
@@ -917,6 +955,7 @@ function JoggingControllerOpenLoop:tracking(q_des, duration)
             sendPositionCommand(self, state_joint_values:getValues(), self.controller.state.vel * 0, state_joint_values:getNames(), duration)
         end
         self.lastCommandJointPositions:setValues(q_des:getNames(), q_des.values)
+        self.trajectory_recorder:add(self.lastCommandJointPositions:clone())
     else
         setStopGoals(self)
         ros.ERROR('command is not valid!!!')
@@ -1046,7 +1085,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
             local cmd_curr = poseTo6DTensor(state:getGlobalLinkTransform(link_name):mul(self.current_pose:inverse()))
 
             if tmp_target:norm() > 1e-3 then
-                if 1 - torch.dot(tmp_target / tmp_target:norm(), cmd_curr / cmd_curr:norm()) > 1e-4 then
+                if 1 - torch.dot(tmp_target / tmp_target:norm(), cmd_curr / cmd_curr:norm()) > 1e-3 then
                     ros.ERROR('[transformPose2PostureTarget] Directions do not match')
                     return self.lastCommandJointPositions, error_codes.TASK_SPACE_JUMP_DETECTED
                 end
@@ -1356,11 +1395,13 @@ function JoggingControllerOpenLoop:reset()
         self.joint_set.joint_names,
         self.joint_monitor:getPositionsOrderedTensor(self.joint_set.joint_names)
     )
+
     self.controller = tvpController.new(#self.joint_set.joint_names)
     createPublisher(self, self.joint_set.joint_names)
     self:getNewRobotState()
     self:getFullRobotState()
     self.target_pose = self.current_pose:clone()
+    self.trajectory_recorder = trajectoryRecorder(self.joint_set.joint_names)
 
     local max_min_pos, max_vel, max_acc =
         queryJointLimits(self.nh, self.joint_set.joint_names, '/robot_description_planning')
@@ -1413,7 +1454,7 @@ function JoggingControllerOpenLoop:reset()
     return true
 end
 
----release lock on recources 
+---release lock on recources
 function JoggingControllerOpenLoop:releaseResources()
     if self.resource_lock ~= nil then
         self.lock_client:release(self.resource_lock)
@@ -1554,6 +1595,13 @@ end
 function JoggingControllerOpenLoop:setDeltaT(dt)
     self.dt = validateTimeDuration(dt)
     ros.DEBUG('frequenc change: %f', self.dt:toSec())
+end
+
+function JoggingControllerOpenLoop:save()
+    if self.trajectory_recorder and #self.trajectory_recorder > 0 then
+        ros.WARN('Write trajectory')
+        self.trajectory_recorder:save(nil, string.format('JoggingRecording_%d', ros.Time.now():toSec()))
+    end
 end
 
 return JoggingControllerOpenLoop

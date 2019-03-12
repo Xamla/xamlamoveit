@@ -87,8 +87,8 @@ end
 local function startJogging()
     local sys_state = sysmon_watch:getGlobalStateSummary()
     if sys_state.go == true then
-        cntr:reset()
         run = true
+        cntr:reset()
         return true, 'Success'
     else
         local message = 'Jogging not started, because system state is NOGO: ' .. sys_state.error_message
@@ -99,7 +99,7 @@ end
 
 local function stopJogging()
     run = false
-    cntr:reset()
+    cntr:save()
 end
 
 --setEndEffector(name)

@@ -226,7 +226,7 @@ local function dispatchTrajectory(self)
                 -- robot not ready or proceed callback returned false
                 status = traj.status
                 local msg = string.format('Stop plan execution. %s', self.error_codes[status])
-                ros.ERROR('Proceed method returned false. ' .. msg)
+                ros.ERROR('Proceed method returned false. %s\n', tostring(msg))
                 self:cancelCurrentPlan(msg, status)
             end
         end
@@ -272,8 +272,9 @@ local function IterativeMoveJWorkerCore(self)
     dispatchTrajectory(self)
 end
 
+local error_msg_func = function(x) ros.ERROR(debug.traceback()) return x end
 function IterativeMoveJWorker:spin()
-    local ok, err = pcall(function() IterativeMoveJWorkerCore(self) end)
+    local ok, err = xpcall(function() IterativeMoveJWorkerCore(self) end, error_msg_func)
     -- abort current trajectory
     if (not ok) and self.current_plan then
         local traj = self.current_plan.traj

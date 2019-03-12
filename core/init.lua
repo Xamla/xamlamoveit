@@ -7,4 +7,5 @@ require 'xamlamoveit.core.TrajectorySampler'
 require 'xamlamoveit.core.LeaseBasedLockClient'
 require 'xamlamoveit.core.JointCommandWorker'
 require 'xamlamoveit.core.XyzAngularSpaceConverter'
+require 'xamlamoveit.core.TrajectoryRecorder'
 return core
