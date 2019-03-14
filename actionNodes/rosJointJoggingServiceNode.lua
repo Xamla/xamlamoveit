@@ -25,6 +25,7 @@ local all_EE_parent_group_names, all_EE_parent_link_names = {}, {}
 local all_group_joint_names = {}
 
 local last_status_message_tracking = 'IDLE'
+local do_plot = false
 
 local function printSplash()
     print(
@@ -99,7 +100,9 @@ end
 
 local function stopJogging()
     run = false
-    cntr:save()
+    if do_plot then
+        cntr:save()
+    end
 end
 
 --setEndEffector(name)

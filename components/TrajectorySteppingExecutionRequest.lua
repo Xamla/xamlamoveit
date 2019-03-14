@@ -125,11 +125,15 @@ end
 
 local MOTIONDIRECTIONS = {stopped = 0, backward = -1, forward = 1}
 
-function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle)
+function TrajectorySteppingExecutionRequest:__init(node_handle, goal_handle, do_plot)
     self.starttime = ros.Time.now()
     self.starttime_debug = ros.Time.now()
     self.goal_handle = goal_handle
-
+    if do_plot == nil then
+        self.do_plot = false
+    else
+        self.do_plot = do_plot
+    end
     self.node_handle = node_handle
     self.joint_monitor = nil
     self.goal = goal_handle:getGoal()
@@ -645,7 +649,9 @@ function TrajectorySteppingExecutionRequest:shutdown()
     assert(self.jogging_state_collision_check_service == nil)
     assert(self.jogging_velocity_scaling_service == nil)
     assert(self.jogging_status_service == nil)
-    self.trajectory_recorder:save()
+    if self.do_plot then
+        self.trajectory_recorder:save()
+    end
     self.trajectory_recorder:reset()
 end
 
