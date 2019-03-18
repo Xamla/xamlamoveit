@@ -549,7 +549,7 @@ function JoggingControllerOpenLoop:getTwistGoal()
         twist[4] = msg.twist.angular.x
         twist[5] = msg.twist.angular.y
         twist[6] = msg.twist.angular.z
-        if #msg.header.frame_id > 0 then
+        if #msg.header.frame_id > 0 and msg.header.frame_id ~= 'world' then
             local transform
             success, transform = lookupPose(msg.header.frame_id, 'world')
             if success then
@@ -1282,7 +1282,9 @@ function JoggingControllerOpenLoop:update()
 
             local rel_poseAB = rel_tmp_pose:clone()
             local tmp = tf.StampedTransform()
-            tmp:fromTensor((rel_poseAB:toTensor() * self.current_pose:toTensor()))
+            -- tmp:fromTensor((rel_poseAB:toTensor() * self.current_pose:toTensor()))
+            tmp:setOrigin(rel_poseAB:getOrigin() + self.current_pose:getOrigin())
+            tmp:setRotation(self.current_pose:getRotation() * rel_poseAB:getRotation())
             local posture_tmp_goal, err_code = transformPose2PostureTarget(self, tmp, q_dot:getNames())
 
             if posture_tmp_goal and self.lastCommandJointPositions then
