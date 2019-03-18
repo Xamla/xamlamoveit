@@ -1284,7 +1284,7 @@ function JoggingControllerOpenLoop:update()
             local tmp = tf.StampedTransform()
             -- tmp:fromTensor((rel_poseAB:toTensor() * self.current_pose:toTensor()))
             tmp:setOrigin(rel_poseAB:getOrigin() + self.current_pose:getOrigin())
-            tmp:setRotation(self.current_pose:getRotation() * rel_poseAB:getRotation())
+            tmp:setRotation(rel_poseAB:getRotation() * self.current_pose:getRotation())
             local posture_tmp_goal, err_code = transformPose2PostureTarget(self, tmp, q_dot:getNames())
 
             if posture_tmp_goal and self.lastCommandJointPositions then
