@@ -35,7 +35,8 @@ local function generateSimpleTvpTrajectory(start, goal, max_velocities, max_acce
 end
 
 
-function JointCommandWorker:__init(node_handle, joint_monitor)
+function JointCommandWorker:__init(node_handle, joint_monitor, servo_time)
+  self.servo_time = servo_time or 0.016
   self.joint_monitor = joint_monitor
   self.motion_service = motionLibrary.MotionService(node_handle)
   self.trajectory_worker = GenerativeSimulationWorker.new(node_handle)
@@ -69,7 +70,7 @@ function JointCommandWorker:move(joint_names, joint_values, opt)
 
 
   local time, pos, vel, acc = generateSimpleTvpTrajectory(
-    current_positions, target_positions, max_vel, max_acc, 0.016
+    current_positions, target_positions, max_vel, max_acc, self.servo_time
   )
 
   local trajectory = {

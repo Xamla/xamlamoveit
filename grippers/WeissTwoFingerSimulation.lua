@@ -178,6 +178,11 @@ function WeissTwoFingerSimulation:createResult(goal_handle)
 end
 
 
+function WeissTwoFingerSimulation:getServoTime()
+  return self.joint_command_worker.servo_time
+end
+
+
 function WeissTwoFingerSimulation:dispatchJointCommand(joint_value)
   local callbacks = {
     accept = function() return true end,
