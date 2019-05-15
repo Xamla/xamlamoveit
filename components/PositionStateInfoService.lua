@@ -208,6 +208,15 @@ local function createPoseMsg(frame, translation, rotation)
     return msg
 end
 
+local function checkJointNamesIsSubset(A,B)
+    for ia, a in ipairs(A) do
+        if table.indexof(B, a) == -1 then
+            return false, a
+        end
+    end
+    return true, ''
+end
+
 local function queryFKServiceHandler(self, request, response, header)
     local r_state = self.robot_state:clone()
     local group_name = request.group_name
@@ -229,7 +238,27 @@ local function queryFKServiceHandler(self, request, response, header)
         response.error_codes[i] = ros.Message('moveit_msgs/MoveItErrorCodes')
         response.solutions[i] = ros.Message('geometry_msgs/PoseStamped')
         response.error_codes[i].val = 1
-        if #request.joint_names == request.points[i].positions:size(1) then
+        
+        joint_names = self.robot_model:getActiveJointNames()
+        local isSubset, joint_name = checkJointNamesIsSubset(request.joint_names, joint_names)
+
+        if #request.joint_names ~= request.points[i].positions:size(1) then
+            response.error_codes[i].val = errorCodes.INVALID_ROBOT_STATE
+            response.error_msgs[i] =
+                string.format(
+                'Number of joint names and vector size do not match: %d vs. %d',
+                #request.joint_names,
+                request.points[i].positions:size(1)
+            )
+
+        elseif not isSubset then
+            response.error_codes[i].val = errorCodes.INVALID_ROBOT_STATE
+            response.error_msgs[i] =
+                string.format(
+                'The joint: %s is not a active joint of the robot model',
+                joint_name
+            )
+        else
             r_state:setVariablePositions(request.points[i].positions, request.joint_names)
             r_state:update()
             local pose = r_state:getGlobalLinkTransform(ee_link_name)
@@ -243,14 +272,6 @@ local function queryFKServiceHandler(self, request, response, header)
                 response.error_codes[i].val = errorCodes.INVALID_LINK_NAME
                 response.error_msgs[i] = string.format('INVALID_LINK_NAME: %s', ee_link_name)
             end
-        else
-            response.error_codes[i].val = errorCodes.INVALID_ROBOT_STATE
-            response.error_msgs[i] =
-                string.format(
-                'Number of joint names and vector size do not match: %d vs. %d',
-                #request.joint_names,
-                request.points[i].positions:size(1)
-            )
         end
     end
     return true
