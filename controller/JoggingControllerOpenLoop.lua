@@ -1077,7 +1077,7 @@ local function transformPose2PostureTarget(self, pose_goal, joint_names)
                 createJointValues(state:getVariableNames():totable(), state:getVariablePositions()):select(joint_names)
 
             -- Check if pose motion direction is corresponding to the joint posture motion direction (handles IK jumps)
-            local tmp_q = self.lastCommandJointPositions:clone()
+            local tmp_q = posture_goal:clone() --revert to old implementation
             local tmp_q_dot = (posture_goal:clone() - self.lastCommandJointPositions) * self.dt:toSec()
             tmp_q:add(tmp_q_dot)
             state:setVariablePositions(tmp_q:getValues(), tmp_q:getNames())
