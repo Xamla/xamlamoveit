@@ -71,6 +71,7 @@ local get_string_spec = ros.SrvSpec('xamlamoveit_msgs/GetSelected')
 local set_string_spec = ros.SrvSpec('xamlamoveit_msgs/SetString')
 local get_status_spec = ros.SrvSpec('xamlamoveit_msgs/StatusController')
 local set_bool_spec = ros.SrvSpec('std_srvs/SetBool')
+local trigger_spec = ros.SrvSpec('std_srvs/Trigger')
 
 local function findString(my_string, collection)
     local index = -1
@@ -258,6 +259,14 @@ local function getStatusHandler(request, response, header)
     return true
 end
 
+local function resetErrorHandler(request, response, header)
+    ros.DEBUG('resetErrorHandler')
+    cntr:resetError()
+    response.success = true
+    response.message = "ok"
+    return true
+end
+
 local function joggingServer(name)
     printSplash()
     initSetup(name or 'joggingServer')
@@ -341,6 +350,9 @@ local function joggingServer(name)
     --status
     local status_server = nh:advertiseService('status', get_status_spec, getStatusHandler)
 
+    --reset error
+    local reset_error_server = nh:advertiseService('reset_error', trigger_spec, resetErrorHandler)
+
     local print_idle_once = false
     local print_running_once = false
     local last_loop_start
@@ -393,6 +405,8 @@ local function joggingServer(name)
     set_flag_server:shutdown()
     get_flag_server:shutdown()
     get_flag_names_server:shutdown()
+    status_server:shutdown()
+    reset_error_server:shutdown()
     cntr:shutdown()
 end
 

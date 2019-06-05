@@ -1533,6 +1533,11 @@ function JoggingControllerOpenLoop:getCurrentEndEffector()
     return self.curr_end_effector_name
 end
 
+function JoggingControllerOpenLoop:resetError()
+    self.feedback_message.err_code = error_codes.OK
+    self.last_error_code = error_codes.OK
+end
+
 function JoggingControllerOpenLoop:getCurrentMoveGroup()
     return self.move_groups[self.curr_move_group_name]
 end
